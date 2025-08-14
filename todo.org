@@ -1,0 +1,45 @@
+#+title: Code ToDo
+
+* [ ] Graph
+** [ ] Add a way to override values from a shared config. Options:
+- Through special value
+- Though path in the settings of <tool_name.node_name.field_name> syntax
+- Both?
+- Also read from files
+** [ ] Graph runner
+- Async streaming
+- Keeps track of current node
+* [ ] Settings
+** [ ] Settings loader
+* [ ] Chat state
+** [ ] NodeLog, Section, Message
+** [ ] Message construction helpers
+* [ ] Nodes
+** [ ] Think how to manage state for a run
+- Sometimes we need to maintain the state when additional information is found and added to state
+- Sometimes we need to start fresh
+- But need to maintain state if looped by human
+- Most likely make it a setting of a Node (explicit config). Via enum?
+  - Always resets
+  - Human rests
+  - Never resets
+- We need machinery to go back in time and reset graph execution to a specific history
+** [ ] Base node runner class
+- Async streaming
+- Preconstructed by runner for a given run
+- Exposes start function that takes a list of Message objects. Should return an error if node runner is busy.
+- Returns next action:
+  - Output name
+  - Output Message list
+- Exposes cancel function to break the worker loop
+** [ ] LLM node
+*** [ ] Base
+**** [ ] Tool configuration
+** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
+** [ ] TODO node
+* [ ] Block parsers
+** [ ] Code parsers
+** [ ] Diff parsers
+*** [ ] GPT diff format
+*** [ ] Fenced diff format
+*** [ ] Full file diff format
