@@ -1,5 +1,5 @@
 from typing import List, Tuple, Dict, Set, Optional, Type, ClassVar, Any
-from pydantic import BaseModel, Field, root_validator, validator, PrivateAttr
+from pydantic import BaseModel, Field, field_validator
 
 
 class OutputSlot(BaseModel):
@@ -16,24 +16,54 @@ class Node(BaseModel):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        # Auto-register subclass if it declares a default for the instance "type" field
-        try:
-            f = getattr(cls, "__fields__", {}).get("type")  # type: ignore[call-arg]
-        except Exception:
-            f = None
-        default_type = getattr(f, "default", None)
+        # Prefer direct class attribute (works reliably for runtime-defined plugins)
+        default_type = getattr(cls, "type", None)
         if isinstance(default_type, str) and default_type:
             Node._registry[default_type] = cls  # type: ignore[assignment]
+            return
+        # Fallback: inspect Pydantic model_fields default
+        try:
+            cls.model_rebuild()
+            field = cls.model_fields.get("type")
+            default_type = getattr(field, "default", None)
+            if isinstance(default_type, str) and default_type:
+                Node._registry[default_type] = cls  # type: ignore[assignment]
+        except Exception:
+            pass
 
     @classmethod
     def register(cls, type_name: str, node_cls: Type["Node"]) -> None:
         cls._registry[type_name] = node_cls
 
     @classmethod
+    def _ensure_registry_populated(cls) -> None:
+        # Lazily scan subclasses defined at runtime and register those with a string 'type' default
+        for subcls in cls.__subclasses__():
+            # Prefer direct attribute for reliability
+            dt = getattr(subcls, "type", None)
+            if isinstance(dt, str) and dt:
+                cls._registry.setdefault(dt, subcls)
+                continue
+            # Fallback to Pydantic model_fields default
+            try:
+                subcls.model_rebuild()
+                field = subcls.model_fields.get("type")
+                dt2 = getattr(field, "default", None)
+            except Exception:
+                dt2 = None
+            if isinstance(dt2, str) and dt2:
+                cls._registry.setdefault(dt2, subcls)
+
+    @classmethod
     def get_registered(cls, type_name: str) -> Optional[Type["Node"]]:
+        sub = cls._registry.get(type_name)
+        if sub is not None:
+            return sub
+        # Try to discover subclasses declared after import (e.g., in tests)
+        cls._ensure_registry_populated()
         return cls._registry.get(type_name)
 
-    @validator("outputs")
+    @field_validator("outputs", mode="after")
     def _unique_output_names(cls, v: List[OutputSlot]) -> List[OutputSlot]:
         names = [s.name for s in v]
         if len(names) != len(set(names)):
@@ -61,12 +91,11 @@ class Node(BaseModel):
         # Fallback to the base Node model
         return cls(**v)
 
-    @validator("type")
+    @field_validator("type", mode="after")
     def _validate_type(cls, v: str) -> str:
-        # If this class declares a default for the 'type' field, enforce it
-        field = getattr(cls, "__fields__", {}).get("type")
+        field = getattr(cls, "model_fields", {}).get("type")
         expected = getattr(field, "default", None)
-        if expected is not None and v != expected:
+        if isinstance(expected, str) and v != expected:
             raise ValueError(f"Invalid type '{v}' for {cls.__name__}; expected '{expected}'")
         return v
 

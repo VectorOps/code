@@ -1,6 +1,6 @@
 from typing import List, Tuple, Dict, Set, Optional
-from pydantic import BaseModel, Field, root_validator, validator, PrivateAttr
-from .models import Node, Edge
+from pydantic import BaseModel, Field, model_validator, PrivateAttr
+from .models import Node, Edge, OutputSlot
 
 
 class RuntimeNode:
@@ -45,6 +45,7 @@ class Graph(BaseModel):
         Construct and validate a Graph from nodes and edges.
         Assumes the first node in `nodes` is the root.
         """
+        nodes = [Node.from_obj(n) for n in nodes]
         graph = cls(nodes=nodes, edges=edges)  # triggers Pydantic validation
         if not graph.nodes:
             raise ValueError("Graph.build requires at least one node to identify the root")
@@ -73,10 +74,10 @@ class Graph(BaseModel):
             raise ValueError("Graph root is not initialized. Use Graph.build to construct the graph.")
         return self._root
 
-    @root_validator
-    def _validate_graph(cls, values: Dict) -> Dict:
-        nodes: List[Node] = values.get("nodes") or []
-        edges: List[Edge] = values.get("edges") or []
+    @model_validator(mode="after")
+    def _validate_graph(self) -> "Graph":
+        nodes: List[Node] = self.nodes or []
+        edges: List[Edge] = self.edges or []
 
         # Ensure node names are unique
         node_by_name: Dict[str, Node] = {n.name: n for n in nodes}
@@ -129,4 +130,4 @@ class Graph(BaseModel):
                 )
             raise ValueError("; ".join(msgs))
 
-        return values
+        return self
