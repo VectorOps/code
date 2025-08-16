@@ -10,6 +10,10 @@ class Node(BaseModel):
     name: str = Field(..., description="Unique node name")
     type: str = Field(..., description="Node type identifier")
     outputs: List[OutputSlot] = Field(default_factory=list)
+    pass_all_messages: bool = Field(
+        default=True,
+        description="If True, pass all messages to the next node; if False, pass only the last message.",
+    )
 
     # Registry keyed by the existing "type" field value
     _registry: ClassVar[Dict[str, Type["Node"]]] = {}
