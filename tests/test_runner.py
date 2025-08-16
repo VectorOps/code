@@ -59,11 +59,14 @@ class SleepExecutor(Executor):
 @pytest.mark.asyncio
 async def test_runner_async_flow_and_callback():
     # Build graph: AskNode (root) -> EchoNode (terminal)
-    ask = AskNode(name="ask", outputs=[OutputSlot(name="done")])
+    ask = AskNode(name="ask", outputs=[OutputSlot(name="done"), OutputSlot(name="other")])
     echo = EchoNode(name="echo")  # terminal (no outputs)
     graph = Graph.build(
         nodes=[ask, echo],
-        edges=[Edge(source_node="ask", source_slot="done", target_node="echo")],
+        edges=[
+            Edge(source_node="ask", source_slot="done", target_node="echo"),
+            Edge(source_node="ask", source_slot="other", target_node="echo"),
+        ],
     )
 
     runner = Runner(graph, initial_messages=[Message(role="user", raw="hi")])
@@ -82,6 +85,12 @@ async def test_runner_async_flow_and_callback():
     assert evt1.execution.output_name is None
     assert [m.raw for m in evt1.execution.messages] == ["hi"]
 
+    # Final completion event for this execution
+    comp1 = await gen.asend(RunInput())
+    assert comp1.node == "ask"
+    assert comp1.execution is not None and comp1.execution.is_complete is True
+    assert comp1.execution.output_name is None
+
     # 2) Demonstrate callback prompt by not providing input yet
     prompt = await gen.asend(RunInput())  # loop defaults to False
     assert isinstance(prompt, RunEvent)
@@ -96,6 +105,9 @@ async def test_runner_async_flow_and_callback():
     # Messages include the ack added by AskExecutor
     assert [m.raw for m in evt2.execution.messages] == ["hi", "go", "ack:go"]
 
+    comp2 = await gen.asend(RunInput())
+    assert comp2.execution is not None and comp2.execution.is_complete is True
+
     # 3b) Even if output was provided, we can explicitly request another loop on the same node
     evt3 = await gen.asend(RunInput(loop=True, messages=[Message(role="user", raw="more")]))
     assert evt3.node == "ask"
@@ -103,12 +115,18 @@ async def test_runner_async_flow_and_callback():
     assert evt3.execution.output_name == "done"
     assert [m.raw for m in evt3.execution.messages] == ["hi", "go", "ack:go", "more", "ack:go"]
 
+    comp3 = await gen.asend(RunInput())
+    assert comp3.execution is not None and comp3.execution.is_complete is True
+
     # 4) Next node (echo) executes and terminates the run
     evt4 = await gen.asend(RunInput())  # proceed without looping
     assert evt4.node == "echo"
     assert evt4.execution is not None
     assert evt4.execution.output_name == "done"
     assert evt4.execution.messages[-1].raw == "echo"
+
+    comp4 = await gen.asend(RunInput())
+    assert comp4.execution is not None and comp4.execution.is_complete is True
 
     # 5) Runner should now be finished
     with pytest.raises(StopAsyncIteration):
@@ -150,11 +168,19 @@ async def test_runner_cancel_mid_execution_and_resume():
     assert evt1.execution is not None
     assert [m.raw for m in evt1.execution.input_messages] == ["init"]
     assert evt1.execution.output_name == "done"
+
+    comp1 = await gen2.asend(RunInput())
+    assert comp1.execution is not None and comp1.execution.is_complete is True
+
     # Proceed to echo
     evt2 = await gen2.asend(RunInput())
     assert evt2.node == "echo"
     assert evt2.execution is not None
     assert evt2.execution.output_name == "done"
+
+    comp2 = await gen2.asend(RunInput())
+    assert comp2.execution is not None and comp2.execution.is_complete is True
+
     with pytest.raises(StopAsyncIteration):
         await gen2.asend(RunInput())
     assert runner.status == RunnerStatus.finished
@@ -162,11 +188,14 @@ async def test_runner_cancel_mid_execution_and_resume():
 
 @pytest.mark.asyncio
 async def test_runner_stop_and_resume_next_node():
-    ask = AskNode(name="ask", outputs=[OutputSlot(name="done")])
+    ask = AskNode(name="ask", outputs=[OutputSlot(name="done"), OutputSlot(name="other")])
     echo = EchoNode(name="echo")
     graph = Graph.build(
         nodes=[ask, echo],
-        edges=[Edge(source_node="ask", source_slot="done", target_node="echo")],
+        edges=[
+            Edge(source_node="ask", source_slot="done", target_node="echo"),
+            Edge(source_node="ask", source_slot="other", target_node="echo"),
+        ],
     )
     runner = Runner(graph, initial_messages=[Message(role="user", raw="go")])
     task = Task()
@@ -184,6 +213,10 @@ async def test_runner_stop_and_resume_next_node():
     evt2 = await gen2.__anext__()
     assert evt2.node == "echo"
     assert evt2.execution is not None and evt2.execution.output_name == "done"
+
+    comp2 = await gen2.asend(RunInput())
+    assert comp2.execution is not None and comp2.execution.is_complete is True
+
     with pytest.raises(StopAsyncIteration):
         await gen2.asend(RunInput())
     assert runner.status == RunnerStatus.finished
@@ -205,12 +238,25 @@ async def test_runner_rollback_current_step_and_steps():
     # First run: ask needs input
     evt1 = await gen.__anext__()
     assert evt1.node == "ask" and evt1.execution is not None and evt1.execution.output_name is None
+
+    comp1 = await gen.asend(RunInput())
+    assert comp1.execution is not None and comp1.execution.is_complete is True
+    assert comp1.execution.output_name is None
+
     # Provide 'go' -> done
     evt2 = await gen.asend(RunInput(loop=True, messages=[Message(role="user", raw="go")]))
     assert evt2.node == "ask" and evt2.execution is not None and evt2.execution.output_name == "done"
+
+    comp2 = await gen.asend(RunInput())
+    assert comp2.execution is not None and comp2.execution.is_complete is True
+
     # Explicit extra loop -> another execution on same step
     evt3 = await gen.asend(RunInput(loop=True, messages=[Message(role="user", raw="more")]))
     assert evt3.node == "ask" and evt3.execution is not None and evt3.execution.output_name == "done"
+
+    comp3 = await gen.asend(RunInput())
+    assert comp3.execution is not None and comp3.execution.is_complete is True
+
     # Stop before proceeding to the next node
     runner.stop()
     with pytest.raises(StopAsyncIteration):
@@ -225,11 +271,25 @@ async def test_runner_rollback_current_step_and_steps():
     evt4 = await gen2.__anext__()
     assert evt4.node == "ask" and evt4.execution is not None and evt4.execution.output_name is None
     assert [m.raw for m in evt4.execution.input_messages] == ["fresh"]
+
+    # Final completion event for this execution
+    comp4 = await gen2.asend(RunInput())
+    assert comp4.execution is not None and comp4.execution.is_complete is True
+    assert comp4.execution.output_name is None
+
     # Provide go to finish ask, then proceed to echo
     evt5 = await gen2.asend(RunInput(loop=True, messages=[Message(role="user", raw="go")]))
     assert evt5.execution is not None and evt5.execution.output_name == "done"
+
+    comp5 = await gen2.asend(RunInput())
+    assert comp5.execution is not None and comp5.execution.is_complete is True
+
     evt6 = await gen2.asend(RunInput())
     assert evt6.node == "echo" and evt6.execution is not None and evt6.execution.output_name == "done"
+
+    comp6 = await gen2.asend(RunInput())
+    assert comp6.execution is not None and comp6.execution.is_complete is True
+
     with pytest.raises(StopAsyncIteration):
         await gen2.asend(RunInput())
     assert [s.node for s in task.steps] == ["ask", "echo"]
@@ -239,6 +299,10 @@ async def test_runner_rollback_current_step_and_steps():
     gen3 = runner.run(task=task)
     evt7 = await gen3.__anext__()
     assert evt7.node == "echo" and evt7.execution is not None and evt7.execution.output_name == "done"
+
+    comp7 = await gen3.asend(RunInput())
+    assert comp7.execution is not None and comp7.execution.is_complete is True
+
     with pytest.raises(StopAsyncIteration):
         await gen3.asend(RunInput())
     assert [s.node for s in task.steps] == ["ask", "echo"]

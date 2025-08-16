@@ -11,7 +11,7 @@ class Node(BaseModel):
     type: str = Field(..., description="Node type identifier")
     outputs: List[OutputSlot] = Field(default_factory=list)
     pass_all_messages: bool = Field(
-        default=True,
+        default=False,
         description="If True, pass all messages to the next node; if False, pass only the last message.",
     )
 
@@ -128,5 +128,3 @@ class LLMNode(Node):
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     extra: Dict[str, Any] = Field(default_factory=dict)
-    # Default single output
-    outputs: List[OutputSlot] = Field(default_factory=lambda: [OutputSlot(name="done")])

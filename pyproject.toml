@@ -6,8 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "devtools>=0.12.2",
+    "litellm>=1.75.7",
     "pydantic>=2.11.7",
     "pytest>=8.4.1",
+    "pyyaml>=6.0.2",
+    "structlog>=25.4.0",
 ]
 
 [tool.uv]
@@ -19,5 +22,6 @@ plugins = ['pydantic.mypy']
 [dependency-groups]
 dev = [
     "mypy>=1.17.1",
+    "prompt-toolkit>=3.0.51",
     "pytest-asyncio>=1.1.0",
 ]

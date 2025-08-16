@@ -6,13 +6,14 @@
 - Though path in the settings of <tool_name.node_name.field_name> syntax
 - Both?
 - Also read from files
-** [ ] Graph runner
+** [X] Graph runner
 - Async streaming
 - Keeps track of current node
+** [ ] Streamline node transition - if there's nowhere to proceed, do not ask for input with need_input
 * [ ] Settings
 ** [ ] Settings loader
 * [ ] Chat state
-** [ ] NodeLog, Section, Message
+** [X] NodeLog, Section, Message
 ** [ ] Message construction helpers
 * [ ] Nodes
 ** [ ] Think how to manage state for a run
@@ -24,10 +25,13 @@
   - Human resets
   - Never resets
 - We need machinery to go back in time and reset graph execution to a specific history
-** [ ] Base node runner class
+** [X] Base node runner class
 ** [ ] LLM node
-*** [ ] Base
-**** [ ] Tool configuration
+*** [X] Base
+**** [X] Tool configuration
+*** [ ] Dynamic output selection by LLM
+*** [ ] Auto-retry on timeout
+*** [ ] Auto-retry when throttled
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node
 * [ ] Block parsers

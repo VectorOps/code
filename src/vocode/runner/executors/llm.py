@@ -71,7 +71,7 @@ class LLMExecutor(Executor):
 
     async def run(self, messages: List[Message]) -> AsyncIterator[NodeExecution]:
         try:
-            from litellm import acompletion, astream
+            from litellm import acompletion
         except Exception as e:
             raise RuntimeError("litellm is required for LLMExecutor. Install with `pip install litellm`.") from e
 
@@ -93,7 +93,8 @@ class LLMExecutor(Executor):
 
         if streaming:
             assembled = ""
-            async for chunk in astream(model=model, messages=llm_messages, **params):
+            stream_gen = await acompletion(model=model, messages=llm_messages, stream=True, **params)
+            async for chunk in stream_gen:
                 text = _extract_chunk_text(chunk)
                 if not text:
                     continue

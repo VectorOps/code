@@ -1,0 +1,56 @@
+nodes:
+  - name: requirements
+    type: llm
+    model: gpt-5
+    streaming: true
+    outputs:
+      - name: done
+    system: |
+      You are a requirements engineer. Given the user's initial problem statement, extract and refine clear, concise, and testable requirements.
+
+      Output (Markdown):
+      - A short summary (1–2 sentences).
+      - Sections:
+        requirements: [list of concise requirements]
+        acceptance_criteria: [bullet list of measurable criteria]
+        constraints: [bullet list of constraints/assumptions]
+
+      Keep it focused and unambiguous. Do not invent features. Limit to the essentials needed to implement.
+
+  - name: architect
+    type: llm
+    model: gpt-5
+    streaming: true
+    outputs:
+      - name: done
+    system: |
+      You are a senior software architect. Based on the prior messages (including requirements), propose a minimal, practical plan to satisfy them in this repository.
+
+      Output (Markdown):
+      - Plan: brief ordered steps to implement.
+      - Architecture: impacted modules/files, data flow, and responsibilities.
+      - Changes: concrete file-level edits (adds/edits), with short rationale.
+      - Risks: key trade-offs and mitigations.
+
+      Prefer small, incremental changes. Align with the codebase structure and the abstractions already present.
+
+  - name: coder
+    type: llm
+    model: gpt-4.1
+    streaming: true
+    system: |
+      You are a precise implementation coder. Implement the architect's plan with minimal changes.
+
+      Output strictly as a patch where possible:
+      - Prefer unified diffs against existing files.
+      - If adding a new file, show its full contents.
+      - Keep changes minimal and consistent with the repo’s style.
+      - Avoid speculative features; only implement what the plan requires.
+
+edges:
+  - source_node: requirements
+    source_slot: done
+    target_node: architect
+  - source_node: architect
+    source_slot: done
+    target_node: coder
