@@ -4,7 +4,7 @@ import asyncio
 from vocode.graph.graph import Graph
 from vocode.graph.models import Node, OutputSlot, Edge
 from vocode.runner.runner import Runner, Executor
-from typing import List
+from typing import List, AsyncIterator
 from vocode.state import Message, Task, NodeExecution, RunEvent, RunInput, RunnerStatus
 
 
@@ -23,23 +23,24 @@ class EchoNode(Node):
 class AskExecutor(Executor):
     type = "ask"
 
-    async def run(self, messages: List[Message]) -> NodeExecution:
+    async def run(self, messages: List[Message]) -> AsyncIterator[NodeExecution]:
         has_go = any(m.raw == "go" for m in messages)
         if not has_go:
             # Request more input
-            return NodeExecution(messages=list(messages), output_name=None)
+            yield NodeExecution(messages=list(messages), output_name=None)
+            return
         # Proceed to next node once "go" is present
         messages_out = list(messages) + [Message(role="agent", raw="ack:go")]
-        return NodeExecution(messages=messages_out, output_name="done")
+        yield NodeExecution(messages=messages_out, output_name="done")
 
 
 class EchoExecutor(Executor):
     type = "echo"
 
-    async def run(self, messages: List[Message]) -> NodeExecution:
+    async def run(self, messages: List[Message]) -> AsyncIterator[NodeExecution]:
         # Terminal node — set some output_name so Runner won't prompt for more input
         messages_out = list(messages) + [Message(role="agent", raw="echo")]
-        return NodeExecution(messages=messages_out, output_name="done")
+        yield NodeExecution(messages=messages_out, output_name="done")
 
 
 class SleepNode(Node):
@@ -48,11 +49,11 @@ class SleepNode(Node):
 class SleepExecutor(Executor):
     type = "sleep"
 
-    async def run(self, messages: List[Message]) -> NodeExecution:
+    async def run(self, messages: List[Message]) -> AsyncIterator[NodeExecution]:
         # Simulate long-running work to allow cancellation
         await asyncio.sleep(0.2)
         out = list(messages) + [Message(role="agent", raw="slept")]
-        return NodeExecution(messages=out, output_name="done")
+        yield NodeExecution(messages=out, output_name="done")
 
 
 @pytest.mark.asyncio

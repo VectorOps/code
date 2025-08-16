@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional, List, AsyncIterator, Type, ClassVar, Tuple
 import asyncio
+from contextlib import suppress
 from uuid import UUID
 
 from ..graph.graph import Graph, RuntimeNode
@@ -40,12 +41,9 @@ class Executor:
             raise ValueError(f"No executor registered for node type '{node.type}'")
         return sub(config=node)
 
-    async def run(self, messages: List[Message]) -> NodeExecution:
-        """Execute node logic with messages and return a NodeExecution (override in subclasses)."""
-        # Must be implemented by subclasses.
-        # Receives accumulated messages and returns a NodeExecution
-        # with updated messages; output_name signals readiness to move on.
-        raise NotImplementedError("Executor subclasses must implement 'run'")
+    async def run(self, messages: List[Message]) -> AsyncIterator[NodeExecution]:
+        """Async generator: yield intermediate NodeExecution updates; close when complete."""
+        raise NotImplementedError("Executor subclasses must implement 'run' as an async generator")
 
 
 class Runner:
@@ -99,6 +97,42 @@ class Runner:
             raise ValueError(f"Step id {to_step_id} not found")
         del task.steps[idx + 1:]
 
+    async def _drive_executor_stream(
+        self,
+        executor: Executor,
+        execution: NodeExecution,
+        queue: "asyncio.Queue[Optional[NodeExecution]]",
+    ) -> None:
+        """Run executor async generator, update execution in place, and enqueue snapshots with input_messages."""
+        agen = executor.run(execution.input_messages)
+        try:
+            async for part in agen:
+                if part.messages:
+                    execution.messages = part.messages
+                if part.output_name is not None:
+                    execution.output_name = part.output_name
+                await queue.put(
+                    NodeExecution(
+                        id=execution.id,
+                        input_messages=list(execution.input_messages),
+                        messages=list(execution.messages),
+                        output_name=execution.output_name,
+                        is_complete=False,
+                        is_canceled=execution.is_canceled,
+                    )
+                )
+        except asyncio.CancelledError:
+            with suppress(Exception):
+                await agen.aclose()
+            execution.is_canceled = True
+            # runner will handle cancellation state; just finish
+            return
+        else:
+            execution.is_complete = True
+            # Do not enqueue a final snapshot; runner will prompt for input or proceed to next node.
+        finally:
+            await queue.put(None)
+
     def _find_runtime_node_by_name(self, name: str) -> RuntimeNode:
         """Find a RuntimeNode by name via DFS; raise KeyError if not found."""
         root = self.graph.root
@@ -148,86 +182,100 @@ class Runner:
         self._cancel_requested = False
         self._stop_requested = False
         self.status = RunnerStatus.running
+
         current, messages, current_step = self._resolve_resume_point(task)
+
         while True:
             if self._stop_requested:
                 self.status = RunnerStatus.stopped
                 break
+
             executor = self.executor_for(current.name)
             # Create or reuse step for this node
             if current_step is None or current_step.node != current.name:
                 current_step = Step(node=current.name)
                 task.steps.append(current_step)
-            # Capture input for this execution
-            exec_input = list(messages)
-            # Run with cancellation support
-            self._current_exec_task = asyncio.create_task(executor.run(messages))
-            try:
-                execution = await self._current_exec_task
-            except asyncio.CancelledError:
-                self._current_exec_task = None
-                self.status = RunnerStatus.canceled
-                break
-            finally:
-                self._current_exec_task = None
-            # Persist input and update messages from result
-            execution.input_messages = exec_input
-            messages = execution.messages
-            # Log under current step
-            current_step.executions.append(execution)
-            # Yield event and possibly request input
-            evt = RunEvent(node=current.name, execution=execution)
-            incoming = yield evt
-            if not isinstance(incoming, RunInput):
-                raise TypeError(f"Runner.run expects RunInput after RunEvent; got {type(incoming).__name__}")
-            # Retry loop: explicit loop or missing output
-            while (execution.output_name is None) or incoming.loop:
-                if self._stop_requested:
-                    self.status = RunnerStatus.stopped
+
+            # Unified execution loop for this node
+            while True:
+                exec_input = list(messages)
+
+                execution = NodeExecution(input_messages=exec_input, messages=list(messages))
+                # Only record execution after first yield
+                execution_recorded = False
+
+                stream_queue: "asyncio.Queue[Optional[NodeExecution]]" = asyncio.Queue()
+                self._current_exec_task = asyncio.create_task(
+                    self._drive_executor_stream(executor, execution, stream_queue)
+                )
+
+                incoming_after_final: Optional[RunInput] = None
+                try:
+                    while True:
+                        part = await stream_queue.get()
+                        if part is None:
+                            break
+
+                        if not execution_recorded:
+                            current_step.executions.append(execution)
+                            execution_recorded = True
+
+                        incoming = yield RunEvent(node=current.name, execution=part)
+                        if not isinstance(incoming, RunInput):
+                            raise TypeError(f"Runner.run expects RunInput after RunEvent; got {type(incoming).__name__}")
+
+                        if self._stop_requested:
+                            self._current_exec_task.cancel()
+                            with suppress(Exception):
+                                await self._current_exec_task
+                            self._current_exec_task = None
+                            self.status = RunnerStatus.stopped
+                            return
+
+                        incoming_after_final = incoming
+                finally:
+                    if self._current_exec_task and self._current_exec_task.done():
+                        self._current_exec_task = None
+
+                if self._cancel_requested:
+                    self.status = RunnerStatus.canceled
                     return
+
+                messages = execution.messages
+                incoming = incoming_after_final or RunInput()
                 if incoming.loop:
                     if incoming.messages:
                         messages = messages + incoming.messages
-                    # Re-run
-                    exec_input = list(messages)
-                    self._current_exec_task = asyncio.create_task(executor.run(messages))
-                    try:
-                        execution = await self._current_exec_task
-                    except asyncio.CancelledError:
-                        self._current_exec_task = None
-                        self.status = RunnerStatus.canceled
-                        return
-                    finally:
-                        self._current_exec_task = None
-                    execution.input_messages = exec_input
-                    messages = execution.messages
-                    current_step.executions.append(execution)
-                    incoming = yield RunEvent(node=current.name, execution=execution)
-                    if not isinstance(incoming, RunInput):
-                        raise TypeError(f"Runner.run expects RunInput after RunEvent; got {type(incoming).__name__}")
-                    continue
-                # No explicit loop; if missing output, request input
+                    continue  # re-run same node (new execution instance will be created)
+
                 if execution.output_name is None:
                     self.status = RunnerStatus.waiting_input
                     incoming = yield RunEvent(node=current.name, need_input=True)
                     self.status = RunnerStatus.running
                     if not isinstance(incoming, RunInput):
                         raise TypeError(f"Runner.run expects RunInput after RunEvent; got {type(incoming).__name__}")
-                else:
-                    break
+                    if incoming.messages:
+                        messages = messages + incoming.messages
+                    continue  # re-run same node after collecting input
+
+                break  # finished this node; proceed to next
+
             # Decide next node
             if len(current.outputs) == 0:
                 self.status = RunnerStatus.finished
                 break
+
             next_node = current.get_child_by_output(execution.output_name)  # type: ignore[arg-type]
             if next_node is None:
                 self.status = RunnerStatus.finished
                 break
+
             # Pass messages to the next node and move forward
-            if getattr(current.model, "pass_all_messages", True):
+            if current.model.pass_all_messages:
                 messages = execution.messages
             else:
                 messages = execution.messages[-1:]
+
             current = next_node
             # Force a new step for the next node
             current_step = None

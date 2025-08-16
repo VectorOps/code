@@ -47,6 +47,14 @@ class NodeExecution(BaseModel):
     input_messages: List[Message] = Field(default_factory=list, description="Input messages given to this execution")
     messages: List[Message] = Field(default_factory=list)
     output_name: Optional[str] = None
+    is_canceled: bool = Field(
+        False,
+        description="True when this execution was explicitly canceled by the runner",
+    )
+    is_complete: bool = Field(
+        False,
+        description="True only when the executor's async generator finished and this is the final aggregated result",
+    )
 
 
 class Step(BaseModel):
