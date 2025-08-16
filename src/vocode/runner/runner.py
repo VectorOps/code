@@ -279,3 +279,6 @@ class Runner:
             current = next_node
             # Force a new step for the next node
             current_step = None
+
+# Ensure built-in executors are registered when importing this module
+from .executors import llm as _llm  # noqa: F401

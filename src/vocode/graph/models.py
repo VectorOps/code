@@ -118,3 +118,15 @@ class Edge(BaseModel):
     source_node: str = Field(..., description="Name of the source node")
     source_slot: str = Field(..., description="Name of the output slot on the source node")
     target_node: str = Field(..., description="Name of the target node")
+
+
+class LLMNode(Node):
+    type: str = "llm"
+    model: str
+    system: Optional[str] = None
+    streaming: bool = True
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    extra: Dict[str, Any] = Field(default_factory=dict)
+    # Default single output
+    outputs: List[OutputSlot] = Field(default_factory=lambda: [OutputSlot(name="done")])
