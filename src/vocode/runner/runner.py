@@ -132,7 +132,6 @@ class Runner:
             # runner will handle cancellation state; just finish
             return
         else:
-            execution.is_complete = True
             logger.debug("executor.stream.complete", node=node_name)
             # Do not enqueue a final snapshot; runner will prompt for input or proceed to next node.
         finally:
@@ -259,11 +258,11 @@ class Runner:
 
                 # Ensure execution is recorded at least once
                 if not execution_recorded:
-                    current_step.executions.append(execution)
                     execution_recorded = True
 
                 # Emit final execution snapshot (is_complete=True) and decide based on returned input
-                incoming = yield RunEvent(node=current.name, execution=execution)
+                final = execution.clone(is_complete=True)
+                incoming = yield RunEvent(node=current.name, execution=final)
                 if not isinstance(incoming, RunInput):
                     raise TypeError(f"Runner.run expects RunInput after RunEvent; got {type(incoming).__name__}")
 

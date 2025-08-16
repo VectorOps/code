@@ -8,13 +8,12 @@ wheels/
 .DS_Store
 *.duckdb
 *.duckdb.wal
-.chat_history
-.symbol_search_history
-.repomap_history
 .mypy_cache
 *.py.text-chunks
 mcp.json
 .tmp
+.env
+.*_history
 
 # Virtual environments
 .venv/

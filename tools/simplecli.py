@@ -4,18 +4,11 @@ import sys
 from typing import Any, Dict, List, Optional
 from enum import Enum, auto
 
-from prompt_toolkit.application import Application
-from prompt_toolkit.layout import Layout, HSplit
-from prompt_toolkit.layout.containers import ConditionalContainer
-from prompt_toolkit.filters import Condition
-from prompt_toolkit.widgets import TextArea, Label
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.styles import Style
-from prompt_toolkit.document import Document
-from prompt_toolkit.history import FileHistory
-from prompt_toolkit.layout.dimension import Dimension
 
 import yaml
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
 
 from vocode.graph.graph import Graph
 from vocode.graph.models import Node, Edge
@@ -23,140 +16,6 @@ from vocode.runner.runner import Runner
 from vocode.state import Message, Task, RunInput, RunnerStatus
 
 
-class ChatUI:
-    def __init__(self) -> None:
-        self.history_lines: List[str] = [
-            "Starting conversation. Type '/quit' to exit, '/stop' to gracefully stop, '/cancel' to cancel."
-        ]
-        self.streaming_text: Optional[str] = None
-        self.queue: asyncio.Queue[str] = asyncio.Queue()
-        self._input_enabled: bool = True
-        self._input_visible: bool = True
-
-        self.output = TextArea(
-            text="\n".join(self.history_lines),
-            read_only=True,
-            focusable=False,
-            focus_on_click=True,
-            scrollbar=True,
-            wrap_lines=True,
-            height=Dimension(weight=1),
-            style="class:output",
-        )
-        self.input = TextArea(
-            prompt="Prompt: ",
-            height=1,
-            multiline=False,
-            wrap_lines=False,
-        )
-        # Persist user input history to a file
-        self._history = FileHistory(".chat_history")
-        self.input.buffer.history = self._history
-
-        self.input_container = ConditionalContainer(
-            self.input,
-            filter=Condition(lambda: self._input_visible),
-        )
-
-        def _accept(buf):
-            text = buf.text
-            if not self._input_enabled:
-                # Ignore submissions while input is disabled
-                return
-            # Save to history (non-empty and not a slash-command)
-            t = text.strip()
-            if t and not t.startswith("/"):
-                try:
-                    self.input.buffer.history.append_string(text)
-                except Exception:
-                    pass
-            # Clear input
-            buf.document = Document("", cursor_position=0)
-            # Hand over to event loop
-            asyncio.create_task(self.queue.put(text))
-
-        self.input.accept_handler = _accept
-
-        kb = KeyBindings()
-
-        @kb.add("c-c")
-        def _(event):
-            event.app.exit()
-
-        root = HSplit([self.output, self.input_container])
-        self.app = Application(
-            layout=Layout(root),
-            key_bindings=kb,
-            style=Style.from_dict({"output": ""}),
-            full_screen=False,
-        )
-
-    def _render(self) -> None:
-        parts = list(self.history_lines)
-        if self.streaming_text is not None:
-            parts.append(self.streaming_text)
-        text = "\n".join(parts)
-        self.output.text = text
-        # Scroll to bottom
-        self.output.buffer.cursor_position = len(text)
-
-    async def run(self) -> None:
-        await self.app.run_async()
-
-    async def exit(self) -> None:
-        await self.app.exit_async()
-
-    async def read_line(self) -> str:
-        return await self.queue.get()
-
-    def show_user(self, text: str) -> None:
-        line = f"You: {text}"
-        if self.history_lines and self.history_lines[-1] == line:
-            # Avoid printing the same user line twice in a row
-            return
-        self.history_lines.append(line)
-        self._render()
-
-    def update_agent_stream(self, text: str) -> None:
-        # Supports multiline partials naturally
-        self.streaming_text = f"Agent: {text}"
-        self._render()
-
-    def finalize_agent(self, text: str) -> None:
-        # Move streaming text into history (dedup last)
-        self.streaming_text = None
-        line = f"Agent: {text}"
-        if self.history_lines and self.history_lines[-1] == line:
-            # Avoid printing the same agent line twice in a row
-            self._render()
-            return
-        self.history_lines.append(line)
-        self._render()
-
-    def info(self, text: str) -> None:
-        self.history_lines.append(text)
-        self._render()
-
-    def set_prompt(self, text: str) -> None:
-        self.input.prompt = text
-
-    def enable_input(self, prompt: Optional[str] = None) -> None:
-        self._input_enabled = True
-        self.input.read_only = False
-        self._input_visible = True
-        if prompt is not None:
-            self.set_prompt(prompt)
-
-    def disable_input(self) -> None:
-        self._input_enabled = False
-        self.input.read_only = True
-        self._input_visible = False
-        self.set_prompt("")
-
-    def set_status_prompt(self, status: str, node: Optional[str], suffix: str = "") -> None:
-        node_part = f" {node}" if node else ""
-        sep = " " if suffix else ""
-        self.set_prompt(f"[{status}{node_part}]{sep}{suffix}")
 
 class UserCmd(Enum):
     NONE = 0
@@ -180,48 +39,6 @@ def parse_user_command(text: str) -> UserCmd:
         return UserCmd.CONTINUE
     return UserCmd.NONE
 
-async def handle_user_command(
-    text: str,
-    ui: ChatUI,
-    runner: Optional[Runner] = None,
-    *,
-    allow_exit: bool = False,
-    allow_new: bool = False,
-) -> Optional[UserCmd]:
-    """
-    Parse and apply a user command. Returns the parsed command if recognized (even if acted upon),
-    otherwise returns None. For QUIT when allow_exit=True, this will exit the UI and return UserCmd.QUIT.
-    For STOP/CANCEL when a runner is provided, this will invoke the action and return the command.
-    """
-    cmd = parse_user_command(text)
-    if cmd is UserCmd.NONE:
-        return None
-
-    if cmd is UserCmd.QUIT:
-        if allow_exit:
-            await ui.exit()
-        else:
-            if runner is not None:
-                runner.stop()
-        return cmd
-
-    if cmd is UserCmd.STOP:
-        if runner is not None:
-            runner.stop()
-        return cmd
-
-    if cmd is UserCmd.CANCEL:
-        if runner is not None:
-            runner.cancel()
-        return cmd
-
-    if cmd is UserCmd.NEW and allow_new:
-        return cmd
-
-    if cmd is UserCmd.CONTINUE:
-        return cmd
-
-    return UserCmd.NONE
 
 
 def _pick_tool_data(data: Dict[str, Any], tool_name: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -257,140 +74,129 @@ def _build_graph_from_yaml(data: Dict[str, Any], tool_name: Optional[str]) -> Gr
     return Graph.build(nodes=nodes, edges=edges)
 
 
+_SESSION: Optional[PromptSession] = None
+
+def _get_session() -> PromptSession:
+    global _SESSION
+    if _SESSION is None:
+        try:
+            hist = FileHistory(".simplecli_history")
+        except Exception:
+            hist = None  # fallback: no persistent history
+        _SESSION = PromptSession(history=hist)
+    return _SESSION
+
+async def ainput(prompt: str = "") -> str:
+    session = _get_session()
+    try:
+        return await session.prompt_async(prompt)
+    except (EOFError, KeyboardInterrupt):
+        # Treat Ctrl-D/Ctrl-C as a request to quit
+        return "/quit"
+
+
 async def _run_conversation(graph: Graph, initial_text: Optional[str] = None) -> None:
-    ui = ChatUI()
+    def _print_user(text: str) -> None:
+        print(f"You: {text}")
 
-    async def conversation() -> None:
-        nonlocal initial_text
-        last_final_exec_id: Optional[str] = None
-        while True:
-            # 1) If there's no message yet, wait for user input
-            if not initial_text:
-                ui.enable_input()
-                ui.set_status_prompt("await", None, "Enter prompt: ")
-                user = (await ui.read_line()).strip()
-                cmd = await handle_user_command(user, ui, runner=None, allow_exit=True)
-                if cmd is UserCmd.QUIT:
-                    return
-                if not user or cmd is not None:
-                    # ignore empty submissions and any command at this stage
-                    continue
-                initial_text = user
-                ui.info("Input accepted. Starting execution...")
-                ui.disable_input()
+    def _print_agent(text: str) -> None:
+        print(f"Agent: {text}")
 
-            # 2) Start a new runner flow with the provided message
-            runner = Runner(graph, initial_messages=[Message(role="user", raw=initial_text)])
-            task = Task()
-            ui.show_user(initial_text)
-            incoming: Optional[RunInput] = None
+    while True:
+        # 1) Prompt for initial input if not provided
+        if not initial_text:
+            user = (await ainput("Enter prompt (or /quit): ")).strip()
+            cmd = parse_user_command(user)
+            if cmd is UserCmd.QUIT:
+                return
+            if not user or cmd is not UserCmd.NONE:
+                # Empty or command other than /quit: reprompt
+                continue
+            initial_text = user
 
-            driving = True
-            current_node_name: Optional[str] = None
-            while driving:
-                agen = runner.run(task=task)
-                try:
-                    while True:
-                        event = await (agen.asend(incoming) if incoming is not None else agen.__anext__())
-                        incoming = RunInput()
-                        current_node_name = event.node
+        # 2) Start a new runner with the provided message
+        runner = Runner(graph, initial_messages=[Message(role="user", raw=initial_text)])
+        task = Task()
+        _print_user(initial_text)
+        incoming: Optional[RunInput] = None
+        driving = True
 
-                        # Explicit prompt when the runner requests more input for the node
-                        if event.need_input:
-                            while True:
-                                ui.enable_input()
-                                ui.set_status_prompt("await", event.node, "Enter message (or /stop | /cancel | /quit): ")
-                                user = (await ui.read_line()).strip()
-                                cmd = await handle_user_command(user, ui, runner)
-                                if cmd in (UserCmd.QUIT, UserCmd.STOP, UserCmd.CANCEL):
-                                    ui.disable_input()
-                                    incoming = RunInput()  # let runner act on stop/cancel
-                                    break
-                                if not user:
-                                    # Require a non-empty message when the node needs input
-                                    continue
-                                ui.show_user(user)
-                                ui.disable_input()
-                                incoming = RunInput(messages=[Message(role="user", raw=user)])
+        while driving:
+            agen = runner.run(task=task)
+            try:
+                while True:
+                    event = await agen.asend(incoming)
+                    incoming = RunInput()  # default: acknowledge and continue
+
+                    # Need explicit user input for this node
+                    if event.need_input:
+                        while True:
+                            user = (await ainput(f"[await {event.node}] Enter message (or /stop | /cancel | /quit): ")).strip()
+                            cmd = parse_user_command(user)
+                            if cmd is UserCmd.QUIT:
+                                runner.stop()
                                 break
-                            continue
-
-                        if event.execution is not None:
-                            msgs = event.execution.messages
-                            last = msgs[-1] if msgs else None
-
-                            if last and last.role == "agent":
-                                text = last.raw
-
-                                if not event.execution.is_complete:
-                                    ui.disable_input()
-                                    ui.update_agent_stream(text)
-                                    continue
-                                else:
-                                    # Finalize the agent's message into history so multi-line responses are preserved
-                                    ui.finalize_agent(text)
-
-                                    # If executor finished without selecting an output, the runner will emit a need_input event next.
-                                    # Don’t prompt here; just advance to that explicit need_input prompt.
-                                    if event.execution.output_name is None:
-                                        continue
-
-                                    # Completed with multiple possible outputs: ask whether to proceed or loop explicitly.
-                                    ui.info("Awaiting input: press Enter to proceed to the next node; type a message to loop this node with your input. Commands: /stop (pause), /cancel (cancel current), /quit (exit).")
-                                    ui.enable_input()
-                                    ui.set_status_prompt("await", event.node, "Action (Enter=next | message=loop | /stop | /cancel | /quit): ")
-                                    user = (await ui.read_line()).strip()
-                                    ui.disable_input()
-
-                                    cmd = await handle_user_command(user, ui, runner)
-                                    if cmd in (UserCmd.QUIT, UserCmd.STOP, UserCmd.CANCEL):
-                                        continue
-                                    if user:
-                                        ui.show_user(user)
-                                        incoming = RunInput(loop=True, messages=[Message(role="user", raw=user)])
-                                    continue
-
-                            continue
-
-                        ui.disable_input()
-
-                except StopAsyncIteration:
-                    if runner.status in (RunnerStatus.stopped, RunnerStatus.canceled):
-                        # Offer to continue the same execution
-                        ui.info(f"Execution {runner.status}. Press Enter or type '/continue' to resume; type '/new' to start a new conversation; commands: /quit.")
-                        ui.enable_input()
-                        ui.set_status_prompt("resume", current_node_name, "Enter=/continue | /new | /quit: ")
-                        raw = (await ui.read_line()).strip()
-                        cmd = await handle_user_command(raw, ui, runner=None, allow_exit=True, allow_new=True)
-                        if cmd is UserCmd.QUIT:
-                            return
-                        if cmd is UserCmd.NEW:
-                            initial_text = None
-                            driving = False
-                            continue
-                        # Treat Enter or '/continue' (or any other non-/new input) as resume
-                        ui.disable_input()
-                        incoming = None
+                            if cmd is UserCmd.STOP:
+                                runner.stop()
+                                break
+                            if cmd is UserCmd.CANCEL:
+                                runner.cancel()
+                                break
+                            if not user:
+                                continue
+                            _print_user(user)
+                            incoming = RunInput(messages=[Message(role="user", raw=user)])
+                            break
                         continue
-                    else:
-                        ui.info(f"Conversation finished. Status: {runner.status}")
-                        ui.enable_input()
-                        ui.set_status_prompt("await", None, "Enter prompt: ")
-                        # Start a new conversation next
+
+                    # Execution events: only print when is_complete
+                    if event.execution is not None:
+                        execn = event.execution
+                        if not execn.is_complete:
+                            continue
+
+                        msgs = execn.messages
+                        last = msgs[-1] if msgs else None
+                        if last and last.role == "agent":
+                            _print_agent(last.raw)
+
+                        # Completed: ask user whether to proceed or loop this node
+                        user = (await ainput("Action (Enter=next | message=loop | /stop | /cancel | /quit): ")).strip()
+                        cmd = parse_user_command(user)
+                        if cmd is UserCmd.QUIT:
+                            runner.stop()
+                            continue
+                        if cmd is UserCmd.STOP:
+                            runner.stop()
+                            continue
+                        if cmd is UserCmd.CANCEL:
+                            runner.cancel()
+                            continue
+
+                        if user:
+                            _print_user(user)
+                            incoming = RunInput(loop=True, messages=[Message(role="user", raw=user)])
+
+                        continue
+
+            except StopAsyncIteration:
+                if runner.status in (RunnerStatus.stopped, RunnerStatus.canceled):
+                    # Offer to continue or start a new conversation
+                    choice = (await ainput(f"Execution {runner.status}. Enter=/continue | /new | /quit: ")).strip()
+                    cmd = parse_user_command(choice)
+                    if cmd is UserCmd.QUIT:
+                        return
+                    if cmd is UserCmd.NEW:
                         initial_text = None
                         driving = False
-
-    # Run UI and conversation concurrently
-    conv_task = asyncio.create_task(conversation())
-    try:
-        await ui.run()
-    finally:
-        if not conv_task.done():
-            conv_task.cancel()
-            try:
-                await conv_task
-            except Exception:
-                pass
+                        continue
+                    # Treat Enter or '/continue' as resume
+                    incoming = None
+                    continue
+                else:
+                    print(f"Conversation finished. Status: {runner.status}")
+                    initial_text = None
+                    driving = False
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -406,7 +212,6 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     asyncio.run(_run_conversation(graph))
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -56,6 +56,18 @@ class NodeExecution(BaseModel):
         description="True only when the executor's async generator finished and this is the final aggregated result",
     )
 
+    def clone(self, **overrides) -> "NodeExecution":
+        data = {
+            "id": self.id,
+            "input_messages": list(self.input_messages),
+            "messages": list(self.messages),
+            "output_name": self.output_name,
+            "is_canceled": self.is_canceled,
+            "is_complete": self.is_complete,
+        }
+        data.update(overrides)
+        return NodeExecution(**data)
+
 
 class Step(BaseModel):
     id: UUID = Field(default_factory=uuid4, description="Unique identifier for this step")
