@@ -79,14 +79,6 @@ class Runner:
             # Run current node once
             execution = await executor.run(messages)
 
-            # Auto-select first output if executor didn't set one and node allows it
-            if (
-                execution.output_name is None
-                and current.model.auto_select_first_output
-                and len(current.outputs) > 0
-            ):
-                execution.output_name = current.outputs[0].name
-
             messages = execution.messages
 
             # Log under the current step for this node
