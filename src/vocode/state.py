@@ -3,6 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import List, Optional, Annotated
 from pydantic import BaseModel, Field, StringConstraints
+from uuid import UUID, uuid4
 
 
 # Roles like agent, user, system, tool, etc. Keep flexible to allow custom roles.
@@ -13,6 +14,14 @@ class BlockType(str, Enum):
     plain = "plain"
     code = "code"
     diff = "diff"
+
+class RunnerStatus(str, Enum):
+    idle = "idle"
+    running = "running"
+    waiting_input = "waiting_input"
+    canceled = "canceled"
+    stopped = "stopped"
+    finished = "finished"
 
 
 class MessageBlock(BaseModel):
@@ -34,15 +43,20 @@ class Message(BaseModel):
 
 
 class NodeExecution(BaseModel):
+    id: UUID = Field(default_factory=uuid4, description="Unique identifier for this node execution")
+    input_messages: List[Message] = Field(default_factory=list, description="Input messages given to this execution")
     messages: List[Message] = Field(default_factory=list)
     output_name: Optional[str] = None
 
 
 class Step(BaseModel):
+    id: UUID = Field(default_factory=uuid4, description="Unique identifier for this step")
+    node: str = Field(..., description="Node name this step pertains to")
     executions: List[NodeExecution] = Field(default_factory=list)
 
 
 class Task(BaseModel):
+    id: UUID = Field(default_factory=uuid4, description="Unique identifier for this task")
     steps: List[Step] = Field(default_factory=list)
 
 

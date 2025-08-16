@@ -21,17 +21,10 @@
 - But need to maintain state if looped by human
 - Most likely make it a setting of a Node (explicit config). Via enum?
   - Always resets
-  - Human rests
+  - Human resets
   - Never resets
 - We need machinery to go back in time and reset graph execution to a specific history
 ** [ ] Base node runner class
-- Async streaming
-- Preconstructed by runner for a given run
-- Exposes start function that takes a list of Message objects. Should return an error if node runner is busy.
-- Returns next action:
-  - Output name
-  - Output Message list
-- Exposes cancel function to break the worker loop
 ** [ ] LLM node
 *** [ ] Base
 **** [ ] Tool configuration
