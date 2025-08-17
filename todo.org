@@ -50,6 +50,7 @@
 **** [ ] Cleanup logic
 **** [ ] Re-prompt if answer is not provided
 **** [ ] Add non-function way of picking next step
+*** [ ] Do not add empty message to output
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
