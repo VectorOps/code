@@ -2,9 +2,7 @@
 
 * [ ] Graph
 ** [ ] Rename output to be outcome
-** [ ] Refactor NodeExecution input_messages and messages:
-- Merge them together and populate messages with input message?
-- Executors should append their result to messages
+** [X] Refactor NodeExecution input_messages and messages. messages should be append only.
 ** [ ] Add a way to override values from a shared config. Options:
 - Through special value
 - Though path in the settings of <tool_name.node_name.field_name> syntax
@@ -50,6 +48,7 @@
 **** [ ] Cleanup logic
 **** [ ] Re-prompt if answer is not provided
 **** [ ] Add non-function way of picking next step
+**** [ ] Add a way for LLM to request additional user input
 *** [ ] Do not add empty message to output
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled

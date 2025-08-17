@@ -16,6 +16,7 @@ nodes:
         constraints: [bullet list of constraints/assumptions]
 
       Keep it focused and unambiguous. Do not invent features. Limit to the essentials needed to implement.
+      If additional requirements are provided by the user, always generate complete response that addresses original and new requirements.
 
   - name: validate-requirements
     type: llm

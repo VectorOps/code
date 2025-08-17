@@ -118,12 +118,27 @@ class Runner:
         node_name = executor.config.name
         logger.debug("executor.stream.start", node=node_name)
         try:
+            base_messages = list(execution.messages)
             async for part in agen:
-                if part.messages:
-                    execution.messages = part.messages
+                temp_set = False
+                # Filter out empty messages (blank raw) returned by the executor
+                new_msgs = [m for m in (part.messages or []) if m.raw.strip()]
+                if new_msgs:
+                    combined = base_messages + new_msgs
+                    if part.output_name is not None:
+                        # Final: persist appended messages
+                        base_messages = combined
+                        execution.messages = list(base_messages)
+                    else:
+                        # Non-final: temporarily append for this snapshot
+                        execution.messages = combined
+                        temp_set = True
                 if part.output_name is not None:
                     execution.output_name = part.output_name
                 await queue.put(execution)
+                # Revert temporary append after snapshot emission
+                if temp_set:
+                    execution.messages = list(base_messages)
         except asyncio.CancelledError:
             logger.debug("executor.stream.canceled", node=node_name)
             with suppress(Exception):
@@ -177,7 +192,7 @@ class Runner:
             logger.debug("runner.resume_point.at_terminal", node=current.name, via_output=last_exec.output_name)
             return (current, list(last_exec.messages), step)
         logger.debug("runner.resume_point.advance", from_node=current.name, to_node=next_node.name, via_output=last_exec.output_name)
-        if getattr(current.model, "pass_all_messages", True):
+        if current.model.pass_all_messages:
             msgs = list(last_exec.messages)
         else:
             msgs = list(last_exec.messages[-1:])
@@ -213,8 +228,6 @@ class Runner:
             # Unified execution loop for this node
             while True:
                 exec_input = list(messages)
-
-                print(current.name, exec_input)
 
                 execution = NodeExecution(input_messages=exec_input, messages=list(messages))
                 # Only record execution after first yield
@@ -317,7 +330,6 @@ class Runner:
 
             logger.debug("runner.transition", from_node=current.name, to_node=next_node.name, via_output=execution.output_name)
             # Pass messages to the next node and move forward
-            print("!", current.model.pass_all_messages, execution.messages)
             if current.model.pass_all_messages:
                 messages = execution.messages
             else:

@@ -26,12 +26,11 @@ class AskExecutor(Executor):
     async def run(self, messages: List[Message]) -> AsyncIterator[NodeExecution]:
         has_go = any(m.raw == "go" for m in messages)
         if not has_go:
-            # Request more input
-            yield NodeExecution(messages=list(messages), output_name=None)
+            # Request more input; no new messages to append
+            yield NodeExecution(messages=[], output_name=None)
             return
-        # Proceed to next node once "go" is present
-        messages_out = list(messages) + [Message(role="agent", raw="ack:go")]
-        yield NodeExecution(messages=messages_out, output_name="done")
+        # Append only the new assistant message
+        yield NodeExecution(messages=[Message(role="agent", raw="ack:go")], output_name="done")
 
 
 class EchoExecutor(Executor):
@@ -39,8 +38,7 @@ class EchoExecutor(Executor):
 
     async def run(self, messages: List[Message]) -> AsyncIterator[NodeExecution]:
         # Terminal node — set some output_name so Runner won't prompt for more input
-        messages_out = list(messages) + [Message(role="agent", raw="echo")]
-        yield NodeExecution(messages=messages_out, output_name="done")
+        yield NodeExecution(messages=[Message(role="agent", raw="echo")], output_name="done")
 
 
 class SleepNode(Node):
@@ -52,8 +50,7 @@ class SleepExecutor(Executor):
     async def run(self, messages: List[Message]) -> AsyncIterator[NodeExecution]:
         # Simulate long-running work to allow cancellation
         await asyncio.sleep(0.2)
-        out = list(messages) + [Message(role="agent", raw="slept")]
-        yield NodeExecution(messages=out, output_name="done")
+        yield NodeExecution(messages=[Message(role="agent", raw="slept")], output_name="done")
 
 
 @pytest.mark.asyncio
