@@ -1,9 +1,10 @@
 from typing import List, Tuple, Dict, Set, Optional, Type, ClassVar, Any
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, AliasChoices
 
 
 class OutputSlot(BaseModel):
     name: str
+    description: Optional[str] = None
 
 
 class Node(BaseModel):
@@ -124,7 +125,6 @@ class LLMNode(Node):
     type: str = "llm"
     model: str
     system: Optional[str] = None
-    streaming: bool = True
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     extra: Dict[str, Any] = Field(default_factory=dict)

@@ -1,6 +1,10 @@
 #+title: Code ToDo
 
 * [ ] Graph
+** [ ] Rename output to be outcome
+** [ ] Refactor NodeExecution input_messages and messages:
+- Merge them together and populate messages with input message?
+- Executors should append their result to messages
 ** [ ] Add a way to override values from a shared config. Options:
 - Through special value
 - Though path in the settings of <tool_name.node_name.field_name> syntax
@@ -9,6 +13,8 @@
 ** [ ] Add a way to get node definition from template and override some of the fields from config
 ** [X] Graph runner
 ** [X] Streamline node transition - if there's nowhere to proceed, do not ask for input with need_input
+** [ ] Add a flag if node might need user input or not
+** [ ] There's no difference between input and messages for NodeExecution
 * [ ] Settings
 ** [ ] Settings loader
 * [ ] Chat state
@@ -40,8 +46,10 @@
 *** [X] Base
 **** [X] Tool configuration
 *** [ ] Dynamic output selection by LLM
-- Prompt should specify when to select what output. Maybe a helper to inject correct instructions.
-- Parse and detect specific marker for different outputs. Remove it from the text returned.
+**** [ ] Configurable system prompt extension
+**** [ ] Cleanup logic
+**** [ ] Re-prompt if answer is not provided
+**** [ ] Add non-function way of picking next step
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool

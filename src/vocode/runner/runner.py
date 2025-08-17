@@ -214,6 +214,8 @@ class Runner:
             while True:
                 exec_input = list(messages)
 
+                print(current.name, exec_input)
+
                 execution = NodeExecution(input_messages=exec_input, messages=list(messages))
                 # Only record execution after first yield
                 execution_recorded = False
@@ -258,6 +260,7 @@ class Runner:
 
                 # Ensure execution is recorded at least once
                 if not execution_recorded:
+                    current_step.executions.append(execution)
                     execution_recorded = True
 
                 # Emit final execution snapshot (is_complete=True) and decide based on returned input
@@ -314,6 +317,7 @@ class Runner:
 
             logger.debug("runner.transition", from_node=current.name, to_node=next_node.name, via_output=execution.output_name)
             # Pass messages to the next node and move forward
+            print("!", current.model.pass_all_messages, execution.messages)
             if current.model.pass_all_messages:
                 messages = execution.messages
             else:
