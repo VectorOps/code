@@ -5,16 +5,26 @@
 - Through special value
 - Though path in the settings of <tool_name.node_name.field_name> syntax
 - Both?
-- Also read from files
+- Also read from files when file is defined
+** [ ] Add a way to get node definition from template and override some of the fields from config
 ** [X] Graph runner
-- Async streaming
-- Keeps track of current node
-** [ ] Streamline node transition - if there's nowhere to proceed, do not ask for input with need_input
+** [X] Streamline node transition - if there's nowhere to proceed, do not ask for input with need_input
 * [ ] Settings
 ** [ ] Settings loader
 * [ ] Chat state
 ** [X] NodeLog, Section, Message
-** [ ] Message construction helpers
+* [ ] UI protocol
+** [ ] General requirements
+- Authentication
+- Send initial configuration: available tools, their node configuration, etc.
+- Stream state change messages
+- RPC subprotocol for various helpers
+  - Request user input and provide response
+  - Tab-based autocompletion
+  - Send ctrl+c
+** [ ] Clearly defined spec
+** [ ] In-memory bidirectional stream implementation for TUI
+** [ ] Websockets implementation
 * [ ] Nodes
 ** [ ] Think how to manage state for a run
 - Sometimes we need to maintain the state when additional information is found and added to state
@@ -30,11 +40,14 @@
 *** [X] Base
 **** [X] Tool configuration
 *** [ ] Dynamic output selection by LLM
+- Prompt should specify when to select what output. Maybe a helper to inject correct instructions.
+- Parse and detect specific marker for different outputs. Remove it from the text returned.
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
-** [ ] TODO node
+** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
 * [ ] Block parsers
+** [ ] Message construction helpers
 ** [ ] Code parsers
 ** [ ] Diff parsers
 *** [ ] GPT diff format
