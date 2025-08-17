@@ -2,6 +2,7 @@
 
 * [ ] Graph
 ** [ ] Rename output to be outcome
+** [ ] Rename node to agent
 ** [X] Refactor NodeExecution input_messages and messages. messages should be append only.
 ** [ ] Add a way to override values from a shared config. Options:
 - Through special value
@@ -13,6 +14,13 @@
 ** [X] Streamline node transition - if there's nowhere to proceed, do not ask for input with need_input
 ** [ ] Add a flag if node might need user input or not
 ** [ ] There's no difference between input and messages for NodeExecution
+* [ ] Block parsers
+** [ ] Message construction helpers
+** [ ] Code parsers
+** [ ] Diff parsers
+*** [ ] GPT diff format
+*** [ ] Fenced diff format
+*** [ ] Full file diff format
 * [ ] Settings
 ** [ ] Settings loader
 * [ ] Chat state
@@ -54,10 +62,3 @@
 *** [ ] Auto-retry when throttled
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
-* [ ] Block parsers
-** [ ] Message construction helpers
-** [ ] Code parsers
-** [ ] Diff parsers
-*** [ ] GPT diff format
-*** [ ] Fenced diff format
-*** [ ] Full file diff format
