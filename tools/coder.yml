@@ -2,7 +2,7 @@ nodes:
   - name: requirements
     type: llm
     model: gpt-5
-    outputs:
+    outcomes:
       - name: done
     system: |
       You are a requirements engineer. Given the user's initial problem statement, extract and refine clear, concise, and testable requirements.
@@ -22,7 +22,7 @@ nodes:
     type: llm
     model: gpt-5
     pass_all_messages: true
-    outputs:
+    outcomes:
       - name: success
         description: Use this when the plan is approved.
       - name: fail
@@ -35,7 +35,7 @@ nodes:
   - name: architect
     type: llm
     model: gpt-5
-    outputs:
+    outcomes:
       - name: done
     system: |
       You are a senior software architect. Based on the prior messages (including requirements), propose a minimal, practical plan to satisfy them in this repository.

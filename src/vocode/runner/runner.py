@@ -1,14 +1,27 @@
 
-from __future__ import annotations
-from typing import Dict, Optional, List, AsyncIterator, Type, ClassVar, Tuple
-import asyncio
-from contextlib import suppress
-from uuid import UUID
+from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List
 
-from ..graph.graph import Graph, RuntimeNode
-from ..graph.models import Node
-from ..state import Message, NodeExecution, Step, Task, RunEvent, RunInput, RunnerStatus
-from ..logger import logger
+import asyncio
+from vocode.graph import Agent, Node
+from vocode.state import Message, RunnerStatus, Task, ToolCallStatus, Step, NodeExecution, StepStatus
+from vocode.runner.models import (
+    ReqPacket,
+    RespPacket,
+    RunEvent,
+    RunInput,
+    RespToolCall,
+    ReqMessageRequest,
+    ReqToolCall,
+    ReqInterimMessage,
+    ReqFinalMessage,
+    RespMessage,
+    RespApproval,
+    PACKET_MESSAGE_REQUEST,
+    PACKET_TOOL_CALL,
+    PACKET_MESSAGE,
+    PACKET_FINAL_MESSAGE,
+    PACKET_APPROVAL,
+)
 
 
 class Executor:
@@ -41,303 +54,325 @@ class Executor:
             raise ValueError(f"No executor registered for node type '{node.type}'")
         return sub(config=node)
 
-    async def run(self, messages: List[Message]) -> AsyncIterator[NodeExecution]:
-        """Async generator: yield intermediate NodeExecution updates; close when complete."""
+    async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
+        """
+        Async generator from Executor to Runner using a yield-and-reply protocol:
+        - yield ExecMessage(kind='message', message=...)
+        - yield ExecToolCall(kind='tool_call', tool_calls=[ToolCall(...)]) and expect the runner to resume
+          this generator with a reply via `agen.asend(ExecutorPacket(...))`. The yielded
+          expression inside the generator will evaluate to that ExecutorPacket instance.
+        - yield ExecFinalMessage(kind='final', message=..., outcome_name=...) once to finish.
+        Runner drives the generator with `anext()` and `asend(...)`.
+        """
         raise NotImplementedError("Executor subclasses must implement 'run' as an async generator")
 
 
 class Runner:
-    def __init__(self, graph: Graph, initial_messages: Optional[List[Message]] = None):
+    def __init__(self, agent, initial_messages: Optional[List[Message]] = None):
         """Prepare the runner with a graph, initial messages, status flags, and per-node executors."""
-        self.graph = graph
+        self.agent = agent
         self.initial_messages: List[Message] = list(initial_messages or [])
         self.status: RunnerStatus = RunnerStatus.idle
         self._current_exec_task: Optional[asyncio.Task] = None
-        self._cancel_requested: bool = False
-        self._stop_requested: bool = False
-        # Construct individual executor instances per node
         self._executors: Dict[str, Executor] = {
-            n.name: Executor.create_for_node(n) for n in self.graph.nodes
+            n.name: Executor.create_for_node(n) for n in self.agent.graph.nodes
         }
-
-    def executor_for(self, node_name: str) -> Executor:
-        """Return the executor instance for the specified node name."""
-        return self._executors[node_name]
+        self._stop_requested: bool = False
 
     def cancel(self) -> None:
-        """Request cancellation of the currently running execution task, if any."""
-        logger.debug("runner.cancel_requested", has_task=bool(self._current_exec_task), task_done=(self._current_exec_task.done() if self._current_exec_task else None))
+        """Cancel the currently running executor step, if any."""
         if self._current_exec_task and not self._current_exec_task.done():
-            self._cancel_requested = True
             self._current_exec_task.cancel()
-        else:
-            self._cancel_requested = True
 
     def stop(self) -> None:
-        """Request a graceful stop after the current yield point."""
-        logger.debug("runner.stop_requested")
+        """Stop the runner: set status to 'stopped' and cancel the current executor, if any."""
         self._stop_requested = True
+        self.status = RunnerStatus.stopped
+        if self._current_exec_task and not self._current_exec_task.done():
+            self._current_exec_task.cancel()
 
-    def rollback_current_step(self, task: Task) -> None:
-        """Reset the most recent step by clearing its executions to restart it."""
-        if not task.steps:
-            logger.debug("runner.rollback_current_step.no_steps")
-            return
-        step = task.steps[-1]
-        if not step.executions:
-            logger.debug("runner.rollback_current_step.no_executions", step_node=step.node)
-            return
-        # Determine the earliest input to restart this step from scratch
-        first_in = list(step.executions[0].input_messages)
-        prev = len(step.executions)
-        step.executions.clear()
-        logger.debug("runner.rollback_current_step.cleared", step_node=step.node, removed=prev)
-        # Preserve the original starting input for the step as a hint by seeding a placeholder execution
-        # The real run will overwrite with actual executions; we keep no placeholder to avoid confusion.
-        # Instead, rely on caller passing initial_messages=None to resume; we’ll use this cleared state.
+    def _compute_node_transition(self, current_runtime_node, exec_state):
+        """
+        Decide the next runtime node and the input messages for it based on the executed node's result.
+        Returns (next_runtime_node, next_input_messages) or (None, None) if the flow should finish.
+        """
+        node_model = current_runtime_node.model
 
-    def rollback_steps(self, task: Task, to_step_id: UUID) -> None:
-        """Remove all steps after the specified step (keep the step with to_step_id)."""
-        idx = next((i for i, s in enumerate(task.steps) if s.id == to_step_id), -1)
-        if idx < 0:
-            logger.debug("runner.rollback_steps.step_not_found", to_step_id=str(to_step_id))
-            raise ValueError(f"Step id {to_step_id} not found")
-        kept_node = task.steps[idx].node
-        removed = len(task.steps) - (idx + 1)
-        logger.debug("runner.rollback_steps.clearing", keep_step_id=str(task.steps[idx].id), keep_step_node=kept_node, removed_steps=removed)
-        del task.steps[idx + 1:]
+        # If the node has no outcomes, we're done
+        if not node_model.outcomes:
+            return None, None
 
-    async def _drive_executor_stream(
-        self,
-        executor: Executor,
-        execution: NodeExecution,
-        queue: "asyncio.Queue[Optional[NodeExecution]]",
-    ) -> None:
-        """Run executor async generator, update execution in place, and enqueue snapshots with input_messages."""
-        agen = executor.run(execution.input_messages)
-        node_name = executor.config.name
-        logger.debug("executor.stream.start", node=node_name)
-        try:
-            base_messages = list(execution.messages)
-            async for part in agen:
-                temp_set = False
-                # Filter out empty messages (blank raw) returned by the executor
-                new_msgs = [m for m in (part.messages or []) if m.raw.strip()]
-                if new_msgs:
-                    combined = base_messages + new_msgs
-                    if part.output_name is not None:
-                        # Final: persist appended messages
-                        base_messages = combined
-                        execution.messages = list(base_messages)
-                    else:
-                        # Non-final: temporarily append for this snapshot
-                        execution.messages = combined
-                        temp_set = True
-                if part.output_name is not None:
-                    execution.output_name = part.output_name
-                await queue.put(execution)
-                # Revert temporary append after snapshot emission
-                if temp_set:
-                    execution.messages = list(base_messages)
-        except asyncio.CancelledError:
-            logger.debug("executor.stream.canceled", node=node_name)
-            with suppress(Exception):
-                await agen.aclose()
-            execution.is_canceled = True
-            # runner will handle cancellation state; just finish
-            return
+        # Choose next outcome
+        outcome_name = exec_state.outcome_name
+        if outcome_name:
+            next_runtime_node = current_runtime_node.get_child_by_outcome(outcome_name)
+            if next_runtime_node is None:
+                raise ValueError(f"No edge defined from node '{node_model.name}' via outcome '{outcome_name}'")
         else:
-            logger.debug("executor.stream.complete", node=node_name)
-            # Do not enqueue a final snapshot; runner will prompt for input or proceed to next node.
-        finally:
-            await queue.put(None)
+            # No outcome provided: if there is exactly one, follow it; otherwise error
+            if len(node_model.outcomes) == 1:
+                next_runtime_node = current_runtime_node.get_child_by_outcome(node_model.outcomes[0].name)
+                if next_runtime_node is None:
+                    raise ValueError(f"No edge defined from node '{node_model.name}' via its only outcome")
+            else:
+                raise ValueError(
+                    f"Node '{node_model.name}' did not provide an outcome and has {len(node_model.outcomes)} outcomes"
+                )
 
-    def _find_runtime_node_by_name(self, name: str) -> RuntimeNode:
-        """Find a RuntimeNode by name via DFS; raise KeyError if not found."""
-        root = self.graph.root
-        stack = [root]
-        while stack:
-            rn = stack.pop()
+        # Determine input messages for the next node
+        if node_model.pass_all_messages:
+            msgs = list(exec_state.input_messages)
+            if exec_state.output_message is not None:
+                msgs.append(exec_state.output_message)
+        else:
+            msgs = [exec_state.output_message] if exec_state.output_message is not None else []
+
+        return next_runtime_node, msgs
+
+    def _find_runtime_node_by_name(self, name: str):
+        """Locate the RuntimeNode by name via BFS from the graph root."""
+        root = self.agent.graph.root
+        queue = [root]
+        while queue:
+            rn = queue.pop(0)
             if rn.name == name:
                 return rn
-            stack.extend(rn.children)
-        raise KeyError(f"Runtime node '{name}' not found")
+            queue.extend(rn.children)
+        return None
 
-    def _resolve_resume_point(
-        self, task: Task
-    ) -> Tuple["RuntimeNode", List[Message], Optional[Step]]:
-        """Determine next RuntimeNode, messages to use, and current step based on task history."""
-        # No history: start at root
+    def _prepare_resume(self, task: Task):
+        """
+        Find the last finished step and prepare to resume:
+        Returns (runtime_node, base_messages_for_rerun, last_execution, step) or None.
+        base_messages_for_rerun = last_execution.input_messages + [last_execution.output_message if present].
+        """
         if not task.steps:
-            start_messages: List[Message] = list(self.initial_messages or [])
-            logger.debug("runner.resume_point.start_root", node=self.graph.root.name, initial_count=len(start_messages))
-            return (self.graph.root, start_messages, None)
-        # Has history: use the last step
-        step = task.steps[-1]
-        current = self._find_runtime_node_by_name(step.node)
-        if not step.executions:
-            # Step exists but was reset (rollback to start); use runner's initial_messages
-            logger.debug("runner.resume_point.step_reset", node=current.name)
-            start_messages = list(self.initial_messages or [])
-            return (current, start_messages, step)
-        last_exec = step.executions[-1]
-        # If the node still needs input, stay on the same node
-        if last_exec.output_name is None:
-            logger.debug("runner.resume_point.waiting_input", node=current.name)
-            return (current, list(last_exec.messages), step)
-        # Otherwise, proceed to the next node based on output_name
-        next_node = current.get_child_by_output(last_exec.output_name)  # type: ignore[arg-type]
-        if next_node is None:
-            # Terminal reached previously; resume has nothing to do from here
-            logger.debug("runner.resume_point.at_terminal", node=current.name, via_output=last_exec.output_name)
-            return (current, list(last_exec.messages), step)
-        logger.debug("runner.resume_point.advance", from_node=current.name, to_node=next_node.name, via_output=last_exec.output_name)
-        if current.model.pass_all_messages:
-            msgs = list(last_exec.messages)
-        else:
-            msgs = list(last_exec.messages[-1:])
-        return (next_node, msgs, None)
+            return None
+
+        for step in reversed(task.steps):
+            if step.status == StepStatus.finished and step.executions:
+                last_exec = step.executions[-1]
+                if not last_exec.is_complete:
+                    continue
+                rn = self._find_runtime_node_by_name(step.node)
+                if rn is None:
+                    return None
+                base_msgs = list(last_exec.input_messages)
+                if last_exec.output_message is not None:
+                    base_msgs.append(last_exec.output_message)
+                return rn, base_msgs, last_exec, step
+        return None
 
     async def run(
         self,
         task: Task,
     ) -> AsyncIterator[RunEvent]:
-        """Async generator that executes the graph from current task state; yields RunEvent and expects RunInput after each yield. Supports loop re-runs, input prompts, stop/cancel, and records task history."""
-        self._cancel_requested = False
-        self._stop_requested = False
+        """
+        Async generator that executes the graph from current task state; yields RunEvent and expects
+        optional RunInput after each yield.
+        """
+        # Only allow starting when idle or previously stopped
+        if self.status not in (RunnerStatus.idle, RunnerStatus.stopped):
+            raise RuntimeError(
+                f"run() not allowed when runner status is '{self.status}'. Allowed: 'idle', 'stopped'"
+            )
+        prev_status = self.status
         self.status = RunnerStatus.running
+        graph = self.agent.graph
 
-        logger.debug("runner.start", status=self.status)
+        resume_plan = None
+        if prev_status == RunnerStatus.stopped:
+            resume_plan = self._prepare_resume(task)
 
-        current, messages, current_step = self._resolve_resume_point(task)
+        reuse_step: Optional[Step] = None
+        if resume_plan is not None:
+            rn, base_msgs, last_exec, last_step = resume_plan
+            # Emit the last message as a final_message event to optionally collect user input
+            req = ReqFinalMessage(message=last_exec.output_message, outcome_name=last_exec.outcome_name)
+            self.status = RunnerStatus.waiting_input
+            resume_event = RunEvent(
+                node=rn.name,
+                execution=last_exec,
+                event=req,
+                input_requested=True,
+            )
+            run_input: Optional[RunInput] = (yield resume_event)
+            resp = run_input.response if run_input is not None else None
 
-        logger.debug("runner.node.begin", node=current.name, input_count=len(messages))
+            if resp is not None and resp.kind == PACKET_MESSAGE:
+                # Re-run same node using base_msgs + user message and append to the same step
+                current_runtime_node = rn
+                current_input_messages = list(base_msgs) + [resp.message]
+                reuse_step = last_step
+                reuse_step.status = StepStatus.running
+            else:
+                # Proceed to next node as if the final was approved/no response
+                next_runtime_node, next_input_messages = self._compute_node_transition(rn, last_exec)
+                if next_runtime_node is None:
+                    self.status = RunnerStatus.finished
+                    return
+                current_runtime_node = next_runtime_node
+                current_input_messages = next_input_messages
+        else:
+            current_runtime_node = graph.root
+            current_input_messages: List[Message] = list(self.initial_messages)
 
         while True:
-            if self._stop_requested:
-                self.status = RunnerStatus.stopped
-                logger.debug("runner.stopped")
-                break
+            step: Optional[Step] = reuse_step
+            reuse_step = None
 
-            executor = self.executor_for(current.name)
-            # Create or reuse step for this node
-            if current_step is None or current_step.node != current.name:
-                current_step = Step(node=current.name)
-                task.steps.append(current_step)
+            rerun_same_node = True
+            while rerun_same_node:
+                rerun_same_node = False
 
-            # Unified execution loop for this node
-            while True:
-                exec_input = list(messages)
+                # Start a new execution for this node
+                exec_state = NodeExecution(input_messages=list(current_input_messages))
 
-                execution = NodeExecution(input_messages=exec_input, messages=list(messages))
-                # Only record execution after first yield
-                execution_recorded = False
+                executor = self._executors[current_runtime_node.name]
+                agen = executor.run(exec_state.input_messages)
 
-                stream_queue: "asyncio.Queue[Optional[NodeExecution]]" = asyncio.Queue()
-                self._current_exec_task = asyncio.create_task(
-                    self._drive_executor_stream(executor, execution, stream_queue)
-                )
+                to_send: Optional[RespPacket] = None
+                user_message_for_rerun: Optional[Message] = None
 
-                try:
-                    while True:
-                        part = await stream_queue.get()
-                        if part is None:
-                            break
-
-                        if not execution_recorded:
-                            current_step.executions.append(execution)
-                            execution_recorded = True
-
-                        incoming = yield RunEvent(node=current.name, execution=part)
-                        if not isinstance(incoming, RunInput):
-                            raise TypeError(f"Runner.run expects RunInput after RunEvent; got {type(incoming).__name__}")
-
-                        if self._stop_requested:
-                            self._current_exec_task.cancel()
-                            with suppress(Exception):
-                                await self._current_exec_task
-                            self._current_exec_task = None
-                            self.status = RunnerStatus.stopped
-                            logger.debug("runner.stop_honored", node=current.name)
-                            return
-                finally:
-                    if self._current_exec_task and self._current_exec_task.done():
+                while True:
+                    try:
+                        self._current_exec_task = asyncio.create_task(agen.asend(to_send))
+                        req: ReqPacket = await self._current_exec_task
+                        to_send = None
+                    except StopAsyncIteration:
+                        # Executor ended without explicit final; mark as completed
+                        exec_state.is_complete = True
+                        break
+                    except asyncio.CancelledError:
+                        # Runner.cancel() interrupted the in-flight executor
+                        exec_state.is_canceled = True
+                        self.status = RunnerStatus.stopped if self._stop_requested else RunnerStatus.canceled
+                        try:
+                            await agen.aclose()
+                        except Exception:
+                            pass
+                        finally:
+                            # Reset stop flag after handling cancellation
+                            self._stop_requested = False
+                        # NEW: mark current step if one exists
+                        if step is not None:
+                            step.status = StepStatus.stopped if self.status == RunnerStatus.stopped else StepStatus.canceled
+                        return
+                    finally:
                         self._current_exec_task = None
 
-                if self._cancel_requested:
-                    logger.debug("runner.canceled")
-                    self.status = RunnerStatus.canceled
-                    return
+                    # Update execution with any interim output for visibility
+                    if req.kind == PACKET_MESSAGE:
+                        exec_state.output_message = req.message
 
-                messages = execution.messages
+                    input_requested = req.kind in (
+                        PACKET_MESSAGE_REQUEST,
+                        PACKET_TOOL_CALL,
+                        PACKET_FINAL_MESSAGE,
+                    )
+                    self.status = RunnerStatus.waiting_input if input_requested else RunnerStatus.running
 
-                # Ensure execution is recorded at least once
-                if not execution_recorded:
-                    current_step.executions.append(execution)
-                    execution_recorded = True
+                    # Emit event and await optional input
+                    run_event = RunEvent(
+                        node=current_runtime_node.name,
+                        execution=exec_state,
+                        event=req,
+                        input_requested=input_requested,
+                    )
+                    run_input: Optional[RunInput] = (yield run_event)
+                    resp = run_input.response if run_input is not None else None
 
-                # Emit final execution snapshot (is_complete=True) and decide based on returned input
-                final = execution.clone(is_complete=True)
-                incoming = yield RunEvent(node=current.name, execution=final)
-                if not isinstance(incoming, RunInput):
-                    raise TypeError(f"Runner.run expects RunInput after RunEvent; got {type(incoming).__name__}")
+                    # Default: no response back to executor unless specified below
+                    to_send = None
 
-                if self._stop_requested:
-                    # Stop was requested after final emission
-                    self.status = RunnerStatus.stopped
-                    logger.debug("runner.stop_honored", node=current.name)
-                    return
+                    # Handle executor requests
+                    if req.kind == PACKET_FINAL_MESSAGE:
+                        # Record final result of this execution
+                        exec_state.output_message = req.message
+                        exec_state.outcome_name = req.outcome_name
+                        exec_state.is_complete = True
 
-                if incoming.loop:
-                    logger.debug("runner.loop", node=current.name, additional_messages=len(incoming.messages or []))
-                    if incoming.messages:
-                        messages = messages + incoming.messages
-                    continue  # re-run same node (new execution instance will be created)
+                        # Approval handling: None or approved=True => success => proceed to next node
+                        if resp is None or (resp.kind == PACKET_APPROVAL and resp.approved):
+                            # No response expected back to executor
+                            break
 
-                if execution.output_name is None:
-                    if len(current.outputs) == 1:
-                        assumed = current.outputs[0].name
-                        logger.debug("runner.assume_single_output", node=current.name, assumed_output=assumed)
-                        execution.output_name = assumed
-                        # fall through to completion handling (no need_input prompt)
+                        # If a user message was provided instead, re-run same node with that message
+                        if resp is not None and resp.kind == PACKET_MESSAGE:
+                            user_message_for_rerun = resp.message
+                            break
+
+                        # Otherwise, treat as success and proceed
+                        break
+
+                    elif req.kind == PACKET_TOOL_CALL:
+                        # Determine approval; default to rejected unless explicitly approved
+                        approved = (resp is not None and resp.kind == PACKET_APPROVAL and resp.approved)
+
+                        # Update request objects for event visibility, and build a deep-copied response payload
+                        updated_tool_calls = []
+                        for tc in req.tool_calls:
+                            tc.status = ToolCallStatus.completed if approved else ToolCallStatus.rejected
+                            if approved:
+                                if tc.result is None:
+                                    tc.result = "{}"
+                            else:
+                                # On rejection ensure result is cleared
+                                tc.result = None
+                            updated_tool_calls.append(tc.model_copy(deep=True))
+
+                        # Reply to executor with updated tool calls
+                        to_send = RespToolCall(tool_calls=updated_tool_calls)
+                        continue
+
+                    elif req.kind == PACKET_MESSAGE_REQUEST:
+                        # Require a message; if not provided, keep prompting until we get one
+                        if resp is None or resp.kind != PACKET_MESSAGE:
+                            while True:
+                                self.status = RunnerStatus.waiting_input
+                                run_input = (yield run_event)
+                                resp = run_input.response if run_input is not None else None
+                                if resp is not None and resp.kind == PACKET_MESSAGE:
+                                    break
+                        to_send = resp  # guaranteed RespMessage here
+                        continue
+
                     else:
-                        logger.debug("runner.need_input", node=current.name)
-                        self.status = RunnerStatus.waiting_input
-                        incoming2 = yield RunEvent(node=current.name, need_input=True)
-                        self.status = RunnerStatus.running
-                        if not isinstance(incoming2, RunInput):
-                            raise TypeError(f"Runner.run expects RunInput after RunEvent; got {type(incoming2).__name__}")
-                        if incoming2.messages:
-                            messages = messages + incoming2.messages
-                        continue  # re-run same node after collecting input
+                        # For other request kinds (e.g., interim messages), send nothing
+                        to_send = None
+                        continue
 
-                logger.debug("runner.node.completed", node=current.name, output=execution.output_name)
-                break  # finished this node; proceed to next
+                # Inner processing loop (this execution) is done:
+                # Persist only finalized executions
+                if exec_state.is_complete:
+                    if step is None:
+                        step = Step(node=current_runtime_node.name, status=StepStatus.running)
+                        task.steps.append(step)
+                    step.executions.append(exec_state)
 
-            # Decide next node
-            if len(current.outputs) == 0:
-                logger.debug("runner.finish.no_outputs", node=current.name)
-                self.status = RunnerStatus.finished
-                logger.debug("runner.finished")
+                # If we got a user-provided message to re-run the same node, do so
+                if user_message_for_rerun is not None:
+                    # Re-run same node using input_messages + output_message + RespMessage.message
+                    msgs = list(exec_state.input_messages)
+                    if exec_state.output_message is not None:
+                        msgs.append(exec_state.output_message)
+                    msgs.append(user_message_for_rerun)
+                    current_input_messages = msgs
+                    rerun_same_node = True
+                    continue
+
+                # NEW: mark this step as finished (no rerun for this node)
+                if step is not None:
+                    step.status = StepStatus.finished
+
+                next_runtime_node, next_input_messages = self._compute_node_transition(
+                    current_runtime_node, exec_state
+                )
+                if next_runtime_node is None:
+                    self.status = RunnerStatus.finished
+                    return
+
+                current_input_messages = next_input_messages
+                current_runtime_node = next_runtime_node
+
                 break
-
-            next_node = current.get_child_by_output(execution.output_name)  # type: ignore[arg-type]
-            if next_node is None:
-                logger.debug("runner.finish.no_edge_for_output", node=current.name, output=execution.output_name)
-                self.status = RunnerStatus.finished
-                logger.debug("runner.finished")
-                break
-
-            logger.debug("runner.transition", from_node=current.name, to_node=next_node.name, via_output=execution.output_name)
-            # Pass messages to the next node and move forward
-            if current.model.pass_all_messages:
-                messages = execution.messages
-            else:
-                messages = execution.messages[-1:]
-
-            current = next_node
-            # Force a new step for the next node
-            current_step = None
-
-# Ensure built-in executors are registered when importing this module
-from .executors import llm as _llm  # noqa: F401

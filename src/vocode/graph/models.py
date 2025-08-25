@@ -2,7 +2,7 @@ from typing import List, Tuple, Dict, Set, Optional, Type, ClassVar, Any
 from pydantic import BaseModel, Field, field_validator, model_validator, AliasChoices
 
 
-class OutputSlot(BaseModel):
+class OutcomeSlot(BaseModel):
     name: str
     description: Optional[str] = None
 
@@ -10,7 +10,7 @@ class OutputSlot(BaseModel):
 class Node(BaseModel):
     name: str = Field(..., description="Unique node name")
     type: str = Field(..., description="Node type identifier")
-    outputs: List[OutputSlot] = Field(default_factory=list)
+    outcomes: List[OutcomeSlot] = Field(default_factory=list)
     pass_all_messages: bool = Field(
         default=False,
         description="If True, pass all messages to the next node; if False, pass only the last message.",
@@ -68,11 +68,11 @@ class Node(BaseModel):
         cls._ensure_registry_populated()
         return cls._registry.get(type_name)
 
-    @field_validator("outputs", mode="after")
-    def _unique_output_names(cls, v: List[OutputSlot]) -> List[OutputSlot]:
+    @field_validator("outcomes", mode="after")
+    def _unique_outcome_names(cls, v: List[OutcomeSlot]) -> List[OutcomeSlot]:
         names = [s.name for s in v]
         if len(names) != len(set(names)):
-            raise ValueError("Duplicate output slot names found in node.outputs")
+            raise ValueError("Duplicate outcome slot names found in node.outcomes")
         return v
 
     @classmethod
@@ -117,7 +117,7 @@ class Node(BaseModel):
 
 class Edge(BaseModel):
     source_node: str = Field(..., description="Name of the source node")
-    source_slot: str = Field(..., description="Name of the output slot on the source node")
+    source_slot: str = Field(..., description="Name of the outcome slot on the source node")
     target_node: str = Field(..., description="Name of the target node")
 
 

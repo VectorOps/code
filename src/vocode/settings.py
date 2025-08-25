@@ -29,7 +29,7 @@ def load_settings_from_yaml(path: str) -> Settings:
         nodes:
           - name: Root
             type: some_type
-            outputs:
+            outcomes:
               - name: next
           # ...
         edges:

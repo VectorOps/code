@@ -1,16 +1,16 @@
 from typing import List, Tuple, Dict, Set, Optional
 from pydantic import BaseModel, Field, model_validator, PrivateAttr
-from .models import Node, Edge, OutputSlot
+from .models import Node, Edge, OutcomeSlot
 
 
 class RuntimeNode:
     def __init__(self, model: "Node"):
         self._model = model
         self._children: List["RuntimeNode"] = []
-        self._child_by_output: Dict[str, "RuntimeNode"] = {}
+        self._child_by_outcome: Dict[str, "RuntimeNode"] = {}
 
-    def get_child_by_output(self, output_name: str) -> Optional["RuntimeNode"]:
-        return self._child_by_output.get(output_name)
+    def get_child_by_outcome(self, outcome_name: str) -> Optional["RuntimeNode"]:
+        return self._child_by_outcome.get(outcome_name)
 
     @property
     def name(self) -> str:
@@ -25,8 +25,8 @@ class RuntimeNode:
         return self._model.type
 
     @property
-    def outputs(self) -> List["OutputSlot"]:
-        return self._model.outputs
+    def outcomes(self) -> List["OutcomeSlot"]:
+        return self._model.outcomes
 
     @property
     def children(self) -> List["RuntimeNode"]:
@@ -55,7 +55,7 @@ class Graph(BaseModel):
             parent = graph._runtime_nodes[e.source_node]
             child = graph._runtime_nodes[e.target_node]
             parent._children.append(child)
-            parent._child_by_output[e.source_slot] = child
+            parent._child_by_outcome[e.source_slot] = child
         graph._root = graph._runtime_nodes[graph.nodes[0].name]
         return graph
 
@@ -84,9 +84,9 @@ class Graph(BaseModel):
         if len(node_by_name) != len(nodes):
             raise ValueError("Duplicate node names detected in graph.nodes")
 
-        # Collect all declared output slots across nodes
-        declared_outputs: Set[Tuple[str, str]] = {
-            (n.name, slot.name) for n in nodes for slot in n.outputs
+        # Collect all declared outcome slots across nodes
+        declared_outcomes: Set[Tuple[str, str]] = {
+            (n.name, slot.name) for n in nodes for slot in n.outcomes
         }
 
         # Validate edges refer to existing nodes and declared source slots,
@@ -99,7 +99,7 @@ class Graph(BaseModel):
                 raise ValueError(f"Edge target_node '{e.target_node}' does not exist in graph.nodes")
 
             source_node = node_by_name[e.source_node]
-            if e.source_slot not in {s.name for s in source_node.outputs}:
+            if e.source_slot not in {s.name for s in source_node.outcomes}:
                 raise ValueError(
                     f"Edge references unknown source_slot '{e.source_slot}' on node '{e.source_node}'"
                 )
@@ -107,27 +107,32 @@ class Graph(BaseModel):
             key = (e.source_node, e.source_slot)
             if key in edges_by_source:
                 raise ValueError(
-                    f"Multiple edges found from the same output slot: node='{e.source_node}', slot='{e.source_slot}'"
+                    f"Multiple edges found from the same outcome slot: node='{e.source_node}', slot='{e.source_slot}'"
                 )
             edges_by_source[key] = e
 
-        # Enforce: exactly one edge from each declared output slot
+        # Enforce: exactly one edge from each declared outcome slot
         sources_with_edges = set(edges_by_source.keys())
-        missing = declared_outputs - sources_with_edges
-        extra = sources_with_edges - declared_outputs
+        missing = declared_outcomes - sources_with_edges
+        extra = sources_with_edges - declared_outcomes
 
         if missing or extra:
             msgs = []
             if missing:
                 msgs.append(
-                    "Missing edges for declared output slots: "
+                    "Missing edges for declared outcome slots: "
                     + ", ".join([f"{n}:{s}" for (n, s) in sorted(missing, key=lambda x: (x[0], x[1]))])
                 )
             if extra:
                 msgs.append(
-                    "Edges originate from undeclared output slots: "
+                    "Edges originate from undeclared outcome slots: "
                     + ", ".join([f"{n}:{s}" for (n, s) in sorted(extra, key=lambda x: (x[0], x[1]))])
                 )
             raise ValueError("; ".join(msgs))
 
         return self
+
+
+class Agent(BaseModel):
+    name: str
+    graph: Graph
