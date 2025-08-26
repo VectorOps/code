@@ -1,7 +1,7 @@
 from typing import Annotated, Optional, Union, List, Literal
 from pydantic import BaseModel, Field
 
-from vocode.state import Message, ToolCall, NodeExecution
+from vocode.state import Message, ToolCall, Activity
 
 PACKET_MESSAGE_REQUEST = "message_request"
 PACKET_TOOL_CALL = "tool_call"
@@ -85,7 +85,7 @@ RespPacket = Annotated[
 # Runner to consumer events
 class RunEvent(BaseModel):
     node: str = Field(..., description="Node name this event pertains to")
-    execution: NodeExecution = Field(
+    execution: Activity = Field(
         description="Execution result for this node, when available"
     )
     event: ReqPacket

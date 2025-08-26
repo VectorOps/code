@@ -1,9 +1,10 @@
 
 from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List
+from enum import Enum
 
 import asyncio
 from vocode.graph import Agent, Node
-from vocode.state import Message, RunnerStatus, Task, ToolCallStatus, Step, NodeExecution, StepStatus
+from vocode.state import Message, RunnerStatus, Assignment, ToolCallStatus, Step, Activity, StepStatus, ActivityType
 from vocode.runner.models import (
     ReqPacket,
     RespPacket,
@@ -22,6 +23,10 @@ from vocode.runner.models import (
     PACKET_FINAL_MESSAGE,
     PACKET_APPROVAL,
 )
+
+class ResumeMode(str, Enum):
+    PROMPT = "prompt"
+    RERUN = "rerun"
 
 
 class Executor:
@@ -68,10 +73,10 @@ class Executor:
 
 
 class Runner:
-    def __init__(self, agent, initial_messages: Optional[List[Message]] = None):
-        """Prepare the runner with a graph, initial messages, status flags, and per-node executors."""
+    def __init__(self, agent, initial_message: Optional[Message] = None):
+        """Prepare the runner with a graph, initial message, status flags, and per-node executors."""
         self.agent = agent
-        self.initial_messages: List[Message] = list(initial_messages or [])
+        self.initial_message: Optional[Message] = initial_message
         self.status: RunnerStatus = RunnerStatus.idle
         self._current_exec_task: Optional[asyncio.Task] = None
         self._executors: Dict[str, Executor] = {
@@ -91,7 +96,7 @@ class Runner:
         if self._current_exec_task and not self._current_exec_task.done():
             self._current_exec_task.cancel()
 
-    def _compute_node_transition(self, current_runtime_node, exec_state):
+    def _compute_node_transition(self, current_runtime_node, exec_activity: Activity, step: Step):
         """
         Decide the next runtime node and the input messages for it based on the executed node's result.
         Returns (next_runtime_node, next_input_messages) or (None, None) if the flow should finish.
@@ -103,7 +108,7 @@ class Runner:
             return None, None
 
         # Choose next outcome
-        outcome_name = exec_state.outcome_name
+        outcome_name = exec_activity.outcome_name
         if outcome_name:
             next_runtime_node = current_runtime_node.get_child_by_outcome(outcome_name)
             if next_runtime_node is None:
@@ -121,11 +126,10 @@ class Runner:
 
         # Determine input messages for the next node
         if node_model.pass_all_messages:
-            msgs = list(exec_state.input_messages)
-            if exec_state.output_message is not None:
-                msgs.append(exec_state.output_message)
+            msgs = [a.message for a in step.executions if a.message is not None]
         else:
-            msgs = [exec_state.output_message] if exec_state.output_message is not None else []
+            last_msg = next((a.message for a in reversed(step.executions) if a.message is not None), None)
+            msgs = [last_msg] if last_msg is not None else []
 
         return next_runtime_node, msgs
 
@@ -140,32 +144,31 @@ class Runner:
             queue.extend(rn.children)
         return None
 
-    def _prepare_resume(self, task: Task):
+    def _prepare_resume(self, task: Assignment):
         """
-        Find the last finished step and prepare to resume:
-        Returns (runtime_node, base_messages_for_rerun, last_execution, step) or None.
-        base_messages_for_rerun = last_execution.input_messages + [last_execution.output_message if present].
+        Returns (runtime_node, step, last_activity, mode) or None.
+        mode ∈ {ResumeMode.PROMPT, ResumeMode.RERUN}:
+          - ResumeMode.PROMPT: last activity was executor-provided final; synthesize a final_message event.
+          - ResumeMode.RERUN: last activity was user-provided; immediately rerun the node.
         """
         if not task.steps:
             return None
-
         for step in reversed(task.steps):
             if step.status == StepStatus.finished and step.executions:
-                last_exec = step.executions[-1]
-                if not last_exec.is_complete:
+                last_act = step.executions[-1]
+                if not last_act.is_complete and last_act.type == ActivityType.executor:
+                    # Prefer resuming only from a complete executor final; otherwise skip
                     continue
                 rn = self._find_runtime_node_by_name(step.node)
                 if rn is None:
                     return None
-                base_msgs = list(last_exec.input_messages)
-                if last_exec.output_message is not None:
-                    base_msgs.append(last_exec.output_message)
-                return rn, base_msgs, last_exec, step
+                mode = ResumeMode.PROMPT if last_act.type == ActivityType.executor else ResumeMode.RERUN
+                return rn, step, last_act, mode
         return None
 
     async def run(
         self,
-        task: Task,
+        task: Assignment,
     ) -> AsyncIterator[RunEvent]:
         """
         Async generator that executes the graph from current task state; yields RunEvent and expects
@@ -180,59 +183,73 @@ class Runner:
         self.status = RunnerStatus.running
         graph = self.agent.graph
 
+        # Runner resuming
         resume_plan = None
         if prev_status == RunnerStatus.stopped:
             resume_plan = self._prepare_resume(task)
 
         reuse_step: Optional[Step] = None
-        if resume_plan is not None:
-            rn, base_msgs, last_exec, last_step = resume_plan
-            # Emit the last message as a final_message event to optionally collect user input
-            req = ReqFinalMessage(message=last_exec.output_message, outcome_name=last_exec.outcome_name)
-            self.status = RunnerStatus.waiting_input
-            resume_event = RunEvent(
-                node=rn.name,
-                execution=last_exec,
-                event=req,
-                input_requested=True,
-            )
-            run_input: Optional[RunInput] = (yield resume_event)
-            resp = run_input.response if run_input is not None else None
+        pending_input_messages: List[Message] = []
 
-            if resp is not None and resp.kind == PACKET_MESSAGE:
-                # Re-run same node using base_msgs + user message and append to the same step
+        if resume_plan is not None:
+            rn, last_step, last_act, mode = resume_plan
+            if mode is ResumeMode.PROMPT:
+                req = ReqFinalMessage(message=last_act.message, outcome_name=last_act.outcome_name)
+                self.status = RunnerStatus.waiting_input
+                resume_event = RunEvent(
+                    node=rn.name,
+                    execution=last_act,
+                    event=req,
+                    input_requested=True,
+                )
+                run_input: Optional[RunInput] = (yield resume_event)
+                resp = run_input.response if run_input is not None else None
+                if resp is not None and resp.kind == PACKET_MESSAGE:
+                    last_step.status = StepStatus.running
+                    last_step.executions.append(Activity(type=ActivityType.user, message=resp.message))
+                    current_runtime_node = rn
+                    reuse_step = last_step
+                    pending_input_messages = []
+                else:
+                    next_runtime_node, next_input_messages = self._compute_node_transition(rn, last_act, last_step)
+                    if next_runtime_node is None:
+                        self.status = RunnerStatus.finished
+                        return
+                    current_runtime_node = next_runtime_node
+                    pending_input_messages = list(next_input_messages)
+            else:  # ResumeMode.RERUN
                 current_runtime_node = rn
-                current_input_messages = list(base_msgs) + [resp.message]
                 reuse_step = last_step
-                reuse_step.status = StepStatus.running
-            else:
-                # Proceed to next node as if the final was approved/no response
-                next_runtime_node, next_input_messages = self._compute_node_transition(rn, last_exec)
-                if next_runtime_node is None:
-                    self.status = RunnerStatus.finished
-                    return
-                current_runtime_node = next_runtime_node
-                current_input_messages = next_input_messages
+                pending_input_messages = []
         else:
             current_runtime_node = graph.root
-            current_input_messages: List[Message] = list(self.initial_messages)
+            pending_input_messages = [self.initial_message] if self.initial_message is not None else []
 
+        # Main loop
         while True:
             step: Optional[Step] = reuse_step
             reuse_step = None
 
+            if step is None:
+                step = Step(node=current_runtime_node.name, status=StepStatus.running)
+                task.steps.append(step)
+                # Add any pending input messages (including initial_message or carry-over messages)
+                for m in pending_input_messages:
+                    step.executions.append(Activity(type=ActivityType.user, message=m))
+                pending_input_messages = []
+
+            # Node loop
             rerun_same_node = True
             while rerun_same_node:
                 rerun_same_node = False
 
-                # Start a new execution for this node
-                exec_state = NodeExecution(input_messages=list(current_input_messages))
-
                 executor = self._executors[current_runtime_node.name]
-                agen = executor.run(exec_state.input_messages)
-
-                to_send: Optional[RespPacket] = None
+                # Prepare messages for executor from step executions
+                messages_for_exec = [a.message for a in step.executions if a.message is not None]
+                agen = executor.run(messages_for_exec)
+                current_activity: Optional[Activity] = None
                 user_message_for_rerun: Optional[Message] = None
+                to_send: Optional[RespPacket] = None
 
                 while True:
                     try:
@@ -241,11 +258,13 @@ class Runner:
                         to_send = None
                     except StopAsyncIteration:
                         # Executor ended without explicit final; mark as completed
-                        exec_state.is_complete = True
+                        if current_activity is not None:
+                            current_activity.is_complete = True
                         break
                     except asyncio.CancelledError:
                         # Runner.cancel() interrupted the in-flight executor
-                        exec_state.is_canceled = True
+                        if current_activity is not None:
+                            current_activity.is_canceled = True
                         self.status = RunnerStatus.stopped if self._stop_requested else RunnerStatus.canceled
                         try:
                             await agen.aclose()
@@ -263,7 +282,8 @@ class Runner:
 
                     # Update execution with any interim output for visibility
                     if req.kind == PACKET_MESSAGE:
-                        exec_state.output_message = req.message
+                        current_activity = Activity(type=ActivityType.executor, message=req.message)
+                        step.executions.append(current_activity)
 
                     input_requested = req.kind in (
                         PACKET_MESSAGE_REQUEST,
@@ -275,7 +295,7 @@ class Runner:
                     # Emit event and await optional input
                     run_event = RunEvent(
                         node=current_runtime_node.name,
-                        execution=exec_state,
+                        execution=current_activity or Activity(type=ActivityType.executor),
                         event=req,
                         input_requested=input_requested,
                     )
@@ -287,10 +307,13 @@ class Runner:
 
                     # Handle executor requests
                     if req.kind == PACKET_FINAL_MESSAGE:
-                        # Record final result of this execution
-                        exec_state.output_message = req.message
-                        exec_state.outcome_name = req.outcome_name
-                        exec_state.is_complete = True
+                        current_activity = Activity(
+                            type=ActivityType.executor,
+                            message=req.message,
+                            outcome_name=req.outcome_name,
+                            is_complete=True,
+                        )
+                        step.executions.append(current_activity)
 
                         # Approval handling: None or approved=True => success => proceed to next node
                         if resp is None or (resp.kind == PACKET_APPROVAL and resp.approved):
@@ -299,6 +322,7 @@ class Runner:
 
                         # If a user message was provided instead, re-run same node with that message
                         if resp is not None and resp.kind == PACKET_MESSAGE:
+                            step.executions.append(Activity(type=ActivityType.user, message=resp.message))
                             user_message_for_rerun = resp.message
                             break
 
@@ -334,6 +358,7 @@ class Runner:
                                 resp = run_input.response if run_input is not None else None
                                 if resp is not None and resp.kind == PACKET_MESSAGE:
                                     break
+                        step.executions.append(Activity(type=ActivityType.user, message=resp.message))
                         to_send = resp  # guaranteed RespMessage here
                         continue
 
@@ -342,37 +367,25 @@ class Runner:
                         to_send = None
                         continue
 
-                # Inner processing loop (this execution) is done:
-                # Persist only finalized executions
-                if exec_state.is_complete:
-                    if step is None:
-                        step = Step(node=current_runtime_node.name, status=StepStatus.running)
-                        task.steps.append(step)
-                    step.executions.append(exec_state)
-
                 # If we got a user-provided message to re-run the same node, do so
                 if user_message_for_rerun is not None:
-                    # Re-run same node using input_messages + output_message + RespMessage.message
-                    msgs = list(exec_state.input_messages)
-                    if exec_state.output_message is not None:
-                        msgs.append(exec_state.output_message)
-                    msgs.append(user_message_for_rerun)
-                    current_input_messages = msgs
                     rerun_same_node = True
                     continue
 
-                # NEW: mark this step as finished (no rerun for this node)
-                if step is not None:
-                    step.status = StepStatus.finished
+                # Mark this step as finished (no rerun for this node)
+                step.status = StepStatus.finished
 
+                last_exec_activity = next((a for a in reversed(step.executions) if a.type == ActivityType.executor and a.is_complete), None)
+                if last_exec_activity is None:
+                    raise RuntimeError("No completed executor activity found to compute transition")
                 next_runtime_node, next_input_messages = self._compute_node_transition(
-                    current_runtime_node, exec_state
+                    current_runtime_node, last_exec_activity, step
                 )
                 if next_runtime_node is None:
                     self.status = RunnerStatus.finished
                     return
 
-                current_input_messages = next_input_messages
                 current_runtime_node = next_runtime_node
+                pending_input_messages = list(next_input_messages)
 
                 break

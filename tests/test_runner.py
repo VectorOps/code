@@ -11,7 +11,7 @@ from vocode.runner.models import (
     RespApproval,
     RunInput,
 )
-from vocode.state import Message, ToolCall, ToolCallStatus, Task
+from vocode.state import Message, ToolCall, ToolCallStatus, Assignment
 
 
 def msg(role: str, text: str) -> Message:
@@ -42,7 +42,7 @@ async def test_message_request_reprompt_and_finish():
             yield ReqFinalMessage(message=final)
 
     runner = Runner(agent)
-    task = Task()
+    task = Assignment()
     it = runner.run(task)
 
     # First: message_request
@@ -62,8 +62,8 @@ async def test_message_request_reprompt_and_finish():
     assert ev3.event.kind == "message"
     assert ev3.input_requested is False
     # Execution output should reflect interim message
-    assert ev3.execution.output_message is not None
-    assert ev3.execution.output_message.text == "got it"
+    assert ev3.execution.message is not None
+    assert ev3.execution.message.text == "got it"
 
     # Final message
     ev4 = await it.__anext__()
@@ -78,11 +78,16 @@ async def test_message_request_reprompt_and_finish():
     assert len(task.steps) == 1
     step = task.steps[0]
     assert step.node == "Ask"
-    assert len(step.executions) == 1
-    exec0 = step.executions[0]
-    assert exec0.is_complete is True
-    assert exec0.output_message is not None
-    assert exec0.output_message.text == "final:hi"
+    # Three activities: user input, interim, final
+    assert len(step.executions) == 3
+    assert step.executions[0].type.value == "user"
+    assert step.executions[0].message.text == "hi"
+    assert step.executions[1].type.value == "executor"
+    assert step.executions[1].message.text == "got it"
+    assert step.executions[2].type.value == "executor"
+    assert step.executions[2].is_complete is True
+    assert step.executions[2].message is not None
+    assert step.executions[2].message.text == "final:hi"
 
 
 @pytest.mark.asyncio
@@ -112,7 +117,7 @@ async def test_tool_call_approved_and_rejected():
             yield ReqFinalMessage(message=msg("agent", "done"))
 
     runner = Runner(agent)
-    task = Task()
+    task = Assignment()
     it = runner.run(task)
 
     # First tool call (approve)
@@ -140,7 +145,7 @@ async def test_tool_call_approved_and_rejected():
     assert len(task.steps) == 1
     ex = task.steps[0].executions[0]
     assert ex.is_complete is True
-    assert ex.output_message.text == "done"
+    assert ex.message.text == "done"
 
 
 @pytest.mark.asyncio
@@ -166,7 +171,7 @@ async def test_final_message_rerun_same_node_with_user_message():
                 yield ReqFinalMessage(message=msg("agent", "done"))
 
     runner = Runner(agent)
-    task = Task()
+    task = Assignment()
     it = runner.run(task)
 
     # First: final_message (requesting input)
@@ -183,10 +188,15 @@ async def test_final_message_rerun_same_node_with_user_message():
     assert runner.status.name == "finished"
     assert len(task.steps) == 1
     step = task.steps[0]
-    assert len(step.executions) == 2
-    assert step.executions[0].is_complete is True
-    assert step.executions[1].is_complete is True
-    assert step.executions[1].output_message.text == "done"
+    # Activities: final 'ask', user 'more', final 'done'
+    assert len(step.executions) == 3
+    assert step.executions[0].type.value == "executor"
+    assert step.executions[0].message.text == "ask"
+    assert step.executions[1].type.value == "user"
+    assert step.executions[1].message.text == "more"
+    assert step.executions[2].type.value == "executor"
+    assert step.executions[2].is_complete is True
+    assert step.executions[2].message.text == "done"
 
 
 @pytest.mark.asyncio
@@ -222,8 +232,8 @@ async def test_transition_to_next_node_and_pass_all_messages(pass_all):
                 assert messages[0].text == "Aout"
             yield ReqFinalMessage(message=msg("agent", "Bout"))
 
-    runner = Runner(agent, initial_messages=[msg("system", "sys")])
-    task = Task()
+    runner = Runner(agent, initial_message=msg("system", "sys"))
+    task = Assignment()
     it = runner.run(task)
 
     # A final -> approve
@@ -238,9 +248,27 @@ async def test_transition_to_next_node_and_pass_all_messages(pass_all):
     # Steps per node
     assert runner.status.name == "finished"
     assert [s.node for s in task.steps] == ["A", "B"]
-    assert len(task.steps[0].executions) == 1
-    assert len(task.steps[1].executions) == 1
-    assert task.steps[1].executions[0].output_message.text == "Bout"
+    assert len(task.steps[0].executions) == 2
+    assert task.steps[0].executions[0].message.text == "sys"
+    assert task.steps[0].executions[0].type.value == "user"
+    assert task.steps[0].executions[1].message.text == "Aout"
+    assert task.steps[0].executions[1].type.value == "executor"
+    if pass_all:
+        # B step includes carried inputs (system + A's output) and its final
+        assert len(task.steps[1].executions) == 3
+        assert task.steps[1].executions[0].type.value == "user"
+        assert task.steps[1].executions[0].message.text == "sys"
+        assert task.steps[1].executions[1].type.value == "user"
+        assert task.steps[1].executions[1].message.text == "Aout"
+        assert task.steps[1].executions[2].type.value == "executor"
+        assert task.steps[1].executions[2].message.text == "Bout"
+    else:
+        # B step includes carried input (A's output) and its final
+        assert len(task.steps[1].executions) == 2
+        assert task.steps[1].executions[0].type.value == "user"
+        assert task.steps[1].executions[0].message.text == "Aout"
+        assert task.steps[1].executions[1].type.value == "executor"
+        assert task.steps[1].executions[1].message.text == "Bout"
 
 
 @pytest.mark.asyncio
@@ -276,7 +304,7 @@ async def test_error_multiple_outcomes_without_outcome_name():
             yield ReqFinalMessage(message=msg("agent", "By"))
 
     runner = Runner(agent)
-    task = Task()
+    task = Assignment()
     it = runner.run(task)
 
     ev = await it.__anext__()
@@ -306,7 +334,7 @@ async def test_error_unknown_outcome_name():
             yield ReqFinalMessage(message=msg("agent", "B"))
 
     runner = Runner(agent)
-    task = Task()
+    task = Assignment()
     it = runner.run(task)
 
     ev = await it.__anext__()
@@ -334,7 +362,7 @@ async def test_cancel_before_first_yield():
                 type(self).closed = True
 
     runner = Runner(agent)
-    task = Task()
+    task = Assignment()
     it = runner.run(task)
 
     # Start the run loop; it will block inside agen.asend(None) awaiting the sleep
@@ -350,8 +378,12 @@ async def test_cancel_before_first_yield():
 
     assert runner.status.name == "canceled"
     assert SlowExec.closed is True
-    # No steps should be recorded because no execution completed successfully
-    assert len(task.steps) == 0
+    # A Step is created and marked canceled, but no executions
+    assert len(task.steps) == 1
+    s = task.steps[0]
+    assert s.node == "Slow"
+    assert s.status.name == "canceled"
+    assert len(s.executions) == 0
 
 
 @pytest.mark.asyncio
@@ -374,7 +406,7 @@ async def test_cancel_during_asend_after_tool_response():
                 type(self).closed = True
 
     runner = Runner(agent)
-    task = Task()
+    task = Assignment()
     it = runner.run(task)
 
     # First event: tool_call
@@ -394,8 +426,12 @@ async def test_cancel_during_asend_after_tool_response():
 
     assert runner.status.name == "canceled"
     assert ToolThenSlow.closed is True
-    # No steps should be recorded because no execution completed successfully
-    assert len(task.steps) == 0
+    # A Step is created and marked canceled, but no executions
+    assert len(task.steps) == 1
+    s = task.steps[0]
+    assert s.node == "ToolSlow"
+    assert s.status.name == "canceled"
+    assert len(s.executions) == 0
 @pytest.mark.asyncio
 async def test_stop_before_first_yield():
     nodes = [{"name": "Slow", "type": "slow", "outcomes": []}]
@@ -413,7 +449,7 @@ async def test_stop_before_first_yield():
                 type(self).closed = True
 
     runner = Runner(agent)
-    task = Task()
+    task = Assignment()
     it = runner.run(task)
 
     first = asyncio.create_task(it.__anext__())
@@ -428,8 +464,12 @@ async def test_stop_before_first_yield():
 
     assert runner.status.name == "stopped"
     assert SlowExec.closed is True
-    # No steps should be recorded because no execution completed successfully
-    assert len(task.steps) == 0
+    # A Step is created and marked stopped, but no executions
+    assert len(task.steps) == 1
+    s = task.steps[0]
+    assert s.node == "Slow"
+    assert s.status.name == "stopped"
+    assert len(s.executions) == 0
 
 @pytest.mark.asyncio
 async def test_stop_and_resume_from_last_good_step():
@@ -475,7 +515,7 @@ async def test_stop_and_resume_from_last_good_step():
                 yield ReqFinalMessage(message=msg("agent", "Bdone"))
 
     runner = Runner(agent)
-    task = Task()
+    task = Assignment()
     it = runner.run(task)
 
     # A emits final; approve to move to B (which will block before first yield)
@@ -491,12 +531,18 @@ async def test_stop_and_resume_from_last_good_step():
 
     # Runner stopped; last good step (A) should be recorded
     assert runner.status.name == "stopped"
-    assert [s.node for s in task.steps] == ["A"]
+    # A finished; B recorded as stopped (no executor yields) with its carried input
+    assert [s.node for s in task.steps] == ["A", "B"]
     assert task.steps[0].status.name == "finished"
     assert len(task.steps[0].executions) == 1
     assert task.steps[0].executions[0].is_complete is True
-    assert task.steps[0].executions[0].output_message is not None
-    assert task.steps[0].executions[0].output_message.text == "A1"
+    assert task.steps[0].executions[0].message is not None
+    assert task.steps[0].executions[0].message.text == "A1"
+    b_stopped = task.steps[1]
+    assert b_stopped.status.name == "stopped"
+    assert len(b_stopped.executions) == 1
+    assert b_stopped.executions[0].type.value == "user"
+    assert b_stopped.executions[0].message.text == "A1"
 
     # Resume: helper should yield last message from A and allow user input to rerun A
     it2 = runner.run(task)
@@ -521,11 +567,25 @@ async def test_stop_and_resume_from_last_good_step():
 
     # Validate final task state
     assert runner.status.name == "finished"
-    assert [s.node for s in task.steps] == ["A", "B"]
-    # A step has two executions (original + rerun)
-    assert len(task.steps[0].executions) == 2
-    assert task.steps[0].executions[0].output_message.text == "A1"
-    assert task.steps[0].executions[1].output_message.text == "A2"
-    # B step has one execution
+    # We keep the stopped B step and add a new finished B step
+    assert [s.node for s in task.steps] == ["A", "B", "B"]
+    # A step has three activities: final A1, user followup, final A2
+    assert len(task.steps[0].executions) == 3
+    assert task.steps[0].executions[0].type.value == "executor"
+    assert task.steps[0].executions[0].message.text == "A1"
+    assert task.steps[0].executions[1].type.value == "user"
+    assert task.steps[0].executions[1].message.text == "followup"
+    assert task.steps[0].executions[2].type.value == "executor"
+    assert task.steps[0].executions[2].message.text == "A2"
+    # First B step is the stopped one with carried input from A1
+    assert task.steps[1].status.name == "stopped"
     assert len(task.steps[1].executions) == 1
-    assert task.steps[1].executions[0].output_message.text == "Bdone"
+    assert task.steps[1].executions[0].type.value == "user"
+    assert task.steps[1].executions[0].message.text == "A1"
+    # Second B step (after resume) includes carried input (A2) and its final
+    assert task.steps[2].status.name == "finished"
+    assert len(task.steps[2].executions) == 2
+    assert task.steps[2].executions[0].type.value == "user"
+    assert task.steps[2].executions[0].message.text == "A2"
+    assert task.steps[2].executions[1].type.value == "executor"
+    assert task.steps[2].executions[1].message.text == "Bdone"

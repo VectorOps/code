@@ -1,8 +1,7 @@
 #+title: Code ToDo
 
 * [ ] Graph
-** [ ] Rename output to be outcome
-** [ ] Rename node to agent
+** [X] Rename output to be outcome
 ** [X] Refactor NodeExecution input_messages and messages. messages should be append only.
 ** [ ] Add a way to override values from a shared config. Options:
 - Through special value
@@ -11,9 +10,7 @@
 - Also read from files when file is defined
 ** [ ] Add a way to get node definition from template and override some of the fields from config
 ** [X] Graph runner
-** [X] Streamline node transition - if there's nowhere to proceed, do not ask for input with need_input
-** [ ] Add a flag if node might need user input or not
-** [ ] There's no difference between input and messages for NodeExecution
+** [ ] Add a way to rewind history back to resume from a different point
 * [ ] Block parsers
 ** [ ] Message construction helpers
 ** [ ] Code parsers
@@ -49,8 +46,8 @@
 - We need machinery to go back in time and reset graph execution to a specific history
 ** [X] Base node runner class
 ** [ ] LLM node
-*** [X] Base
-**** [X] Tool configuration
+*** [ ] Base
+**** [ ] Tool configuration
 *** [ ] Dynamic output selection by LLM
 **** [ ] Configurable system prompt extension
 **** [ ] Cleanup logic

@@ -22,14 +22,19 @@ class StepStatus(str, Enum):
     canceled = "canceled"
     stopped = "stopped"
 
-
-class ToolCallStatus(str, Enum):
+class ActivityType(str, Enum):
+    executor = "executor"
+    user = "user"
     created = "created"
     running = "running"
     completed = "completed"
     failed = "failed"
     rejected = "rejected"
 
+class ToolCallStatus(str, Enum):
+    created = "created"
+    completed = "completed"
+    rejected = "rejected"
 
 class ToolCall(BaseModel):
     id: Optional[str] = Field(
@@ -59,46 +64,37 @@ class Message(BaseModel):
     tool_calls: List[ToolCall] = Field(default_factory=list, description="List of recorded tool calls for this message")
 
 
-class NodeExecution(BaseModel):
-    """
-    A single Node execution state.
-    """
+class Activity(BaseModel):
     id: UUID = Field(default_factory=uuid4, description="Unique identifier for this node execution")
-    input_messages: List[Message] = Field(default_factory=list, description="Input messages given to this execution")
-    output_message: Optional[Message] = None
+    type: ActivityType = Field(..., description="Origin of this activity: executor or user")
+    message: Optional[Message] = Field(default=None, description="Message carried by this activity, if any")
     outcome_name: Optional[str] = None
-    is_canceled: bool = Field(
-        False,
-        description="True when this execution was explicitly canceled by the runner",
-    )
-    is_complete: bool = Field(
-        False,
-        description="True only when the executor's async generator finished and this is the final aggregated result",
-    )
+    is_canceled: bool = Field(False, description="True when this execution was explicitly canceled by the runner")
+    is_complete: bool = Field(False, description="True when this activity represents a completed final result")
 
-    def clone(self, **overrides) -> "NodeExecution":
+    def clone(self, **overrides) -> "Activity":
         data = {
             "id": self.id,
-            "input_messages": list(self.input_messages),
-            "output_messages": list(self.output_messages),
+            "type": self.type,
+            "message": self.message,
             "outcome_name": self.outcome_name,
             "is_canceled": self.is_canceled,
             "is_complete": self.is_complete,
         }
         data.update(overrides)
-        return NodeExecution(**data)
+        return Activity(**data)
 
 
 class Step(BaseModel):
     id: UUID = Field(default_factory=uuid4, description="Unique identifier for this step")
     node: str = Field(..., description="Node name this step pertains to")
-    executions: List[NodeExecution] = Field(default_factory=list)
+    executions: List[Activity] = Field(default_factory=list)
     status: StepStatus = Field(
         default=StepStatus.running,
         description="Current status of this step: running until finalized as finished, canceled, or stopped",
     )
 
 
-class Task(BaseModel):
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier for this task")
+class Assignment(BaseModel):
+    id: UUID = Field(default_factory=uuid4, description="Unique identifier for this assignment")
     steps: List[Step] = Field(default_factory=list)
