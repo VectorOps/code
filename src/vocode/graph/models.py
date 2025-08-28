@@ -1,5 +1,6 @@
 from typing import List, Tuple, Dict, Set, Optional, Type, ClassVar, Any
 from pydantic import BaseModel, Field, field_validator, model_validator, AliasChoices
+from enum import Enum
 
 
 class OutcomeSlot(BaseModel):
@@ -115,6 +116,10 @@ class Node(BaseModel):
         return cls._dispatch_and_validate(obj)
 
 
+class OutcomeStrategy(str, Enum):
+    tag = "tag"
+    function_call = "function_call"
+
 class Edge(BaseModel):
     source_node: str = Field(..., description="Name of the source node")
     source_slot: str = Field(..., description="Name of the outcome slot on the source node")
@@ -127,4 +132,5 @@ class LLMNode(Node):
     system: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
+    outcome_strategy: OutcomeStrategy = Field(default=OutcomeStrategy.tag)
     extra: Dict[str, Any] = Field(default_factory=dict)
