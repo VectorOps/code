@@ -122,7 +122,7 @@ class OutcomeStrategy(str, Enum):
 
 class Edge(BaseModel):
     source_node: str = Field(..., description="Name of the source node")
-    source_slot: str = Field(..., description="Name of the outcome slot on the source node")
+    source_outcome: str = Field(..., description="Name of the outcome slot on the source node")
     target_node: str = Field(..., description="Name of the target node")
 
 

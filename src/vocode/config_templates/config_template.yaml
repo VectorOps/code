@@ -1,0 +1,8 @@
+# Default Vocode configuration
+# Demonstrates include and a minimal tool definition.
+include:
+  files:
+    - sample/basic.yaml
+
+# Add or override tools here.
+tools: {}

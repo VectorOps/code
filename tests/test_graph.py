@@ -18,7 +18,7 @@ def test_build_simple_graph_ok():
         {"name": "B", "type": "child", "outcomes": []},
     ]
     edges = [
-        {"source_node": "A", "source_slot": "toB", "target_node": "B"},
+        {"source_node": "A", "source_outcome": "toB", "target_node": "B"},
     ]
     g = Graph.build(nodes=nodes, edges=edges)
 
@@ -49,18 +49,18 @@ def test_duplicate_node_names_error():
 
 def test_edge_to_unknown_node_error():
     nodes = [{"name": "A", "type": "root", "outcomes": []}]
-    edges = [{"source_node": "A", "source_slot": "x", "target_node": "B"}]
+    edges = [{"source_node": "A", "source_outcome": "x", "target_node": "B"}]
     with pytest.raises(ValueError, match="target_node 'B' does not exist"):
         Graph.build(nodes=nodes, edges=edges)
 
 
-def test_edge_unknown_source_slot_error():
+def test_edge_unknown_source_outcome_error():
     nodes = [
         {"name": "A", "type": "root", "outcomes": [{"name": "x"}]},
         {"name": "B", "type": "child", "outcomes": []},
     ]
-    edges = [{"source_node": "A", "source_slot": "y", "target_node": "B"}]
-    with pytest.raises(ValueError, match="unknown source_slot 'y'"):
+    edges = [{"source_node": "A", "source_outcome": "y", "target_node": "B"}]
+    with pytest.raises(ValueError, match="unknown source_outcome 'y'"):
         Graph.build(nodes=nodes, edges=edges)
 
 
@@ -71,8 +71,8 @@ def test_duplicate_edges_from_same_slot_error():
         {"name": "B2", "type": "child", "outcomes": []},
     ]
     edges = [
-        {"source_node": "A", "source_slot": "x", "target_node": "B1"},
-        {"source_node": "A", "source_slot": "x", "target_node": "B2"},
+        {"source_node": "A", "source_outcome": "x", "target_node": "B1"},
+        {"source_node": "A", "source_outcome": "x", "target_node": "B2"},
     ]
     with pytest.raises(ValueError, match="Multiple edges found from the same outcome slot"):
         Graph.build(nodes=nodes, edges=edges)
@@ -83,6 +83,6 @@ def test_missing_edges_for_declared_outcome_slot_error():
         {"name": "A", "type": "root", "outcomes": [{"name": "x"}, {"name": "y"}]},
         {"name": "B", "type": "child", "outcomes": []},
     ]
-    edges = [{"source_node": "A", "source_slot": "x", "target_node": "B"}]
+    edges = [{"source_node": "A", "source_outcome": "x", "target_node": "B"}]
     with pytest.raises(ValueError, match=r"Missing edges for declared outcome slots: A:y"):
         Graph.build(nodes=nodes, edges=edges)

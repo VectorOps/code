@@ -55,7 +55,7 @@ class Graph(BaseModel):
             parent = graph._runtime_nodes[e.source_node]
             child = graph._runtime_nodes[e.target_node]
             parent._children.append(child)
-            parent._child_by_outcome[e.source_slot] = child
+            parent._child_by_outcome[e.source_outcome] = child
         graph._root = graph._runtime_nodes[graph.nodes[0].name]
         return graph
 
@@ -90,7 +90,7 @@ class Graph(BaseModel):
         }
 
         # Validate edges refer to existing nodes and declared source slots,
-        # and that there is at most one edge per (source_node, source_slot)
+        # and that there is at most one edge per (source_node, source_outcome)
         edges_by_source: Dict[Tuple[str, str], Edge] = {}
         for e in edges:
             if e.source_node not in node_by_name:
@@ -99,15 +99,15 @@ class Graph(BaseModel):
                 raise ValueError(f"Edge target_node '{e.target_node}' does not exist in graph.nodes")
 
             source_node = node_by_name[e.source_node]
-            if e.source_slot not in {s.name for s in source_node.outcomes}:
+            if e.source_outcome not in {s.name for s in source_node.outcomes}:
                 raise ValueError(
-                    f"Edge references unknown source_slot '{e.source_slot}' on node '{e.source_node}'"
+                    f"Edge references unknown source_outcome '{e.source_outcome}' on node '{e.source_node}'"
                 )
 
-            key = (e.source_node, e.source_slot)
+            key = (e.source_node, e.source_outcome)
             if key in edges_by_source:
                 raise ValueError(
-                    f"Multiple edges found from the same outcome slot: node='{e.source_node}', slot='{e.source_slot}'"
+                    f"Multiple edges found from the same outcome slot: node='{e.source_node}', slot='{e.source_outcome}'"
                 )
             edges_by_source[key] = e
 

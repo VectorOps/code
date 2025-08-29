@@ -206,7 +206,7 @@ async def test_transition_to_next_node_and_pass_all_messages(pass_all):
         {"name": "A", "type": "a", "outcomes": [OutcomeSlot(name="toB")], "pass_all_messages": pass_all},
         {"name": "B", "type": "b", "outcomes": []},
     ]
-    edges = [Edge(source_node="A", source_slot="toB", target_node="B")]
+    edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
     g = Graph.build(nodes=nodes, edges=edges)
     agent = Agent(name="agent", graph=g)
 
@@ -279,8 +279,8 @@ async def test_error_multiple_outcomes_without_outcome_name():
         {"name": "By", "type": "b2", "outcomes": []},
     ]
     edges = [
-        Edge(source_node="A", source_slot="x", target_node="Bx"),
-        Edge(source_node="A", source_slot="y", target_node="By"),
+        Edge(source_node="A", source_outcome="x", target_node="Bx"),
+        Edge(source_node="A", source_outcome="y", target_node="By"),
     ]
     g = Graph.build(nodes=nodes, edges=edges)
     agent = Agent(name="agent", graph=g)
@@ -319,7 +319,7 @@ async def test_error_unknown_outcome_name():
         {"name": "A", "type": "err2", "outcomes": [OutcomeSlot(name="go")]},
         {"name": "B", "type": "b", "outcomes": []},
     ]
-    edges = [Edge(source_node="A", source_slot="go", target_node="B")]
+    edges = [Edge(source_node="A", source_outcome="go", target_node="B")]
     g = Graph.build(nodes=nodes, edges=edges)
     agent = Agent(name="agent", graph=g)
 
@@ -478,7 +478,7 @@ async def test_stop_and_resume_from_last_good_step():
         {"name": "A", "type": "a", "outcomes": [OutcomeSlot(name="toB")]},
         {"name": "B", "type": "b", "outcomes": []},
     ]
-    edges = [Edge(source_node="A", source_slot="toB", target_node="B")]
+    edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
     g = Graph.build(nodes=nodes, edges=edges)
     agent = Agent(name="agent", graph=g)
 

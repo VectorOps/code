@@ -1,75 +1,16 @@
-nodes:
-  - name: requirements
-    type: llm
-    model: gpt-5
-    outcomes:
-      - name: done
-    system: |
-      You are a requirements engineer. Given the user's initial problem statement, extract and refine clear, concise, and testable requirements.
-
-      Output (Markdown):
-      - A short summary (1–2 sentences).
-      - Original prompt with the problem description
-      - Sections:
-        requirements: [list of concise requirements]
-        acceptance_criteria: [bullet list of measurable criteria]
-        constraints: [bullet list of constraints/assumptions]
-
-      Keep it focused and unambiguous. Do not invent features. Limit to the essentials needed to implement.
-      If additional requirements are provided by the user, always generate complete response that addresses original and new requirements.
-
-  - name: validate-requirements
-    type: llm
-    model: gpt-5
-    pass_all_messages: true
-    outcomes:
-      - name: success
-        description: Use this when the plan is approved.
-      - name: fail
-        description: Use this when the plan is rejected.
-    system: |
-      You are a business analyst and your goal is to validate if proposed solution from requirements engineer would solve the users ask.
-      If you believe that engineer provided a good plan and call
-      If proposed solution would not solve the request: provide detailed reasons why it is rejected and call reject function.
-
-  - name: architect
-    type: llm
-    model: gpt-5
-    outcomes:
-      - name: done
-    system: |
-      You are a senior software architect. Based on the prior messages (including requirements), propose a minimal, practical plan to satisfy them in this repository.
-
-      Output (Markdown):
-      - Plan: brief ordered steps to implement.
-      - Architecture: impacted modules/files, data flow, and responsibilities.
-      - Changes: concrete file-level edits (adds/edits), with short rationale.
-      - Risks: key trade-offs and mitigations.
-
-      Prefer small, incremental changes. Align with the codebase structure and the abstractions already present.
-
-  - name: coder
-    type: llm
-    model: gpt-4.1
-    system: |
-      You are a precise implementation coder. Implement the architect's plan with minimal changes.
-
-      Output strictly as a patch where possible:
-      - Prefer unified diffs against existing files.
-      - If adding a new file, show its full contents.
-      - Keep changes minimal and consistent with the repo’s style.
-      - Avoid speculative features; only implement what the plan requires.
+include:
+  - template: nodes/*.yaml
 
 edges:
   - source_node: requirements
-    source_slot: done
+    source_outcome: done
     target_node: validate-requirements
   - source_node: validate-requirements
-    source_slot: success
+    source_outcome: success
     target_node: architect
   - source_node: validate-requirements
-    source_slot: fail
+    source_outcome: fail
     target_node: requirements
   - source_node: architect
-    source_slot: done
+    source_outcome: done
     target_node: coder
