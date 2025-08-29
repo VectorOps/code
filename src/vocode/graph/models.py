@@ -1,6 +1,9 @@
 from typing import List, Tuple, Dict, Set, Optional, Type, ClassVar, Any
 from pydantic import BaseModel, Field, field_validator, model_validator, AliasChoices
 from enum import Enum
+import re
+
+EDGE_ALT_SYNTAX_RE = re.compile(r"^\s*([A-Za-z0-9_\-]+)\.([A-Za-z0-9_\-]+)\s*->\s*([A-Za-z0-9_\-]+)\s*$")
 
 
 class OutcomeSlot(BaseModel):
@@ -124,6 +127,21 @@ class Edge(BaseModel):
     source_node: str = Field(..., description="Name of the source node")
     source_outcome: str = Field(..., description="Name of the outcome slot on the source node")
     target_node: str = Field(..., description="Name of the target node")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _parse_alt_syntax(cls, v: Any) -> Any:
+        # Accept "source.node -> target" string form
+        if isinstance(v, str):
+            m = EDGE_ALT_SYNTAX_RE.match(v)
+            if not m:
+                raise ValueError("Edge string must be '<source_node>.<source_outcome> -> <target_node>'")
+            return {
+                "source_node": m.group(1),
+                "source_outcome": m.group(2),
+                "target_node": m.group(3),
+            }
+        return v
 
 
 class LLMNode(Node):

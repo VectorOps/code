@@ -2,15 +2,7 @@ include:
   - template: nodes/*.yaml
 
 edges:
-  - source_node: requirements
-    source_outcome: done
-    target_node: validate-requirements
-  - source_node: validate-requirements
-    source_outcome: success
-    target_node: architect
-  - source_node: validate-requirements
-    source_outcome: fail
-    target_node: requirements
-  - source_node: architect
-    source_outcome: done
-    target_node: coder
+  - requirements.done -> validate-requirements
+  - validate-requirements.success -> architect
+  - validate-requirements.fail -> requirements
+  - architect.done -> coder

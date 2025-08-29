@@ -425,3 +425,24 @@ include:
     settings = load_settings(str(root))
     # At least confirm the loader returned a Settings object with a tools mapping
     assert isinstance(settings.tools, dict)
+
+
+def test_edge_alternative_string_syntax(tmp_path: Path):
+    cfg = _w(
+        tmp_path,
+        "edges_str.yml",
+        """
+tools:
+  t:
+    nodes: []
+    edges:
+      - requirements.done -> validate-requirements
+""",
+    )
+    settings = load_settings(str(cfg))
+    edges = settings.tools["t"].edges
+    assert len(edges) == 1
+    e = edges[0]
+    assert e.source_node == "requirements"
+    assert e.source_outcome == "done"
+    assert e.target_node == "validate-requirements"
