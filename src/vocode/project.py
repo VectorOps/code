@@ -1,5 +1,7 @@
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Dict, Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    from .tools import BaseTool
 from pydantic import BaseModel, Field
 
 from .settings import Settings, load_settings
@@ -10,6 +12,7 @@ class Project(BaseModel):
     base_path: Path
     config_relpath: Path = Field(default=Path(".vocode/config.yaml"))
     settings: Optional[Settings] = None
+    tools: Dict[str, Any] = Field(default_factory=dict)  # name -> tool instance
 
     @property
     def config_path(self) -> Path:
@@ -34,4 +37,9 @@ def init_project(base_path: Union[str, Path], config_relpath: Union[str, Path] =
         write_default_config(config_path)
     # Load merged settings (supports include + YAML/JSON5)
     settings = load_settings(str(config_path))
-    return Project(base_path=base, config_relpath=rel, settings=settings)
+
+    # Import here to avoid circular import at module level
+    from .tools import BaseTool
+    tools = {name: tool_cls() for name, tool_cls in BaseTool.get_registered().items()}
+
+    return Project(base_path=base, config_relpath=rel, settings=settings, tools=tools)
