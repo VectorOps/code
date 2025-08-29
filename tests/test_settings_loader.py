@@ -16,7 +16,7 @@ def test_yaml_include_and_deep_merge(tmp_path: Path):
         tmp_path,
         "base.yml",
         """
-tools:
+workflows:
   greet:
     nodes:
       - name: A
@@ -34,7 +34,7 @@ tools:
         "child.yml",
         """
 include: base.yml
-tools:
+workflows:
   greet:
     # Replace nodes list (list replacement expected)
     nodes:
@@ -51,10 +51,10 @@ tools:
     settings = load_settings(str(child))
 
     # Merged tool keys from base and child
-    assert set(settings.tools.keys()) == {"greet", "other", "newtool"}
+    assert set(settings.workflows.keys()) == {"greet", "other", "newtool"}
 
     # 'greet' nodes list replaced by child's definition
-    greet = settings.tools["greet"]
+    greet = settings.workflows["greet"]
     assert len(greet.nodes) == 1
     assert greet.nodes[0].name == "B"
     assert greet.nodes[0].type == "b"
@@ -63,12 +63,12 @@ tools:
     assert greet.name == "greet"
 
     # 'other' preserved from base
-    assert settings.tools["other"].name == "other"
-    assert settings.tools["other"].nodes == []
-    assert settings.tools["other"].edges == []
+    assert settings.workflows["other"].name == "other"
+    assert settings.workflows["other"].nodes == []
+    assert settings.workflows["other"].edges == []
 
     # 'newtool' added by child
-    assert settings.tools["newtool"].name == "newtool"
+    assert settings.workflows["newtool"].name == "newtool"
 
 
 def test_include_dict_files_list_and_override(tmp_path: Path):
@@ -76,7 +76,7 @@ def test_include_dict_files_list_and_override(tmp_path: Path):
         tmp_path,
         "file1.yml",
         """
-tools:
+workflows:
   t1:
     nodes: []
     edges: []
@@ -86,7 +86,7 @@ tools:
         tmp_path,
         "file2.yaml",
         """
-tools:
+workflows:
   t2:
     nodes: []
     edges: []
@@ -100,7 +100,7 @@ include:
   files:
     - {f1.name}
     - {f2.name}
-tools:
+workflows:
   # Override/define t2 after includes
   t2:
     nodes:
@@ -113,12 +113,12 @@ tools:
 
     settings = load_settings(str(root))
 
-    assert set(settings.tools.keys()) == {"t1", "t2"}
-    assert settings.tools["t1"].name == "t1"
-    assert settings.tools["t2"].name == "t2"
-    assert len(settings.tools["t2"].nodes) == 1
-    assert settings.tools["t2"].nodes[0].name == "C"
-    assert settings.tools["t2"].nodes[0].type == "c"
+    assert set(settings.workflows.keys()) == {"t1", "t2"}
+    assert settings.workflows["t1"].name == "t1"
+    assert settings.workflows["t2"].name == "t2"
+    assert len(settings.workflows["t2"].nodes) == 1
+    assert settings.workflows["t2"].nodes[0].name == "C"
+    assert settings.workflows["t2"].nodes[0].type == "c"
 
 
 def test_json5_loader(tmp_path: Path):
@@ -130,7 +130,7 @@ def test_json5_loader(tmp_path: Path):
         """
 {
   // JSON5 with comments and trailing commas
-  tools: {
+  workflows: {
     hello: {
       nodes: [
         {name: "A", type: "a", outcomes: []},
@@ -143,11 +143,11 @@ def test_json5_loader(tmp_path: Path):
     )
 
     settings = load_settings(str(cfg))
-    assert "hello" in settings.tools
-    assert settings.tools["hello"].name == "hello"
-    assert len(settings.tools["hello"].nodes) == 1
-    assert settings.tools["hello"].nodes[0].name == "A"
-    assert settings.tools["hello"].nodes[0].type == "a"
+    assert "hello" in settings.workflows
+    assert settings.workflows["hello"].name == "hello"
+    assert len(settings.workflows["hello"].nodes) == 1
+    assert settings.workflows["hello"].nodes[0].name == "A"
+    assert settings.workflows["hello"].nodes[0].type == "a"
 
 
 def test_include_cycle_detection(tmp_path: Path):
@@ -156,7 +156,7 @@ def test_include_cycle_detection(tmp_path: Path):
         "a.yml",
         """
 include: b.yml
-tools: {}
+workflows: {}
 """,
     )
     b = _w(
@@ -164,7 +164,7 @@ tools: {}
         "b.yml",
         """
 include: a.yml
-tools: {}
+workflows: {}
 """,
     )
 
@@ -177,7 +177,7 @@ def test_include_array_of_strings(tmp_path: Path):
         tmp_path,
         "file1.yml",
         """
-tools:
+workflows:
   t1:
     nodes: []
     edges: []
@@ -187,7 +187,7 @@ tools:
         tmp_path,
         "file2.yml",
         """
-tools:
+workflows:
   t2:
     nodes: []
     edges: []
@@ -203,7 +203,7 @@ include:
 """,
     )
     settings = load_settings(str(root))
-    assert set(settings.tools.keys()) == {"t1", "t2"}
+    assert set(settings.workflows.keys()) == {"t1", "t2"}
 
 
 def test_include_array_of_objects_local(tmp_path: Path):
@@ -211,7 +211,7 @@ def test_include_array_of_objects_local(tmp_path: Path):
         tmp_path,
         "a.yml",
         """
-tools:
+workflows:
   a:
     nodes: []
     edges: []
@@ -221,7 +221,7 @@ tools:
         tmp_path,
         "b.yml",
         """
-tools:
+workflows:
   b:
     nodes: []
     edges: []
@@ -237,7 +237,7 @@ include:
 """,
     )
     settings = load_settings(str(root))
-    assert set(settings.tools.keys()) == {"a", "b"}
+    assert set(settings.workflows.keys()) == {"a", "b"}
 
 
 def test_include_glob_patterns(tmp_path: Path):
@@ -247,7 +247,7 @@ def test_include_glob_patterns(tmp_path: Path):
         inc,
         "one.yml",
         """
-tools:
+workflows:
   one:
     nodes: []
     edges: []
@@ -257,7 +257,7 @@ tools:
         inc,
         "two.yml",
         """
-tools:
+workflows:
   two:
     nodes: []
     edges: []
@@ -271,7 +271,7 @@ include: inc/*.yml
 """,
     )
     settings = load_settings(str(root))
-    assert set(settings.tools.keys()) == {"one", "two"}
+    assert set(settings.workflows.keys()) == {"one", "two"}
 
 
 def test_variables_mapping_and_interpolation(tmp_path: Path):
@@ -282,7 +282,7 @@ def test_variables_mapping_and_interpolation(tmp_path: Path):
 variables:
   NAME: world
   MODEL: gpt-4o-mini
-tools:
+workflows:
   hello:
     nodes:
       - name: "Hello $NAME"
@@ -293,7 +293,7 @@ tools:
 """,
     )
     settings = load_settings(str(cfg))
-    hello = settings.tools["hello"]
+    hello = settings.workflows["hello"]
     assert len(hello.nodes) == 1
     n = hello.nodes[0]
     assert isinstance(n, LLMNode)
@@ -311,7 +311,7 @@ def test_variables_list_one_key_mappings(tmp_path: Path):
 variables:
   - FOO: bar
   - BAZ: qux
-tools:
+workflows:
   varlist:
     nodes:
       - name: "$FOO-$BAZ"
@@ -321,7 +321,7 @@ tools:
 """,
     )
     settings = load_settings(str(cfg))
-    n = settings.tools["varlist"].nodes[0]
+    n = settings.workflows["varlist"].nodes[0]
     assert n.name == "bar-qux"
 
 
@@ -333,7 +333,7 @@ def test_variables_list_key_value_entries(tmp_path: Path):
 variables:
   - key: X
     value: 42
-tools:
+workflows:
   kv:
     nodes:
       - name: "The answer is $X"
@@ -343,7 +343,7 @@ tools:
 """,
     )
     settings = load_settings(str(cfg))
-    n = settings.tools["kv"].nodes[0]
+    n = settings.workflows["kv"].nodes[0]
     assert n.name == "The answer is 42"
 
 
@@ -355,7 +355,7 @@ def test_variables_env_override(monkeypatch, tmp_path: Path):
         """
 variables:
   NAME: default
-tools:
+workflows:
   hello:
     nodes:
       - name: "$NAME"
@@ -365,7 +365,7 @@ tools:
 """,
     )
     settings = load_settings(str(cfg))
-    n = settings.tools["hello"].nodes[0]
+    n = settings.workflows["hello"].nodes[0]
     assert n.name == "envy"
 
 
@@ -374,7 +374,7 @@ def test_variables_unknown_left_unmodified(tmp_path: Path):
         tmp_path,
         "vars_unknown.yml",
         """
-tools:
+workflows:
   t:
     nodes:
       - name: "$NOPE and ${ALSO_NOPE}"
@@ -384,7 +384,7 @@ tools:
 """,
     )
     settings = load_settings(str(cfg))
-    n = settings.tools["t"].nodes[0]
+    n = settings.workflows["t"].nodes[0]
     assert n.name == "$NOPE and ${ALSO_NOPE}"
 
 
@@ -394,7 +394,7 @@ def test_include_disallow_parent_traversal(tmp_path: Path):
     outside = tmp_path / "outside.yml"
     outside.write_text(
         """
-tools:
+workflows:
   out:
     nodes: []
     edges: []
@@ -423,8 +423,8 @@ include:
 """,
     )
     settings = load_settings(str(root))
-    # At least confirm the loader returned a Settings object with a tools mapping
-    assert isinstance(settings.tools, dict)
+    # At least confirm the loader returned a Settings object with a workflows mapping
+    assert isinstance(settings.workflows, dict)
 
 
 def test_edge_alternative_string_syntax(tmp_path: Path):
@@ -432,7 +432,7 @@ def test_edge_alternative_string_syntax(tmp_path: Path):
         tmp_path,
         "edges_str.yml",
         """
-tools:
+workflows:
   t:
     nodes: []
     edges:
@@ -440,7 +440,7 @@ tools:
 """,
     )
     settings = load_settings(str(cfg))
-    edges = settings.tools["t"].edges
+    edges = settings.workflows["t"].edges
     assert len(edges) == 1
     e = edges[0]
     assert e.source_node == "requirements"

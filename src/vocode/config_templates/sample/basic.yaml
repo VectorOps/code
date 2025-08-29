@@ -1,5 +1,5 @@
 # Sample configuration included by the default config template.
-tools:
+workflows:
   example:
     nodes:
       - name: "Start"

@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Any, Union, Set, Final
+from typing import List, Dict, Optional, Any, Union, Set, Final, Type
 import re
 from pathlib import Path
 from os import PathLike
@@ -17,8 +17,9 @@ TEMPLATE_INCLUDE_KEYS: Final[Set[str]] = {"template", "templates", "vocode"}
 VAR_PATTERN = re.compile(r"\$(\w+)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
-class Tool(BaseModel):
+class Workflow(BaseModel):
     name: Optional[str] = None
+    config: Dict[str, Any] = Field(default_factory=dict)
     nodes: List[Node] = Field(default_factory=list)
     edges: List[Edge] = Field(default_factory=list)
 
@@ -36,13 +37,19 @@ class Tool(BaseModel):
         return data
 
 
+class ToolSettings(BaseModel):
+    name: str
+    enabled: bool = True
+    config: Dict[str, Any] = Field(default_factory=dict)
+
 class Settings(BaseModel):
-    tools: Dict[str, Tool] = Field(default_factory=dict)
+    workflows: Dict[str, Workflow] = Field(default_factory=dict)
+    tools: List[ToolSettings] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _sync_tool_names(self) -> "Settings":
-        for key, tool in self.tools.items():
-            tool.name = key
+    def _sync_workflow_names(self) -> "Settings":
+        for key, wf in self.workflows.items():
+            wf.name = key
         return self
 
 
@@ -62,6 +69,7 @@ def _deep_merge_dicts(a: Dict[str, Any], b: Dict[str, Any], *, concat_lists: boo
         else:
             out[k] = v
     return out
+
 
 def _collect_variables(doc: Dict[str, Any]) -> Dict[str, str]:
     """
@@ -236,3 +244,14 @@ def _load_with_includes(path: Union[str, Path], seen: Optional[Set[Path]] = None
 def load_settings(path: str) -> Settings:
     data = _load_with_includes(path)
     return Settings.model_validate(data)
+
+def build_model_from_settings(data: Optional[Dict[str, Any]], model_cls: Type[BaseModel]) -> BaseModel:
+    """
+    Populate a Pydantic model from a settings dict.
+    Raises ValidationError if the configuration is incorrect.
+    """
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        raise TypeError(f"Expected dict for {model_cls.__name__} settings, got {type(data).__name__}")
+    return model_cls.model_validate(data)

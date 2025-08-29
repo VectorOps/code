@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, Type, TYPE_CHECKING
+from typing import Any, ClassVar, Dict, Type, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .project import Project
@@ -20,6 +20,10 @@ class BaseTool:
 
     # Global registry of tool name -> subclass
     _registry: ClassVar[Dict[str, Type["BaseTool"]]] = {}
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+        # Raw tool configuration from settings (tool may validate/parse it)
+        self.config: Dict[str, Any] = config or {}
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)

@@ -40,6 +40,15 @@ def init_project(base_path: Union[str, Path], config_relpath: Union[str, Path] =
 
     # Import here to avoid circular import at module level
     from .tools import BaseTool
-    tools = {name: tool_cls() for name, tool_cls in BaseTool.get_registered().items()}
+    reg = BaseTool.get_registered()
+    tools: Dict[str, Any] = {}
+    for entry in settings.tools or []:
+        if not entry.enabled:
+            continue
+        tool_cls = reg.get(entry.name)
+        if tool_cls is None:
+            raise KeyError(f"Tool '{entry.name}' is configured in settings but not registered")
+        # Pass the raw config dict; the tool may validate using build_model_from_settings
+        tools[entry.name] = tool_cls(config=entry.config or {})
 
     return Project(base_path=base, config_relpath=rel, settings=settings, tools=tools)
