@@ -1,16 +1,17 @@
 #+title: Code ToDo
 
+* [ ] Figure out dependency graph between project, tools
 * [ ] Graph
 ** [X] Rename output to be outcome
 ** [X] Refactor NodeExecution input_messages and messages. messages should be append only.
-** [ ] Add a way to override values from a shared config. Options:
+** [X] Add a way to override values from a shared config. Options:
 - Through special value
 - Though path in the settings of <tool_name.node_name.field_name> syntax
 - Both?
 - Also read from files when file is defined
-** [ ] Add a way to get node definition from template and override some of the fields from config
+** [X] Add a way to get node definition from template and override some of the fields from config
 ** [X] Graph runner
-** [ ] Add a way to rewind history back to resume from a different point
+** [X] Add a way to rewind history back to resume from a different point
 * [ ] Block parsers
 ** [ ] Message construction helpers
 ** [ ] Code parsers
@@ -18,8 +19,8 @@
 *** [ ] GPT diff format
 *** [ ] Fenced diff format
 *** [ ] Full file diff format
-* [ ] Settings
-** [ ] Settings loader
+* [X] Settings
+** [X] Settings loader
 * [ ] Chat state
 ** [X] NodeLog, Section, Message
 * [ ] UI protocol
@@ -35,7 +36,8 @@
 ** [ ] In-memory bidirectional stream implementation for TUI
 ** [ ] Websockets implementation
 * [ ] Nodes
-** [ ] Think how to manage state for a run
+** [ ] Add project as a parameter to executor
+** [ ] [#A] Think how to manage state for a run
 - Sometimes we need to maintain the state when additional information is found and added to state
 - Sometimes we need to start fresh
 - But need to maintain state if looped by human
@@ -46,13 +48,14 @@
 - We need machinery to go back in time and reset graph execution to a specific history
 ** [X] Base node runner class
 ** [ ] LLM node
-*** [ ] Base
+*** [?] Base
 **** [ ] Tool configuration
+**** [ ] Exposing available tools to LLM from project
 *** [ ] Dynamic output selection by LLM
 **** [ ] Configurable system prompt extension
 **** [ ] Cleanup logic
 **** [ ] Re-prompt if answer is not provided
-**** [ ] Add non-function way of picking next step
+**** [X] Add non-function way of picking next step
 **** [ ] Add a way for LLM to request additional user input
 *** [ ] Do not add empty message to output
 *** [ ] Auto-retry on timeout
