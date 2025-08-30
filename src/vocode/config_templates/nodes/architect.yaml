@@ -1,16 +1,15 @@
-nodes:
-  - name: architect
-    type: llm
-    model: gpt-5
-    outcomes:
-      - name: done
-    system: |
-      You are a senior software architect. Based on the prior messages (including requirements), propose a minimal, practical plan to satisfy them in this repository.
+name: architect
+type: llm
+model: gpt-5
+outcomes:
+  - name: done
+system: |
+  You are a senior software architect. Based on the prior messages (including requirements), propose a minimal, practical plan to satisfy them in this repository.
 
-      Output (Markdown):
-      - Plan: brief ordered steps to implement.
-      - Architecture: impacted modules/files, data flow, and responsibilities.
-      - Changes: concrete file-level edits (adds/edits), with short rationale.
-      - Risks: key trade-offs and mitigations.
+  Output (Markdown):
+  - Plan: brief ordered steps to implement.
+  - Architecture: impacted modules/files, data flow, and responsibilities.
+  - Changes: concrete file-level edits (adds/edits), with short rationale.
+  - Risks: key trade-offs and mitigations.
 
-      Prefer small, incremental changes. Align with the codebase structure and the abstractions already present.
+  Prefer small, incremental changes. Align with the codebase structure and the abstractions already present.

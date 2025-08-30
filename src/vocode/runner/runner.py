@@ -76,15 +76,15 @@ class Executor:
 
 
 class Runner:
-    def __init__(self, agent, project: "Project", initial_message: Optional[Message] = None):
+    def __init__(self, workflow, project: "Project", initial_message: Optional[Message] = None):
         """Prepare the runner with a graph, initial message, status flags, and per-node executors."""
-        self.agent = agent
+        self.workflow = workflow
         self.project = project
         self.initial_message: Optional[Message] = initial_message
         self.status: RunnerStatus = RunnerStatus.idle
         self._current_exec_task: Optional[asyncio.Task] = None
         self._executors: Dict[str, Executor] = {
-            n.name: Executor.create_for_node(n, project=self.project) for n in self.agent.graph.nodes
+            n.name: Executor.create_for_node(n, project=self.project) for n in self.workflow.graph.nodes
         }
         self._stop_requested: bool = False
 
@@ -139,7 +139,7 @@ class Runner:
 
     def _find_runtime_node_by_name(self, name: str):
         """Locate the RuntimeNode by name using Graph's runtime map."""
-        return self.agent.graph.get_runtime_node_by_name(name)
+        return self.workflow.graph.get_runtime_node_by_name(name)
 
     def _prepare_resume(self, task: Assignment):
         """
@@ -178,7 +178,7 @@ class Runner:
             )
         prev_status = self.status
         self.status = RunnerStatus.running
-        graph = self.agent.graph
+        graph = self.workflow.graph
 
         # Runner resuming
         resume_plan = None

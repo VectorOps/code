@@ -25,7 +25,7 @@ async def test_message_request_reprompt_and_finish():
     # Single-node graph with type 'ask'
     nodes = [{"name": "Ask", "type": "ask", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Workflow(name="agent", graph=g)
+    workflow = Workflow(name="workflow", graph=g)
 
     # Executor that requires a message, then emits interim and final
     class AskExecutor(Executor):
@@ -44,7 +44,7 @@ async def test_message_request_reprompt_and_finish():
             yield ReqFinalMessage(message=final)
 
     project = Project(base_path=Path("."))
-    runner = Runner(agent, project)
+    runner = Runner(workflow, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -97,7 +97,7 @@ async def test_message_request_reprompt_and_finish():
 async def test_tool_call_approved_and_rejected():
     nodes = [{"name": "Tool", "type": "tool", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Workflow(name="agent", graph=g)
+    workflow = Workflow(name="workflow", graph=g)
 
     class ToolExecutor(Executor):
         type = "tool"
@@ -120,7 +120,7 @@ async def test_tool_call_approved_and_rejected():
             yield ReqFinalMessage(message=msg("agent", "done"))
 
     project = Project(base_path=Path("."))
-    runner = Runner(agent, project)
+    runner = Runner(workflow, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -156,7 +156,7 @@ async def test_tool_call_approved_and_rejected():
 async def test_final_message_rerun_same_node_with_user_message():
     nodes = [{"name": "Echo", "type": "echo", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Workflow(name="agent", graph=g)
+    workflow = Workflow(name="workflow", graph=g)
 
     class EchoExecutor(Executor):
         type = "echo"
@@ -175,7 +175,7 @@ async def test_final_message_rerun_same_node_with_user_message():
                 yield ReqFinalMessage(message=msg("agent", "done"))
 
     project = Project(base_path=Path("."))
-    runner = Runner(agent, project)
+    runner = Runner(workflow, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -213,7 +213,7 @@ async def test_transition_to_next_node_and_pass_all_messages(pass_all):
     ]
     edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
     g = Graph.build(nodes=nodes, edges=edges)
-    agent = Workflow(name="agent", graph=g)
+    workflow = Workflow(name="workflow", graph=g)
 
     class AExec(Executor):
         type = "a"
@@ -238,7 +238,7 @@ async def test_transition_to_next_node_and_pass_all_messages(pass_all):
             yield ReqFinalMessage(message=msg("agent", "Bout"))
 
     project = Project(base_path=Path("."))
-    runner = Runner(agent, project, initial_message=msg("system", "sys"))
+    runner = Runner(workflow, project, initial_message=msg("system", "sys"))
     task = Assignment()
     it = runner.run(task)
 
@@ -289,7 +289,7 @@ async def test_error_multiple_outcomes_without_outcome_name():
         Edge(source_node="A", source_outcome="y", target_node="By"),
     ]
     g = Graph.build(nodes=nodes, edges=edges)
-    agent = Workflow(name="agent", graph=g)
+    workflow = Workflow(name="workflow", graph=g)
 
     class ErrExecA(Executor):
         type = "errA"
@@ -310,7 +310,7 @@ async def test_error_multiple_outcomes_without_outcome_name():
             yield ReqFinalMessage(message=msg("agent", "By"))
 
     project = Project(base_path=Path("."))
-    runner = Runner(agent, project)
+    runner = Runner(workflow, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -328,7 +328,7 @@ async def test_error_unknown_outcome_name():
     ]
     edges = [Edge(source_node="A", source_outcome="go", target_node="B")]
     g = Graph.build(nodes=nodes, edges=edges)
-    agent = Workflow(name="agent", graph=g)
+    workflow = Workflow(name="workflow", graph=g)
 
     class Err2Exec(Executor):
         type = "err2"
@@ -341,7 +341,7 @@ async def test_error_unknown_outcome_name():
             yield ReqFinalMessage(message=msg("agent", "B"))
 
     project = Project(base_path=Path("."))
-    runner = Runner(agent, project)
+    runner = Runner(workflow, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -355,7 +355,7 @@ async def test_error_unknown_outcome_name():
 async def test_cancel_before_first_yield():
     nodes = [{"name": "Slow", "type": "slow", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Workflow(name="agent", graph=g)
+    workflow = Workflow(name="workflow", graph=g)
 
     class SlowExec(Executor):
         type = "slow"
@@ -370,7 +370,7 @@ async def test_cancel_before_first_yield():
                 type(self).closed = True
 
     project = Project(base_path=Path("."))
-    runner = Runner(agent, project)
+    runner = Runner(workflow, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -399,7 +399,7 @@ async def test_cancel_before_first_yield():
 async def test_cancel_during_asend_after_tool_response():
     nodes = [{"name": "ToolSlow", "type": "toolslow", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Workflow(name="agent", graph=g)
+    workflow = Workflow(name="workflow", graph=g)
 
     class ToolThenSlow(Executor):
         type = "toolslow"
@@ -415,7 +415,7 @@ async def test_cancel_during_asend_after_tool_response():
                 type(self).closed = True
 
     project = Project(base_path=Path("."))
-    runner = Runner(agent, project)
+    runner = Runner(workflow, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -446,7 +446,7 @@ async def test_cancel_during_asend_after_tool_response():
 async def test_stop_before_first_yield():
     nodes = [{"name": "Slow", "type": "slow", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Workflow(name="agent", graph=g)
+    workflow = Workflow(name="workflow", graph=g)
 
     class SlowExec(Executor):
         type = "slow"
@@ -459,7 +459,7 @@ async def test_stop_before_first_yield():
                 type(self).closed = True
 
     project = Project(base_path=Path("."))
-    runner = Runner(agent, project)
+    runner = Runner(workflow, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -491,7 +491,7 @@ async def test_stop_and_resume_from_last_good_step():
     ]
     edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
     g = Graph.build(nodes=nodes, edges=edges)
-    agent = Workflow(name="agent", graph=g)
+    workflow = Workflow(name="workflow", graph=g)
 
     class AExec(Executor):
         type = "a"
@@ -526,7 +526,7 @@ async def test_stop_and_resume_from_last_good_step():
                 yield ReqFinalMessage(message=msg("agent", "Bdone"))
 
     project = Project(base_path=Path("."))
-    runner = Runner(agent, project)
+    runner = Runner(workflow, project)
     task = Assignment()
     it = runner.run(task)
 

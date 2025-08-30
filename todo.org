@@ -1,5 +1,16 @@
 #+title: Code ToDo
 
+* [ ] UI protocol
+** [ ] In-memory bidirectional stream implementation for TUI
+** [ ] General requirements
+- Send initial configuration: available tools, their node configuration, etc.
+- Stream state change messages
+- RPC subprotocol for various helpers
+  - Request user input and provide response
+  - Tab-based autocompletion
+  - Send ctrl+c
+** [ ] Clearly defined spec
+** [ ] Websockets implementation
 * [ ] Figure out dependency graph between project, tools
 * [ ] Graph
 ** [X] Rename output to be outcome
@@ -23,18 +34,6 @@
 ** [X] Settings loader
 * [ ] Chat state
 ** [X] NodeLog, Section, Message
-* [ ] UI protocol
-** [ ] General requirements
-- Authentication
-- Send initial configuration: available tools, their node configuration, etc.
-- Stream state change messages
-- RPC subprotocol for various helpers
-  - Request user input and provide response
-  - Tab-based autocompletion
-  - Send ctrl+c
-** [ ] Clearly defined spec
-** [ ] In-memory bidirectional stream implementation for TUI
-** [ ] Websockets implementation
 * [ ] Nodes
 ** [ ] Add project as a parameter to executor
 ** [ ] [#A] Think how to manage state for a run

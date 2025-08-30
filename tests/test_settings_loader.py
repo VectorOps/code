@@ -33,7 +33,7 @@ workflows:
         tmp_path,
         "child.yml",
         """
-include: base.yml
+$include: base.yml
 workflows:
   greet:
     # Replace nodes list (list replacement expected)
@@ -76,49 +76,41 @@ def test_include_dict_files_list_and_override(tmp_path: Path):
         tmp_path,
         "file1.yml",
         """
-workflows:
-  t1:
-    nodes: []
-    edges: []
+name: C1
+type: c
+outcomes: []
 """,
     )
     f2 = _w(
         tmp_path,
         "file2.yaml",
         """
-workflows:
-  t2:
-    nodes: []
-    edges: []
+name: C2
+type: c
+outcomes: []
 """,
     )
     root = _w(
         tmp_path,
         "root.yml",
         f"""
-include:
-  files:
-    - {f1.name}
-    - {f2.name}
 workflows:
-  # Override/define t2 after includes
   t2:
     nodes:
-      - name: C
-        type: c
-        outcomes: []
+      $include:
+        files:
+          - {f1.name}
+          - {f2.name}
     edges: []
 """,
     )
 
     settings = load_settings(str(root))
 
-    assert set(settings.workflows.keys()) == {"t1", "t2"}
-    assert settings.workflows["t1"].name == "t1"
-    assert settings.workflows["t2"].name == "t2"
-    assert len(settings.workflows["t2"].nodes) == 1
-    assert settings.workflows["t2"].nodes[0].name == "C"
-    assert settings.workflows["t2"].nodes[0].type == "c"
+    assert set(settings.workflows.keys()) == {"t2"}
+    t2_nodes = settings.workflows["t2"].nodes
+    assert len(t2_nodes) == 2
+    assert {n.name for n in t2_nodes} == {"C1", "C2"}
 
 
 def test_json5_loader(tmp_path: Path):
@@ -155,7 +147,7 @@ def test_include_cycle_detection(tmp_path: Path):
         tmp_path,
         "a.yml",
         """
-include: b.yml
+$include: b.yml
 workflows: {}
 """,
     )
@@ -163,7 +155,7 @@ workflows: {}
         tmp_path,
         "b.yml",
         """
-include: a.yml
+$include: a.yml
 workflows: {}
 """,
     )
@@ -177,33 +169,37 @@ def test_include_array_of_strings(tmp_path: Path):
         tmp_path,
         "file1.yml",
         """
-workflows:
-  t1:
-    nodes: []
-    edges: []
+name: N1
+type: a
+outcomes: []
 """,
     )
     f2 = _w(
         tmp_path,
         "file2.yml",
         """
-workflows:
-  t2:
-    nodes: []
-    edges: []
+name: N2
+type: a
+outcomes: []
 """,
     )
     root = _w(
         tmp_path,
         "root.yml",
         f"""
-include:
-  - {f1.name}
-  - {f2.name}
+workflows:
+  t:
+    nodes:
+      $include:
+        - {f1.name}
+        - {f2.name}
+    edges: []
 """,
     )
     settings = load_settings(str(root))
-    assert set(settings.workflows.keys()) == {"t1", "t2"}
+    nodes = settings.workflows["t"].nodes
+    assert len(nodes) == 2
+    assert {n.name for n in nodes} == {"N1", "N2"}
 
 
 def test_include_array_of_objects_local(tmp_path: Path):
@@ -211,33 +207,37 @@ def test_include_array_of_objects_local(tmp_path: Path):
         tmp_path,
         "a.yml",
         """
-workflows:
-  a:
-    nodes: []
-    edges: []
+name: A
+type: a
+outcomes: []
 """,
     )
     f2 = _w(
         tmp_path,
         "b.yml",
         """
-workflows:
-  b:
-    nodes: []
-    edges: []
+name: B
+type: b
+outcomes: []
 """,
     )
     root = _w(
         tmp_path,
         "root.yml",
         f"""
-include:
-  - local: {f1.name}
-  - local: {f2.name}
+workflows:
+  t:
+    nodes:
+      $include:
+        - local: {f1.name}
+        - local: {f2.name}
+    edges: []
 """,
     )
     settings = load_settings(str(root))
-    assert set(settings.workflows.keys()) == {"a", "b"}
+    nodes = settings.workflows["t"].nodes
+    assert len(nodes) == 2
+    assert {n.name for n in nodes} == {"A", "B"}
 
 
 def test_include_glob_patterns(tmp_path: Path):
@@ -247,31 +247,34 @@ def test_include_glob_patterns(tmp_path: Path):
         inc,
         "one.yml",
         """
-workflows:
-  one:
-    nodes: []
-    edges: []
+name: One
+type: a
+outcomes: []
 """,
     )
     _w(
         inc,
         "two.yml",
         """
-workflows:
-  two:
-    nodes: []
-    edges: []
+name: Two
+type: b
+outcomes: []
 """,
     )
     root = _w(
         tmp_path,
         "root.yml",
         """
-include: inc/*.yml
+workflows:
+  t:
+    nodes:
+      $include: inc/*.yml
+    edges: []
 """,
     )
     settings = load_settings(str(root))
-    assert set(settings.workflows.keys()) == {"one", "two"}
+    nodes = settings.workflows["t"].nodes
+    assert {n.name for n in nodes} == {"One", "Two"}
 
 
 def test_variables_mapping_and_interpolation(tmp_path: Path):
@@ -405,7 +408,7 @@ workflows:
     root = base / "root.yml"
     root.write_text(
         """
-include: ../outside.yml
+$include: ../outside.yml
 """,
         encoding="utf-8",
     )
@@ -413,19 +416,6 @@ include: ../outside.yml
         _ = load_settings(str(root))
 
 
-def test_include_template_glob(tmp_path: Path):
-    # Use packaged templates under vocode/config_templates
-    root = _w(
-        tmp_path,
-        "root.yml",
-        """
-include:
-  - template: sample/*.yaml
-""",
-    )
-    settings = load_settings(str(root))
-    # At least confirm the loader returned a Settings object with a workflows mapping
-    assert isinstance(settings.workflows, dict)
 
 
 def test_edge_alternative_string_syntax(tmp_path: Path):
@@ -498,3 +488,73 @@ workflows:
     wf = settings.workflows["t"]
     # Environment variables should not override file-defined variables
     assert wf.config["arr"] == [1, 2]
+
+
+def test_nested_include_under_nodes_list(tmp_path: Path):
+    inc = tmp_path / "inc"
+    inc.mkdir()
+    (inc / "one.yml").write_text(
+        """
+name: A
+type: a
+outcomes: []
+""",
+        encoding="utf-8",
+    )
+    (inc / "two.yml").write_text(
+        """
+name: B
+type: b
+outcomes: []
+""",
+        encoding="utf-8",
+    )
+    root = _w(
+        tmp_path,
+        "root.yml",
+        """
+workflows:
+  t:
+    nodes:
+      $include: inc/*.yml
+    edges: []
+""",
+    )
+    settings = load_settings(str(root))
+    nodes = settings.workflows["t"].nodes
+    assert [n.name for n in nodes] == ["A", "B"]
+
+
+def test_include_single_dict_override(tmp_path: Path):
+    inc = _w(
+        tmp_path,
+        "cfg.yml",
+        """
+foo: bar
+alpha:
+  beta: 1
+  gamma: 2
+""",
+    )
+    root = _w(
+        tmp_path,
+        "root.yml",
+        f"""
+workflows:
+  t:
+    config:
+      $include: {inc.name}
+      foo: baz
+      alpha:
+        beta: 10
+    nodes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(root))
+    cfg = settings.workflows["t"].config
+    # Top-level key override
+    assert cfg["foo"] == "baz"
+    # Deep override and preservation of other keys
+    assert cfg["alpha"]["beta"] == 10
+    assert cfg["alpha"]["gamma"] == 2

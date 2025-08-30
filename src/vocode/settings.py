@@ -16,6 +16,8 @@ TEMPLATE_INCLUDE_KEYS: Final[Set[str]] = {"template", "templates", "vocode"}
 # Variable replacement pattern: only support ${ABC}
 VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
+INCLUDE_KEY: Final[str] = "$include"
+
 
 class Workflow(BaseModel):
     name: Optional[str] = None
@@ -204,8 +206,76 @@ def _collect_include_paths(spec: Any, base_dir: Path) -> List[Path]:
         raise TypeError(f"Unsupported include item type: {type(item).__name__}")
     return norm_one(spec)
 
+def _combine_included_values(values: List[Any]) -> Any:
+    if not values:
+        return None
+    if all(isinstance(v, dict) for v in values):
+        acc: Dict[str, Any] = {}
+        for v in values:
+            acc = _deep_merge_dicts(acc, v, concat_lists=False)
+        return acc
+    if all(isinstance(v, list) for v in values):
+        acc_list: List[Any] = []
+        for v in values:
+            acc_list.extend(v)
+        return acc_list
+    raise ValueError("All included files must produce the same type (all dicts or all lists)")
 
-def _load_raw_file(path: Path) -> Dict[str, Any]:
+def _preprocess_includes(node: Any, base_dir: Path, seen: Set[Path]) -> Any:
+    if isinstance(node, dict):
+        # If this dict contains a $include, expand it and merge/replace as appropriate
+        if INCLUDE_KEY in node:
+            include_spec = node[INCLUDE_KEY]
+            # Resolve include paths relative to this file's base_dir (or templates base)
+            paths = _collect_include_paths(include_spec, base_dir)
+            included: List[Any] = []
+            for inc in paths:
+                inc = inc.resolve()
+                if inc in seen:
+                    raise ValueError(f"Detected include cycle at {inc}")
+                seen.add(inc)
+                inc_data = _load_raw_file(inc)
+                inc_proc = _preprocess_includes(inc_data, inc.parent, seen)
+                seen.remove(inc)
+                included.append(inc_proc)
+
+            # New semantics:
+            # - every included file must resolve to a dict (mapping)
+            # - if exactly one path matched, return that dict
+            # - if multiple matched, return a list of dicts
+            for i_val, i_path in zip(included, paths):
+                if not isinstance(i_val, dict):
+                    raise ValueError(f"Included file must be a mapping/object: {i_path}")
+
+            combined: Any = included[0] if len(included) == 1 else included
+
+            # Process the rest of this dict (other keys beside $include)
+            rest = {k: v for k, v in node.items() if k != INCLUDE_KEY}
+            if rest:
+                rest_proc = _preprocess_includes(rest, base_dir, seen)
+                if isinstance(combined, dict) and isinstance(rest_proc, dict):
+                    return _deep_merge_dicts(combined, rest_proc, concat_lists=False)
+                if isinstance(combined, list):
+                    raise ValueError("$include produced a list but additional keys are present to merge")
+                return rest_proc
+            # Only include present -> return combined payload directly
+            return combined
+        # No include at this level; recurse into values
+        return {k: _preprocess_includes(v, base_dir, seen) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_preprocess_includes(v, base_dir, seen) for v in node]
+    return node
+
+def _load_and_preprocess(path: Union[str, Path], seen: Optional[Set[Path]] = None) -> Any:
+    p = Path(path).resolve()
+    if seen is None:
+        seen = set()
+    data = _load_raw_file(p)
+    processed = _preprocess_includes(data, p.parent, seen)
+    return processed
+
+
+def _load_raw_file(path: Path) -> Any:
     ext = path.suffix.lower()
     text = path.read_text(encoding="utf-8")
     data: Any = None
@@ -217,38 +287,21 @@ def _load_raw_file(path: Path) -> Dict[str, Any]:
         raise ValueError(f"Unsupported config file extension: {ext}")
     if data is None:
         return {}
-    if not isinstance(data, dict):
-        raise ValueError(f"Top-level config in {path} must be a mapping/object")
     return data
 
 
-def _load_with_includes(path: Union[str, Path], seen: Optional[Set[Path]] = None) -> Dict[str, Any]:
-    p = Path(path).resolve()
-    if seen is None:
-        seen = set()
-    if p in seen:
-        raise ValueError(f"Detected include cycle at {p}")
-    seen.add(p)
-    data = _load_raw_file(p)
-    base_dir = p.parent
-    include_spec = data.pop("include", None)
-    merged: Dict[str, Any] = {}
-    # Merge included files first (concatenate lists across multiple include fragments)
-    for inc in _collect_include_paths(include_spec, base_dir):
-        inc_data = _load_with_includes(inc, seen)
-        merged = _deep_merge_dicts(merged, inc_data, concat_lists=True)
-    # Then overlay the including file's own content (lists replace by default)
-    merged = _deep_merge_dicts(merged, data, concat_lists=False)
-    # Collect variables (defaults from config) and interpolate
-    vars_map = _collect_variables(merged)
-    merged.pop("variables", None)
-    merged = _apply_variables(merged, vars_map)
-    seen.remove(p)
-    return merged
+# (removed: _load_with_includes)
 
 
 def load_settings(path: str) -> Settings:
-    data = _load_with_includes(path)
+    data_any = _load_and_preprocess(path)
+    if not isinstance(data_any, dict):
+        raise ValueError("Root configuration must be a mapping/object")
+    data = data_any
+    # Collect variables and interpolate
+    vars_map = _collect_variables(data)
+    data.pop("variables", None)
+    data = _apply_variables(data, vars_map)
     return Settings.model_validate(data)
 
 def build_model_from_settings(data: Optional[Dict[str, Any]], model_cls: Type[BaseModel]) -> BaseModel:
