@@ -152,3 +152,7 @@ class LLMNode(Node):
     max_tokens: Optional[int] = None
     outcome_strategy: OutcomeStrategy = Field(default=OutcomeStrategy.tag)
     extra: Dict[str, Any] = Field(default_factory=dict)
+
+class InputNode(Node):
+    type: str = "input"
+    message: str

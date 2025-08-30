@@ -13,7 +13,7 @@ from vocode.runner.models import (
     RespApproval,
 )
 from vocode.state import Assignment, Message, RunnerStatus
-from vocode.graph import Workflow
+from vocode.graph import Graph, Workflow
 from .proto import (
     UIRequest,
     UIReqRunEvent,
@@ -152,7 +152,10 @@ class UIState:
         if not self.project.settings or name not in (self.project.settings.workflows or {}):
             raise KeyError(f"Unknown workflow: {name}")
         wf_cfg = self.project.settings.workflows[name]
-        wf = build_model_from_settings(wf_cfg.model_dump(), Workflow)
+
+        graph = Graph.build(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
+        wf = Workflow(name=name, graph=graph)
+
         self._selected_workflow_name = name
         await self.start(wf, initial_message=initial_message)
 
