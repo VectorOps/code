@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import signal
 from typing import Optional
 
 import click
@@ -9,6 +10,9 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.shortcuts import print_formatted_text
+from prompt_toolkit.formatted_text import to_formatted_text
+from vocode.ui.terminal import colors
 
 from vocode.project import Project
 from vocode.ui.base import UIState
@@ -53,6 +57,16 @@ async def run_terminal(project: Project) -> None:
     def _(event):
         asyncio.create_task(stop_toggle())
 
+    # Handle Ctrl+C when no prompt is active by catching SIGINT and scheduling stop/cancel
+    old_sigint = signal.getsignal(signal.SIGINT)
+    def _sigint_handler(signum, frame):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.call_soon_threadsafe(lambda: asyncio.create_task(stop_toggle()))
+    signal.signal(signal.SIGINT, _sigint_handler)
+
     def out(*args, **kwargs):
         def _p():
             print(*args, **kwargs, flush=True)
@@ -60,6 +74,18 @@ async def run_terminal(project: Project) -> None:
             run_in_terminal(_p)
         except Exception:
             _p()
+
+    def out_fmt(ft):
+        """
+        Print prompt_toolkit AnyFormattedText with our console style.
+        """
+        def _p():
+            print_formatted_text(to_formatted_text(ft), style=colors.get_console_style())
+        try:
+            run_in_terminal(_p)
+        except Exception:
+            # Fallback: degrade to plain text
+            print(to_formatted_text(ft).text, flush=True)
 
     def request_exit():
         nonlocal should_exit
@@ -78,15 +104,14 @@ async def run_terminal(project: Project) -> None:
     def _finish_stream():
         nonlocal stream_buf, stream_speaker
         if stream_buf:
-            # End the in-progress line cleanly.
-            out()
+            # Just drop the buffered partial stream; we'll print final formatted below.
             stream_buf = ""
             stream_speaker = None
 
     def _toolbar():
         nonlocal pending_req
         hint = ""
-        if pending_req is not None:
+        if pending_req is not None and pending_req.event.input_requested:
             ev = pending_req.event.event
             if ev.kind == PACKET_MESSAGE_REQUEST:
                 hint = "(your message)"
@@ -103,19 +128,16 @@ async def run_terminal(project: Project) -> None:
         if ev.kind == PACKET_MESSAGE and ev.message:
             speaker = ev.message.role or "assistant"
             text = ev.message.text or ""
-            # Start a new stream line if speaker changed or no active stream.
+            # Buffer interim content only; formatting is applied on the final message.
             if stream_speaker != speaker:
                 _finish_stream()
-                out(f"{speaker}: ", end="")
                 stream_speaker = speaker
-            # Append chunk and print without newline.
             stream_buf += text
-            out(text, end="")
             return
 
         if ev.kind == PACKET_MESSAGE_REQUEST:
             _finish_stream()
-            pending_req = req
+            pending_req = req if req.event.input_requested else None
             return
 
         if ev.kind == PACKET_TOOL_CALL:
@@ -123,21 +145,17 @@ async def run_terminal(project: Project) -> None:
             out(f"Tool calls requested: {len(ev.tool_calls)}")
             for i, tc in enumerate(ev.tool_calls, start=1):
                 out(f"  {i}. {tc.name}({tc.arguments})")
-            pending_req = req
+            pending_req = req if req.event.input_requested else None
             return
 
         if ev.kind == PACKET_FINAL_MESSAGE:
             if ev.message:
                 speaker = ev.message.role or "assistant"
                 text = ev.message.text or ""
-                if stream_speaker == speaker and stream_buf and stream_buf == text:
-                    # Final equals accumulated interim; just terminate the line.
-                    _finish_stream()
-                else:
-                    # End any partial stream and print the final message.
-                    _finish_stream()
-                    out(f"{speaker}: {text}")
-            pending_req = req
+                _finish_stream()
+                # Render full markdown with syntax-highlighted code fences.
+                out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
+            pending_req = req if req.event.input_requested else None
             return
 
     async def event_consumer():
@@ -163,14 +181,6 @@ async def run_terminal(project: Project) -> None:
                 while ui.is_active() and pending_req is None:
                     await change_event.wait()
                     change_event.clear()
-
-                # Drop any queued keystrokes (e.g., stray Enters) and clear buffer before showing prompt
-                with contextlib.suppress(Exception):
-                    # Clear prompt buffer text/cursor/history state
-                    session.default_buffer.reset()
-                    # Flush any pending keys in the input queue
-                    if hasattr(session, "app") and session.app is not None:
-                        session.app.input.flush_keys()
 
                 line = await session.prompt_async(
                     lambda: _prompt_text(ui),
@@ -222,6 +232,9 @@ async def run_terminal(project: Project) -> None:
     except (EOFError, KeyboardInterrupt):
         pass
     finally:
+        # Restore previous SIGINT handler
+        with contextlib.suppress(Exception):
+            signal.signal(signal.SIGINT, old_sigint)
         if ui.is_active():
             await ui.stop()
         consumer_task.cancel()

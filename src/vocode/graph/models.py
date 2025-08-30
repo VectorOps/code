@@ -10,6 +10,10 @@ class OutcomeSlot(BaseModel):
     name: str
     description: Optional[str] = None
 
+class Confirmation(str, Enum):
+    prompt = "prompt"
+    auto = "auto"
+
 
 class Node(BaseModel):
     name: str = Field(..., description="Unique node name")
@@ -18,6 +22,10 @@ class Node(BaseModel):
     pass_all_messages: bool = Field(
         default=False,
         description="If True, pass all messages to the next node; if False, pass only the last message.",
+    )
+    confirmation: Confirmation = Field(
+        default=Confirmation.prompt,
+        description="How to handle node final confirmation ('prompt' or 'auto')",
     )
 
     # Registry keyed by the existing "type" field value

@@ -6,10 +6,11 @@
 - Stream state change messages
 * [ ] Terminal UI
 ** [ ] Add logging
-** [ ] Fix intermediate response streaming
-** [ ] Remove (or disable) prompt when input is not requested
-** [ ] Fix prompt display - it's not visible after output
-** [ ] Fix prompt text, it's not showing correct current node or requested text
+** [X] Fix intermediate response streaming
+** [X] Remove (or disable) prompt when input is not requested
+** [X] Fix prompt display - it's not visible after output
+** [X] Fix prompt text, it's not showing correct current node or requested text
+** [ ] Disable input and drop buffered input between prompts
 * [ ] Figure out dependency graph between project, tools
 * [ ] Graph
 ** [X] Rename output to be outcome

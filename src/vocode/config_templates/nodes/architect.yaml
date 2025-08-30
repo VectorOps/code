@@ -13,3 +13,9 @@ system: |
   - Risks: key trade-offs and mitigations.
 
   Prefer small, incremental changes. Align with the codebase structure and the abstractions already present.
+
+  Code snippets should be always provided with ```<language> ... ``` syntax. For example:
+    ```python
+    def foo(bar):
+      pass
+    ```

@@ -6,6 +6,7 @@ import asyncio
 if TYPE_CHECKING:
     from vocode.project import Project
 from vocode.graph import Workflow, Node
+from vocode.graph.models import Confirmation
 from vocode.state import Message, RunnerStatus, Assignment, ToolCallStatus, Step, Activity, StepStatus, ActivityType
 from vocode.runner.models import (
     ReqPacket,
@@ -282,11 +283,17 @@ class Runner:
                         current_activity = Activity(type=ActivityType.executor, message=req.message)
                         step.executions.append(current_activity)
 
-                    input_requested = req.kind in (
-                        PACKET_MESSAGE_REQUEST,
-                        PACKET_TOOL_CALL,
-                        PACKET_FINAL_MESSAGE,
-                    )
+                    if req.kind in (PACKET_MESSAGE_REQUEST, PACKET_TOOL_CALL):
+                        input_requested = True
+                    elif req.kind == PACKET_FINAL_MESSAGE:
+                        # Request input only if node confirmation is 'prompt'
+                        try:
+                            node_conf = current_runtime_node.model.confirmation
+                        except AttributeError:
+                            node_conf = Confirmation.prompt
+                        input_requested = node_conf == Confirmation.prompt
+                    else:
+                        input_requested = False
                     self.status = RunnerStatus.waiting_input if input_requested else RunnerStatus.running
 
                     # Emit event and await optional input
