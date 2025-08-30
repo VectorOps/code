@@ -1,8 +1,10 @@
 
-from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List
+from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List, TYPE_CHECKING
 from enum import Enum
 
 import asyncio
+if TYPE_CHECKING:
+    from vocode.project import Project
 from vocode.graph import Agent, Node
 from vocode.state import Message, RunnerStatus, Assignment, ToolCallStatus, Step, Activity, StepStatus, ActivityType
 from vocode.runner.models import (
@@ -41,10 +43,11 @@ class Executor:
         if isinstance(t, str) and t:
             Executor._registry[t] = cls
 
-    def __init__(self, config: Node):
-        """Initialize an executor instance with its corresponding Node config."""
+    def __init__(self, config: Node, project: "Project"):
+        """Initialize an executor instance with its corresponding Node config and Project."""
         # Configuration object of the corresponding Node (may be a Node subclass)
         self.config = config
+        self.project = project
 
     @classmethod
     def register(cls, type_name: str, exec_cls: Type["Executor"]) -> None:
@@ -52,12 +55,12 @@ class Executor:
         cls._registry[type_name] = exec_cls
 
     @classmethod
-    def create_for_node(cls, node: Node) -> "Executor":
+    def create_for_node(cls, node: Node, project: "Project") -> "Executor":
         """Create an Executor instance for the given Node using the registry."""
         sub = cls._registry.get(node.type)
         if sub is None:
             raise ValueError(f"No executor registered for node type '{node.type}'")
-        return sub(config=node)
+        return sub(config=node, project=project)
 
     async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
         """
@@ -73,14 +76,15 @@ class Executor:
 
 
 class Runner:
-    def __init__(self, agent, initial_message: Optional[Message] = None):
+    def __init__(self, agent, project: "Project", initial_message: Optional[Message] = None):
         """Prepare the runner with a graph, initial message, status flags, and per-node executors."""
         self.agent = agent
+        self.project = project
         self.initial_message: Optional[Message] = initial_message
         self.status: RunnerStatus = RunnerStatus.idle
         self._current_exec_task: Optional[asyncio.Task] = None
         self._executors: Dict[str, Executor] = {
-            n.name: Executor.create_for_node(n) for n in self.agent.graph.nodes
+            n.name: Executor.create_for_node(n, project=self.project) for n in self.agent.graph.nodes
         }
         self._stop_requested: bool = False
 
@@ -134,15 +138,8 @@ class Runner:
         return next_runtime_node, msgs
 
     def _find_runtime_node_by_name(self, name: str):
-        """Locate the RuntimeNode by name via BFS from the graph root."""
-        root = self.agent.graph.root
-        queue = [root]
-        while queue:
-            rn = queue.pop(0)
-            if rn.name == name:
-                return rn
-            queue.extend(rn.children)
-        return None
+        """Locate the RuntimeNode by name using Graph's runtime map."""
+        return self.agent.graph.get_runtime_node_by_name(name)
 
     def _prepare_resume(self, task: Assignment):
         """

@@ -1,5 +1,7 @@
 import asyncio
 import pytest
+from pathlib import Path
+from vocode.project import Project
 from vocode.graph import Graph, Node, Edge, OutcomeSlot, Agent
 from vocode.runner.runner import Runner, Executor
 from vocode.runner.models import (
@@ -41,7 +43,8 @@ async def test_message_request_reprompt_and_finish():
             final = msg("agent", f"final:{resp.message.text}")
             yield ReqFinalMessage(message=final)
 
-    runner = Runner(agent)
+    project = Project(base_path=Path("."))
+    runner = Runner(agent, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -116,7 +119,8 @@ async def test_tool_call_approved_and_rejected():
             # Finish
             yield ReqFinalMessage(message=msg("agent", "done"))
 
-    runner = Runner(agent)
+    project = Project(base_path=Path("."))
+    runner = Runner(agent, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -170,7 +174,8 @@ async def test_final_message_rerun_same_node_with_user_message():
                 assert messages[1].text == "more"
                 yield ReqFinalMessage(message=msg("agent", "done"))
 
-    runner = Runner(agent)
+    project = Project(base_path=Path("."))
+    runner = Runner(agent, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -232,7 +237,8 @@ async def test_transition_to_next_node_and_pass_all_messages(pass_all):
                 assert messages[0].text == "Aout"
             yield ReqFinalMessage(message=msg("agent", "Bout"))
 
-    runner = Runner(agent, initial_message=msg("system", "sys"))
+    project = Project(base_path=Path("."))
+    runner = Runner(agent, project, initial_message=msg("system", "sys"))
     task = Assignment()
     it = runner.run(task)
 
@@ -303,7 +309,8 @@ async def test_error_multiple_outcomes_without_outcome_name():
         async def run(self, messages):
             yield ReqFinalMessage(message=msg("agent", "By"))
 
-    runner = Runner(agent)
+    project = Project(base_path=Path("."))
+    runner = Runner(agent, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -333,7 +340,8 @@ async def test_error_unknown_outcome_name():
         async def run(self, messages):
             yield ReqFinalMessage(message=msg("agent", "B"))
 
-    runner = Runner(agent)
+    project = Project(base_path=Path("."))
+    runner = Runner(agent, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -361,7 +369,8 @@ async def test_cancel_before_first_yield():
             finally:
                 type(self).closed = True
 
-    runner = Runner(agent)
+    project = Project(base_path=Path("."))
+    runner = Runner(agent, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -405,7 +414,8 @@ async def test_cancel_during_asend_after_tool_response():
             finally:
                 type(self).closed = True
 
-    runner = Runner(agent)
+    project = Project(base_path=Path("."))
+    runner = Runner(agent, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -448,7 +458,8 @@ async def test_stop_before_first_yield():
             finally:
                 type(self).closed = True
 
-    runner = Runner(agent)
+    project = Project(base_path=Path("."))
+    runner = Runner(agent, project)
     task = Assignment()
     it = runner.run(task)
 
@@ -514,7 +525,8 @@ async def test_stop_and_resume_from_last_good_step():
                 # After resume and rerun of A, complete immediately
                 yield ReqFinalMessage(message=msg("agent", "Bdone"))
 
-    runner = Runner(agent)
+    project = Project(base_path=Path("."))
+    runner = Runner(agent, project)
     task = Assignment()
     it = runner.run(task)
 

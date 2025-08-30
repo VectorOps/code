@@ -3,18 +3,18 @@ import re
 from pathlib import Path
 from os import PathLike
 import os
+import json
 from pydantic import BaseModel, Field, model_validator
 import yaml
 import json5  # type: ignore
-
 from .graph.models import Node, Edge
 
 # Base path for packaged template configs, e.g. include: { vocode: "nodes/requirements.yaml" }
 VOCODE_TEMPLATE_BASE: Path = (Path(__file__).resolve().parent / "config_templates").resolve()
 # Include spec keys for bundled templates. Support GitLab 'template', legacy 'vocode', and 'templates'
 TEMPLATE_INCLUDE_KEYS: Final[Set[str]] = {"template", "templates", "vocode"}
-# Variable replacement pattern
-VAR_PATTERN = re.compile(r"\$(\w+)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+# Variable replacement pattern: only support ${ABC}
+VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 class Workflow(BaseModel):
@@ -71,47 +71,53 @@ def _deep_merge_dicts(a: Dict[str, Any], b: Dict[str, Any], *, concat_lists: boo
     return out
 
 
-def _collect_variables(doc: Dict[str, Any]) -> Dict[str, str]:
+def _collect_variables(doc: Dict[str, Any]) -> Dict[str, Any]:
     """
     Collect variables from the merged config. Supports:
       - mapping: variables: { KEY: default }
       - list of one-key mappings: variables: [ {KEY: default}, ... ]
       - list of entries with explicit keys: variables: [ {key: KEY, value: default}, ... ]
-    Environment variables with the same name override the defaults.
     """
+    out: Dict[str, Any] = {}
     vars_spec = doc.get("variables")
-    out: Dict[str, str] = {}
     if vars_spec is None:
         return out
     if isinstance(vars_spec, dict):
         for k, v in vars_spec.items():
             if isinstance(k, str):
-                out[k] = "" if v is None else str(v)
+                out[k] = v  # keep original type (can be list/dict/etc)
     elif isinstance(vars_spec, list):
         for item in vars_spec:
             if isinstance(item, dict):
                 if "key" in item and "value" in item and isinstance(item["key"], str):
-                    out[item["key"]] = "" if item["value"] is None else str(item["value"])
+                    out[item["key"]] = item["value"]
                 else:
-                    # Merge one-key mappings
                     for k, v in item.items():
                         if isinstance(k, str):
-                            out[k] = "" if v is None else str(v)
-    # Overlay with environment if present (only for declared keys)
-    for k in list(out.keys()):
-        envv = os.getenv(k)
-        if envv is not None:
-            out[k] = envv
+                            out[k] = v
     return out
 
-def _interpolate_string(s: str, vars_map: Dict[str, str]) -> str:
+def _interpolate_string(s: str, vars_map: Dict[str, Any]) -> str:
     def repl(m: re.Match) -> str:
-        name = m.group(1) or m.group(2)
-        return vars_map.get(name, m.group(0))
+        name = m.group(1)
+        if name not in vars_map:
+            return m.group(0)
+        val = vars_map[name]
+        if val is None:
+            return ""
+        if isinstance(val, (dict, list)):
+            return json.dumps(val, ensure_ascii=False)
+        return str(val)
     return VAR_PATTERN.sub(repl, s)
 
-def _apply_variables(obj: Any, vars_map: Dict[str, str]) -> Any:
+def _apply_variables(obj: Any, vars_map: Dict[str, Any]) -> Any:
     if isinstance(obj, str):
+        m = VAR_PATTERN.fullmatch(obj)
+        if m:
+            name = m.group(1)
+            if name in vars_map:
+                return vars_map[name]
+            return obj
         return _interpolate_string(obj, vars_map)
     if isinstance(obj, dict):
         return {k: _apply_variables(v, vars_map) for k, v in obj.items()}
@@ -233,7 +239,7 @@ def _load_with_includes(path: Union[str, Path], seen: Optional[Set[Path]] = None
         merged = _deep_merge_dicts(merged, inc_data, concat_lists=True)
     # Then overlay the including file's own content (lists replace by default)
     merged = _deep_merge_dicts(merged, data, concat_lists=False)
-    # Collect variables (defaults from config, overridden by environment) and interpolate
+    # Collect variables (defaults from config) and interpolate
     vars_map = _collect_variables(merged)
     merged.pop("variables", None)
     merged = _apply_variables(merged, vars_map)

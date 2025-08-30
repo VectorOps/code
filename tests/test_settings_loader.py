@@ -285,7 +285,7 @@ variables:
 workflows:
   hello:
     nodes:
-      - name: "Hello $NAME"
+      - name: "Hello ${NAME}"
         type: llm
         model: ${MODEL}
         outcomes: []
@@ -314,7 +314,7 @@ variables:
 workflows:
   varlist:
     nodes:
-      - name: "$FOO-$BAZ"
+      - name: "${FOO}-${BAZ}"
         type: a
         outcomes: []
     edges: []
@@ -336,7 +336,7 @@ variables:
 workflows:
   kv:
     nodes:
-      - name: "The answer is $X"
+      - name: "The answer is ${X}"
         type: a
         outcomes: []
     edges: []
@@ -358,7 +358,7 @@ variables:
 workflows:
   hello:
     nodes:
-      - name: "$NAME"
+      - name: "${NAME}"
         type: a
         outcomes: []
     edges: []
@@ -366,7 +366,8 @@ workflows:
     )
     settings = load_settings(str(cfg))
     n = settings.workflows["hello"].nodes[0]
-    assert n.name == "envy"
+    # Environment variables should not override file-defined variables
+    assert n.name == "default"
 
 
 def test_variables_unknown_left_unmodified(tmp_path: Path):
@@ -377,7 +378,7 @@ def test_variables_unknown_left_unmodified(tmp_path: Path):
 workflows:
   t:
     nodes:
-      - name: "$NOPE and ${ALSO_NOPE}"
+      - name: "${NOPE} and ${ALSO_NOPE}"
         type: a
         outcomes: []
     edges: []
@@ -385,7 +386,7 @@ workflows:
     )
     settings = load_settings(str(cfg))
     n = settings.workflows["t"].nodes[0]
-    assert n.name == "$NOPE and ${ALSO_NOPE}"
+    assert n.name == "${NOPE} and ${ALSO_NOPE}"
 
 
 def test_include_disallow_parent_traversal(tmp_path: Path):
@@ -446,3 +447,54 @@ workflows:
     assert e.source_node == "requirements"
     assert e.source_outcome == "done"
     assert e.target_node == "validate-requirements"
+
+
+def test_variables_structured_values_array_and_object(tmp_path: Path):
+    cfg = _w(
+        tmp_path,
+        "vars_struct.yml",
+        """
+variables:
+  LIST: [1, 2, 3]
+  MAP:
+    a: 1
+    b: 2
+workflows:
+  t:
+    config:
+      arr: ${LIST}
+      obj: ${MAP}
+      msg: "pre-${LIST}-post"
+    nodes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(cfg))
+    wf = settings.workflows["t"]
+    assert wf.config["arr"] == [1, 2, 3]
+    assert wf.config["obj"] == {"a": 1, "b": 2}
+    # Interpolation of structured values becomes JSON string
+    assert wf.config["msg"] == "pre-[1, 2, 3]-post"
+
+
+def test_variables_env_override_structured(monkeypatch, tmp_path: Path):
+    # Override LIST variable with an env var holding JSON array
+    monkeypatch.setenv("LIST", '["x","y"]')
+    cfg = _w(
+        tmp_path,
+        "vars_env_struct.yml",
+        """
+variables:
+  LIST: [1, 2]
+workflows:
+  t:
+    config:
+      arr: ${LIST}
+    nodes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(cfg))
+    wf = settings.workflows["t"]
+    # Environment variables should not override file-defined variables
+    assert wf.config["arr"] == [1, 2]

@@ -74,6 +74,11 @@ class Graph(BaseModel):
             raise ValueError("Graph root is not initialized. Use Graph.build to construct the graph.")
         return self._root
 
+    def get_runtime_node_by_name(self, name: str) -> Optional[RuntimeNode]:
+        if self._root is None:
+            raise ValueError("Graph runtime nodes not initialized. Use Graph.build to construct the graph.")
+        return self._runtime_nodes.get(name)
+
     @model_validator(mode="after")
     def _validate_graph(self) -> "Graph":
         nodes: List[Node] = self.nodes or []

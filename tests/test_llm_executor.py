@@ -2,6 +2,9 @@ import asyncio
 import json
 import pytest
 
+from pathlib import Path
+from vocode.project import Project
+
 from vocode.runner.executors import llm as llm_mod
 from vocode.runner.executors.llm import LLMExecutor, CHOOSE_OUTCOME_TOOL_NAME
 from vocode.graph.models import LLMNode, OutcomeStrategy, OutcomeSlot
@@ -113,7 +116,8 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch):
     stub = ACompletionStub([seq1, seq2])
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
-    execu = LLMExecutor(cfg)
+    project = Project(base_path=Path("."))
+    execu = LLMExecutor(cfg, project)
     agen = execu.run(messages=[Message(role="user", text="Weather?")])
 
     # Drain interim messages until tool call request
@@ -185,7 +189,8 @@ async def test_llm_executor_tag_strategy_streaming_and_strip(monkeypatch):
     stub = ACompletionStub([seq])
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
-    agen = LLMExecutor(cfg).run(messages=[Message(role="user", text="Question")])
+    project = Project(base_path=Path("."))
+    agen = LLMExecutor(cfg, project).run(messages=[Message(role="user", text="Question")])
 
     interim, pkt = await drain_until_non_interim(agen)
     assert interim == ["Answer body", "\nOUTCOME: reject"]
@@ -218,7 +223,8 @@ async def test_llm_executor_tag_strategy_fallback_to_first_outcome(monkeypatch):
     stub = ACompletionStub([seq])
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
-    agen = LLMExecutor(cfg).run(messages=[Message(role="user", text="Go")])
+    project = Project(base_path=Path("."))
+    agen = LLMExecutor(cfg, project).run(messages=[Message(role="user", text="Go")])
 
     _, pkt = await drain_until_non_interim(agen)
     assert isinstance(pkt, ReqFinalMessage)
@@ -252,8 +258,9 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monke
     stub = ACompletionStub([seq])
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
+    project = Project(base_path=Path("."))
     history = [Message(role="user", text="Hi"), Message(role="agent", text="Prev assistant")]
-    agen = LLMExecutor(cfg).run(messages=history)
+    agen = LLMExecutor(cfg, project).run(messages=history)
 
     _, pkt = await drain_until_non_interim(agen)
     assert isinstance(pkt, ReqFinalMessage)

@@ -27,8 +27,8 @@ class LLMExecutor(Executor):
     # Must match LLMNode.type
     type = "llm"
 
-    def __init__(self, config):
-        super().__init__(config=config)
+    def __init__(self, config, project):
+        super().__init__(config=config, project=project)
         if not isinstance(config, LLMNode):
             # Allow base Node but prefer LLMNode
             raise TypeError("LLMExecutor requires config to be an LLMNode")
