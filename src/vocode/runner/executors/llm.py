@@ -19,7 +19,7 @@ from vocode.runner.models import (
     ReqFinalMessage,
     ReqInterimMessage,
     RespPacket,
-    RespToolCall,
+    PACKET_TOOL_CALL,
 )
 
 
@@ -257,7 +257,7 @@ class LLMExecutor(Executor):
                 # Ask runner to execute tools and send back results
                 resp_packet: RespPacket = (yield ReqToolCall(tool_calls=external_calls))
                 returned_calls: List[ToolCall]
-                if isinstance(resp_packet, RespToolCall):
+                if resp_packet.kind == PACKET_TOOL_CALL:
                     returned_calls = resp_packet.tool_calls
                 else:
                     returned_calls = external_calls

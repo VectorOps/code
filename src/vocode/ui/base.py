@@ -20,6 +20,7 @@ from .proto import (
     UIReqStatus,
     UIResponse,
     UIRespRunInput,
+    UI_PACKET_RUN_INPUT,
 )
 
 if TYPE_CHECKING:
@@ -255,7 +256,7 @@ class UIState:
                     # Wait for a matching response
                     while True:
                         ui_resp = await self._incoming.get()
-                        if isinstance(ui_resp, UIRespRunInput) and ui_resp.req_id == req_id:
+                        if ui_resp.kind == UI_PACKET_RUN_INPUT and ui_resp.req_id == req_id:
                             to_send = ui_resp.input
                             break
                         else:
