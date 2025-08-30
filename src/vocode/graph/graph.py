@@ -138,6 +138,6 @@ class Graph(BaseModel):
         return self
 
 
-class Agent(BaseModel):
+class Workflow(BaseModel):
     name: str
     graph: Graph

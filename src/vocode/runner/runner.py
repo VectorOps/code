@@ -5,7 +5,7 @@ from enum import Enum
 import asyncio
 if TYPE_CHECKING:
     from vocode.project import Project
-from vocode.graph import Agent, Node
+from vocode.graph import Workflow, Node
 from vocode.state import Message, RunnerStatus, Assignment, ToolCallStatus, Step, Activity, StepStatus, ActivityType
 from vocode.runner.models import (
     ReqPacket,

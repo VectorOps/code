@@ -2,7 +2,7 @@ import asyncio
 import pytest
 from pathlib import Path
 from vocode.project import Project
-from vocode.graph import Graph, Node, Edge, OutcomeSlot, Agent
+from vocode.graph import Graph, Node, Edge, OutcomeSlot, Workflow
 from vocode.runner.runner import Runner, Executor
 from vocode.runner.models import (
     ReqMessageRequest,
@@ -25,7 +25,7 @@ async def test_message_request_reprompt_and_finish():
     # Single-node graph with type 'ask'
     nodes = [{"name": "Ask", "type": "ask", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Agent(name="agent", graph=g)
+    agent = Workflow(name="agent", graph=g)
 
     # Executor that requires a message, then emits interim and final
     class AskExecutor(Executor):
@@ -97,7 +97,7 @@ async def test_message_request_reprompt_and_finish():
 async def test_tool_call_approved_and_rejected():
     nodes = [{"name": "Tool", "type": "tool", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Agent(name="agent", graph=g)
+    agent = Workflow(name="agent", graph=g)
 
     class ToolExecutor(Executor):
         type = "tool"
@@ -156,7 +156,7 @@ async def test_tool_call_approved_and_rejected():
 async def test_final_message_rerun_same_node_with_user_message():
     nodes = [{"name": "Echo", "type": "echo", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Agent(name="agent", graph=g)
+    agent = Workflow(name="agent", graph=g)
 
     class EchoExecutor(Executor):
         type = "echo"
@@ -213,7 +213,7 @@ async def test_transition_to_next_node_and_pass_all_messages(pass_all):
     ]
     edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
     g = Graph.build(nodes=nodes, edges=edges)
-    agent = Agent(name="agent", graph=g)
+    agent = Workflow(name="agent", graph=g)
 
     class AExec(Executor):
         type = "a"
@@ -289,7 +289,7 @@ async def test_error_multiple_outcomes_without_outcome_name():
         Edge(source_node="A", source_outcome="y", target_node="By"),
     ]
     g = Graph.build(nodes=nodes, edges=edges)
-    agent = Agent(name="agent", graph=g)
+    agent = Workflow(name="agent", graph=g)
 
     class ErrExecA(Executor):
         type = "errA"
@@ -328,7 +328,7 @@ async def test_error_unknown_outcome_name():
     ]
     edges = [Edge(source_node="A", source_outcome="go", target_node="B")]
     g = Graph.build(nodes=nodes, edges=edges)
-    agent = Agent(name="agent", graph=g)
+    agent = Workflow(name="agent", graph=g)
 
     class Err2Exec(Executor):
         type = "err2"
@@ -355,7 +355,7 @@ async def test_error_unknown_outcome_name():
 async def test_cancel_before_first_yield():
     nodes = [{"name": "Slow", "type": "slow", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Agent(name="agent", graph=g)
+    agent = Workflow(name="agent", graph=g)
 
     class SlowExec(Executor):
         type = "slow"
@@ -399,7 +399,7 @@ async def test_cancel_before_first_yield():
 async def test_cancel_during_asend_after_tool_response():
     nodes = [{"name": "ToolSlow", "type": "toolslow", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Agent(name="agent", graph=g)
+    agent = Workflow(name="agent", graph=g)
 
     class ToolThenSlow(Executor):
         type = "toolslow"
@@ -446,7 +446,7 @@ async def test_cancel_during_asend_after_tool_response():
 async def test_stop_before_first_yield():
     nodes = [{"name": "Slow", "type": "slow", "outcomes": []}]
     g = Graph.build(nodes=nodes, edges=[])
-    agent = Agent(name="agent", graph=g)
+    agent = Workflow(name="agent", graph=g)
 
     class SlowExec(Executor):
         type = "slow"
@@ -491,7 +491,7 @@ async def test_stop_and_resume_from_last_good_step():
     ]
     edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
     g = Graph.build(nodes=nodes, edges=edges)
-    agent = Agent(name="agent", graph=g)
+    agent = Workflow(name="agent", graph=g)
 
     class AExec(Executor):
         type = "a"
