@@ -38,6 +38,7 @@
 ** [X] NodeLog, Section, Message
 * [ ] Nodes
 ** [X] Add project as a parameter to executor
+** [ ] Add a node that injects files in context. Add file manager.
 ** [ ] [#A] Think how to manage state for a run
 - Sometimes we need to maintain the state when additional information is found and added to state
 - Sometimes we need to start fresh

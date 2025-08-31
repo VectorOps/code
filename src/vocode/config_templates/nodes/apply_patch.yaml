@@ -1,0 +1,8 @@
+name: apply
+type: apply_patch
+format: v4a
+outcomes:
+  - name: success
+    description: All patches were applied successfully
+  - name: fail
+    description: Failed to apply one or more patches

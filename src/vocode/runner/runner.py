@@ -27,6 +27,7 @@ from vocode.runner.models import (
     PACKET_APPROVAL,
 )
 
+
 class ResumeMode(str, Enum):
     PROMPT = "prompt"
     RERUN = "rerun"
@@ -287,10 +288,7 @@ class Runner:
                         input_requested = True
                     elif req.kind == PACKET_FINAL_MESSAGE:
                         # Request input only if node confirmation is 'prompt'
-                        try:
-                            node_conf = current_runtime_node.model.confirmation
-                        except AttributeError:
-                            node_conf = Confirmation.prompt
+                        node_conf = current_runtime_node.model.confirmation
                         input_requested = node_conf == Confirmation.prompt
                     else:
                         input_requested = False

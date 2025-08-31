@@ -1,6 +1,12 @@
 name: coder
 type: llm
 model: gpt-4.1
+preprocessors:
+  - name: diff
+    options:
+      format: v4a
+outcomes:
+  - name: done
 system: |
   You are a precise implementation coder. Implement the architect's plan with minimal changes.
 

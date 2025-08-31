@@ -9,12 +9,12 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.application import run_in_terminal
-from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.formatted_text import to_formatted_text
 from vocode.ui.terminal import colors
 
 from vocode.project import Project
+from vocode.ui.terminal.buf import MessageBuffer
 from vocode.ui.base import UIState
 from vocode.ui.proto import UIReqRunEvent, UIReqStatus, UI_PACKET_RUN_EVENT, UI_PACKET_STATUS
 from vocode.runner.models import (
@@ -29,6 +29,10 @@ from vocode.runner.models import (
 )
 from vocode.state import Message, RunnerStatus
 from vocode.ui.terminal.commands import CommandContext, run as run_command
+
+# ANSI escape sequence for carriage return and clearing from cursor to the end of the line.
+# This is used for overwriting the current line during streaming output.
+ANSI_CARRIAGE_RETURN_AND_CLEAR_TO_EOL = "\r\x1b[K"
 
 def _prompt_text(ui: UIState) -> HTML:
     wf = ui.selected_workflow_name or "-"
@@ -96,17 +100,24 @@ async def run_terminal(project: Project) -> None:
 
     ctx = CommandContext(ui=ui, out=lambda s: out(s), stop_toggle=stop_toggle, request_exit=request_exit)
 
+    def out_fmt_stream(ft):
+        """
+        Print prompt_toolkit AnyFormattedText without a trailing newline,
+        using a carriage return to overwrite the current line.
+        """
+
+        print(ANSI_CARRIAGE_RETURN_AND_CLEAR_TO_EOL, end="")
+        print_formatted_text(to_formatted_text(ft), style=colors.get_console_style(), end="")
+
     pending_req: Optional[UIReqRunEvent] = None
 
-    stream_speaker: Optional[str] = None
-    stream_buf: str = ""
+    stream_buffer: Optional[MessageBuffer] = None
 
     def _finish_stream():
-        nonlocal stream_buf, stream_speaker
-        if stream_buf:
-            # Just drop the buffered partial stream; we'll print final formatted below.
-            stream_buf = ""
-            stream_speaker = None
+        nonlocal stream_buffer
+        if stream_buffer:
+            out("")  # Newline to finish the streamed line
+            stream_buffer = None
 
     def _toolbar():
         nonlocal pending_req
@@ -122,17 +133,18 @@ async def run_terminal(project: Project) -> None:
         return HTML(hint) if hint else None
 
     async def handle_run_event(req: UIReqRunEvent) -> None:
-        nonlocal pending_req, stream_speaker, stream_buf
+        nonlocal pending_req, stream_buffer
         ev = req.event.event
 
         if ev.kind == PACKET_MESSAGE and ev.message:
             speaker = ev.message.role or "assistant"
             text = ev.message.text or ""
-            # Buffer interim content only; formatting is applied on the final message.
-            if stream_speaker != speaker:
+            if not stream_buffer or stream_buffer.speaker != speaker:
                 _finish_stream()
-                stream_speaker = speaker
-            stream_buf += text
+                stream_buffer = MessageBuffer(speaker=speaker)
+            diff = stream_buffer.append(text)
+            if diff:
+                out_fmt_stream(diff)
             return
 
         if ev.kind == PACKET_MESSAGE_REQUEST:
@@ -149,12 +161,16 @@ async def run_terminal(project: Project) -> None:
             return
 
         if ev.kind == PACKET_FINAL_MESSAGE:
-            if ev.message:
+            if stream_buffer:
+                # We have been streaming, so the message is already on screen.
+                # Just add a newline and clear.
+                _finish_stream()
+            elif ev.message:
+                # No streaming occurred, print the final message at once.
                 speaker = ev.message.role or "assistant"
                 text = ev.message.text or ""
-                _finish_stream()
-                # Render full markdown with syntax-highlighted code fences.
                 out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
+
             pending_req = req if req.event.input_requested else None
             return
 
@@ -175,59 +191,58 @@ async def run_terminal(project: Project) -> None:
 
     out("Type /help for commands.")
     try:
-        with patch_stdout():
-            while True:
-                # Wait until we should show a prompt:
-                while ui.is_active() and pending_req is None:
-                    await change_event.wait()
-                    change_event.clear()
+        while True:
+            # Wait until we should show a prompt:
+            while ui.is_active() and pending_req is None:
+                await change_event.wait()
+                change_event.clear()
 
-                line = await session.prompt_async(
-                    lambda: _prompt_text(ui),
-                    key_bindings=kb,
-                    default="",
-                    bottom_toolbar=_toolbar,
-                )
-                text = line.rstrip("\n")
+            line = await session.prompt_async(
+                lambda: _prompt_text(ui),
+                key_bindings=kb,
+                default="",
+                bottom_toolbar=_toolbar,
+            )
+            text = line.rstrip("\n")
 
-                if text.startswith("/"):
-                    handled = await run_command(text, ctx)
-                    if should_exit:
-                        break
-                    if not handled:
-                        out("Unknown command. Type /help")
+            if text.startswith("/"):
+                handled = await run_command(text, ctx)
+                if should_exit:
+                    break
+                if not handled:
+                    out("Unknown command. Type /help")
+                continue
+
+            if pending_req is not None:
+                ev = pending_req.event.event
+                req_id = pending_req.req_id
+
+                if ev.kind == PACKET_MESSAGE_REQUEST:
+                    if text == "":
+                        await ui.respond_packet(req_id, None)
+                    else:
+                        await ui.respond_message(req_id, Message(role="user", text=text))
+                    pending_req = None
                     continue
 
-                if pending_req is not None:
-                    ev = pending_req.event.event
-                    req_id = pending_req.req_id
+                if ev.kind == PACKET_TOOL_CALL:
+                    if text.strip().lower() in ("", "y", "yes"):
+                        await ui.respond_approval(req_id, True)
+                    else:
+                        await ui.respond_approval(req_id, False)
+                    pending_req = None
+                    continue
 
-                    if ev.kind == PACKET_MESSAGE_REQUEST:
-                        if text == "":
-                            await ui.respond_packet(req_id, None)
-                        else:
-                            await ui.respond_message(req_id, Message(role="user", text=text))
-                        pending_req = None
-                        continue
+                if ev.kind == PACKET_FINAL_MESSAGE:
+                    if text.strip() == "":
+                        await ui.respond_approval(req_id, True)
+                    else:
+                        await ui.respond_message(req_id, Message(role="user", text=text))
+                    pending_req = None
+                    continue
 
-                    if ev.kind == PACKET_TOOL_CALL:
-                        if text.strip().lower() in ("", "y", "yes"):
-                            await ui.respond_approval(req_id, True)
-                        else:
-                            await ui.respond_approval(req_id, False)
-                        pending_req = None
-                        continue
-
-                    if ev.kind == PACKET_FINAL_MESSAGE:
-                        if text.strip() == "":
-                            await ui.respond_approval(req_id, True)
-                        else:
-                            await ui.respond_message(req_id, Message(role="user", text=text))
-                        pending_req = None
-                        continue
-
-                # No pending request here: runner is active, so hide prompt until a new input request or status/event arrives.
-                continue
+            # No pending request here: runner is active, so hide prompt until a new input request or status/event arrives.
+            continue
 
     except (EOFError, KeyboardInterrupt):
         pass

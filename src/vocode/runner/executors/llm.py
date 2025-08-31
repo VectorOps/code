@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import AsyncIterator, List, Optional, Dict, Any, Final
 import json
 import re
+from vocode.runner.preprocessors.base import apply_preprocessors
 
 CHOOSE_OUTCOME_TOOL_NAME: Final[str] = "__choose_outcome__"
 OUTCOME_TAG_RE = re.compile(r"^\s*OUTCOME\s*:\s*([A-Za-z0-9_\-]+)\s*$")
@@ -40,7 +41,13 @@ class LLMExecutor(Executor):
     def _build_base_messages(self, cfg: LLMNode, history: List[Message]) -> List[Dict[str, Any]]:
         msgs: List[Dict[str, Any]] = []
         if cfg.system:
-            msgs.append({"role": "system", "content": cfg.system})
+            sys_text = cfg.system
+            # Apply LLMNode-specific preprocessors to the system prompt only
+            preprocs = getattr(cfg, "preprocessors", []) or []
+            if preprocs:
+                preproc_names = [p.name for p in preprocs]
+                sys_text = apply_preprocessors(preproc_names, sys_text)
+            msgs.append({"role": "system", "content": sys_text})
         for m in history:
             msgs.append({"role": self._map_role(m.role), "content": m.text})
         return msgs

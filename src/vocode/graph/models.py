@@ -14,6 +14,30 @@ class Confirmation(str, Enum):
     prompt = "prompt"
     auto = "auto"
 
+class PreprocessorSpec(BaseModel):
+    name: str
+    options: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce(cls, v: Any) -> Any:
+        # Accept either:
+        # - "name" (string)
+        # - {"name": "name", "options": {...}}
+        if isinstance(v, str):
+            return {"name": v, "options": {}}
+        if isinstance(v, dict):
+            name = v.get("name")
+            if not isinstance(name, str) or not name:
+                raise ValueError("Preprocessor spec mapping must include non-empty 'name'")
+            options = v.get("options", {})
+            if options is None:
+                options = {}
+            if not isinstance(options, dict):
+                raise TypeError("Preprocessor 'options' must be a mapping/dict if provided")
+            return {"name": name, "options": options}
+        raise TypeError("Preprocessor spec must be a string or a mapping with 'name' and optional 'options'")
+
 
 class Node(BaseModel):
     name: str = Field(..., description="Unique node name")
@@ -131,6 +155,7 @@ class OutcomeStrategy(str, Enum):
     tag = "tag"
     function_call = "function_call"
 
+
 class Edge(BaseModel):
     source_node: str = Field(..., description="Name of the source node")
     source_outcome: str = Field(..., description="Name of the outcome slot on the source node")
@@ -160,7 +185,25 @@ class LLMNode(Node):
     max_tokens: Optional[int] = None
     outcome_strategy: OutcomeStrategy = Field(default=OutcomeStrategy.tag)
     extra: Dict[str, Any] = Field(default_factory=dict)
+    preprocessors: List[PreprocessorSpec] = Field(
+        default_factory=list,
+        description="Pre-execution preprocessors applied to the LLM system prompt",
+    )
 
 class InputNode(Node):
     type: str = "input"
     message: str
+
+class NoopNode(Node):
+    type: str = "noop"
+    # Auto-skip without prompting for approval
+    confirmation: Confirmation = Field(default=Confirmation.auto, description="No-op auto confirmation")
+    # Pass all prior messages through to the next node by default
+    pass_all_messages: bool = Field(
+        default=True,
+        description="No-op defaults to passing all messages to the next node",
+    )
+
+class ApplyPatchNode(Node):
+    type: str = "apply_patch"
+    patch_format: str = Field(default="v4a", description="Patch format identifier (currently only 'v4a' is supported)")

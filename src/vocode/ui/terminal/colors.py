@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
+from enum import Enum
 import re
 from html import escape as html_escape
 
@@ -29,6 +30,11 @@ _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
 
 
+class MarkdownBlockType(str, Enum):
+    TEXT = "text"
+    CODE = "code"
+
+
 def _md_inline_to_html(text: str) -> str:
     """
     Convert a subset of inline markdown to prompt_toolkit HTML.
@@ -50,61 +56,49 @@ def _md_inline_to_html(text: str) -> str:
     return s
 
 
-def _split_markdown_blocks(text: str) -> List[Tuple[str, Optional[str], str, Optional[str], Optional[str]]]:
+def _split_markdown_blocks(text: str) -> List[Tuple[MarkdownBlockType, Optional[str], str]]:
     """
-    Split markdown into blocks: list of tuples (kind, lang, content, fence_open, fence_close)
-    kind ∈ {"text", "code"}, lang is None for non-code.
-    fence_open/fence_close contain the exact original fence lines (including newlines) when kind == "code".
+    Split markdown into blocks: list of tuples (kind, lang, content)
+    kind is a MarkdownBlockType, lang is None for non-code.
     """
     lines = text.splitlines(keepends=True)
-    blocks: List[Tuple[str, Optional[str], str, Optional[str], Optional[str]]] = []
+    blocks: List[Tuple[MarkdownBlockType, Optional[str], str]] = []
     in_code = False
     code_lang: Optional[str] = None
-    fence_open_line: Optional[str] = None
-    fence_close_line: Optional[str] = None
     buf: List[str] = []
 
     def flush_text():
         nonlocal buf
         if buf:
-            blocks.append(("text", None, "".join(buf), None, None))
+            blocks.append((MarkdownBlockType.TEXT, None, "".join(buf)))
             buf = []
 
     def flush_code():
-        nonlocal buf, code_lang, fence_open_line, fence_close_line
+        nonlocal buf, code_lang
         if buf:
-            blocks.append(("code", code_lang, "".join(buf), fence_open_line, fence_close_line))
+            blocks.append((MarkdownBlockType.CODE, code_lang, "".join(buf)))
             buf = []
         code_lang = None
-        fence_open_line = None
-        fence_close_line = None
 
     for ln in lines:
         if not in_code:
+            buf.append(ln)
+
             m = _FENCE_OPEN_RE.match(ln.strip("\r\n"))
             if m:
                 flush_text()
                 in_code = True
                 code_lang = (m.group(1) or "").strip() or None
-                fence_open_line = ln
-            else:
-                buf.append(ln)
         else:
             if _FENCE_CLOSE_RE.match(ln.strip("\r\n")):
-                fence_close_line = ln
                 flush_code()
                 in_code = False
-            else:
-                buf.append(ln)
+
+            buf.append(ln)
 
     # Flush tail
     if in_code:
-        # Unclosed fence: treat as text for robustness
-        in_code = False
-        # Downgrade code buffer to text
-        if buf:
-            blocks.append(("text", None, "".join(buf), None, None))
-            buf = []
+        flush_code()
     else:
         flush_text()
 
@@ -123,8 +117,8 @@ def render_markdown(text: str, prefix: Optional[str] = None) -> AnyFormattedText
     parts: List[AnyFormattedText] = []
     prefixed = False
 
-    for kind, lang, content, fence_open, fence_close in blocks:
-        if kind == "text":
+    for kind, lang, content in blocks:
+        if kind == MarkdownBlockType.TEXT:
             s = content
             if prefix and not prefixed:
                 s = f"{prefix}{s}"
@@ -136,9 +130,6 @@ def render_markdown(text: str, prefix: Optional[str] = None) -> AnyFormattedText
             if prefix and not prefixed:
                 parts.append(HTML(html_escape(prefix)))
                 prefixed = True
-            # Preserve the original opening fence line exactly
-            if fence_open:
-                parts.append(HTML(html_escape(fence_open)))
             lexer = None
             if lang:
                 try:
@@ -154,9 +145,6 @@ def render_markdown(text: str, prefix: Optional[str] = None) -> AnyFormattedText
                 parts.append(HTML(html_escape(content)))
             else:
                 parts.append(PygmentsTokens(tokens))
-            # Preserve the original closing fence line exactly
-            if fence_close:
-                parts.append(HTML(html_escape(fence_close)))
 
     if not parts:
         # Empty content, still show prefix if provided
