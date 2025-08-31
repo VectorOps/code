@@ -1,9 +1,7 @@
 #+title: Code ToDo
 
-* [ ] UI protocol
+* [X] UI protocol
 ** [X] In-memory bidirectional stream implementation for TUI
-** [X] General requirements
-- Stream state change messages
 * [ ] Terminal UI
 ** [ ] Add logging
 ** [X] Fix intermediate response streaming
@@ -11,6 +9,10 @@
 ** [X] Fix prompt display - it's not visible after output
 ** [X] Fix prompt text, it's not showing correct current node or requested text
 ** [ ] Disable input and drop buffered input between prompts
+** [ ] Change workflow execution:
+- If workflow is selected, first message sent should start the workflow
+- If workflow is stopped after finishing, then sending a new message should resume same workflow from the beginning
+- If workflow is canceled, then workflow should start new workflow
 * [ ] Figure out dependency graph between project, tools
 * [ ] Graph
 ** [X] Rename output to be outcome
@@ -35,7 +37,7 @@
 * [ ] Chat state
 ** [X] NodeLog, Section, Message
 * [ ] Nodes
-** [ ] Add project as a parameter to executor
+** [X] Add project as a parameter to executor
 ** [ ] [#A] Think how to manage state for a run
 - Sometimes we need to maintain the state when additional information is found and added to state
 - Sometimes we need to start fresh
@@ -51,13 +53,14 @@
 **** [ ] Tool configuration
 **** [ ] Exposing available tools to LLM from project
 *** [ ] Dynamic output selection by LLM
-**** [ ] Configurable system prompt extension
-**** [ ] Cleanup logic
-**** [ ] Re-prompt if answer is not provided
+**** [X] Configurable system prompt extension
+**** [X] Cleanup logic
+**** [X] Re-prompt if answer is not provided
 **** [X] Add non-function way of picking next step
-**** [ ] Add a way for LLM to request additional user input
+**** [X] Add a way for LLM to request additional user input
 *** [ ] Do not add empty message to output
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled
+** [ ] Diff apply node
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
