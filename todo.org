@@ -1,5 +1,9 @@
 #+title: Code ToDo
 
+* [ ] Cleanup all dependencies
+- Move graph models out of graph, move runtime graph generation out of Graph class
+- Move executor/models.py out to root
+- Move preprocessors to llm/ and move llm.py to llm/__init__.py
 * [X] UI protocol
 ** [X] In-memory bidirectional stream implementation for TUI
 * [ ] Terminal UI
@@ -13,7 +17,13 @@
 - If workflow is selected, first message sent should start the workflow
 - If workflow is stopped after finishing, then sending a new message should resume same workflow from the beginning
 - If workflow is canceled, then workflow should start new workflow
-* [ ] Figure out dependency graph between project, tools
+** [ ] ctrl+c when runner is active does nothing - should stop the runner (verify, might not be the case)
+** [ ] Add file context management once corresponding node is created
+** [ ] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
+* [ ] Tools
+** [ ] Integrate Know
+*** [ ] Needs a separate execution thread and simple async API wrapper RPC, as it is synchronous
+- Take callable function as a parameter, run it in Know thread, return results back
 * [ ] Graph
 ** [X] Rename output to be outcome
 ** [X] Refactor NodeExecution input_messages and messages. messages should be append only.
@@ -26,10 +36,9 @@
 ** [X] Graph runner
 ** [X] Add a way to rewind history back to resume from a different point
 * [ ] Block parsers
-** [ ] Message construction helpers
-** [ ] Code parsers
+** [X] Code parsers
 ** [ ] Diff parsers
-*** [ ] GPT diff format
+*** [X] GPT V4A diff format
 *** [ ] Fenced diff format
 *** [ ] Full file diff format
 * [X] Settings
@@ -46,14 +55,16 @@
 - Most likely make it a setting of a Node (explicit config). Via enum?
   - Always resets
   - Human resets
+  - Robot resets
   - Never resets
 - We need machinery to go back in time and reset graph execution to a specific history
 ** [X] Base node runner class
 ** [ ] LLM node
 *** [?] Base
 **** [ ] Tool configuration
+- Integrate Know
 **** [ ] Exposing available tools to LLM from project
-*** [ ] Dynamic output selection by LLM
+*** [X] Dynamic output selection by LLM
 **** [X] Configurable system prompt extension
 **** [X] Cleanup logic
 **** [X] Re-prompt if answer is not provided
@@ -63,5 +74,14 @@
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled
 ** [ ] Diff apply node
+*** [X] Base parser
+*** [ ] Add a way to write file changes after confirmation
+*** [ ] Tell Know that files were updated and project needs to be updated
+** [ ] Create RepoMap node - call into Know with provided prompt
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
-** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
+** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?
+* [ ] Nested workflows support
+** [ ] Create API to start a new workflow
+- Should start a runner
+- Wait for runner to finish
+- Pass all messages through to UI
