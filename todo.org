@@ -70,7 +70,7 @@
 **** [X] Re-prompt if answer is not provided
 **** [X] Add non-function way of picking next step
 **** [X] Add a way for LLM to request additional user input
-*** [ ] Do not add empty message to output
+*** [X] Do not add empty message to output
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled
 ** [ ] Diff apply node
@@ -78,6 +78,12 @@
 *** [ ] Add a way to write file changes after confirmation
 *** [ ] Tell Know that files were updated and project needs to be updated
 ** [ ] Create RepoMap node - call into Know with provided prompt
+** [ ] Create documentation node - read AGENT.md files for all paths that are mentioned in previous messages.
+- Have configuration for static message text
+- Support one or more explicit paths to be read and inserted into message context
+- Append to previous message
+- How do we extract paths reliably?
+- Maybe offer a tool?
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?
 * [ ] Nested workflows support
