@@ -3,6 +3,7 @@ from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List, TYPE_CHE
 from enum import Enum
 
 import asyncio
+from pydantic import BaseModel
 if TYPE_CHECKING:
     from vocode.project import Project
 from vocode.graph import Workflow, Node
@@ -348,22 +349,62 @@ class Runner:
                         break
 
                     elif req.kind == PACKET_TOOL_CALL:
-                        # Determine approval; default to rejected unless explicitly approved
-                        approved = (resp is not None and resp.kind == PACKET_APPROVAL and resp.approved)
+                        # Default to approved unless explicitly rejected by a response
+                        approved = True
+                        if resp is not None and resp.kind == PACKET_APPROVAL:
+                            approved = resp.approved
 
-                        # Update request objects for event visibility, and build a deep-copied response payload
                         updated_tool_calls = []
                         for tc in req.tool_calls:
-                            tc.status = ToolCallStatus.completed if approved else ToolCallStatus.rejected
-                            if approved:
-                                if tc.result is None:
-                                    tc.result = "{}"
-                            else:
-                                # On rejection ensure result is cleared
-                                tc.result = None
+                            # Respect explicit rejection
+                            if not approved:
+                                tc.status = ToolCallStatus.rejected
+                                tc.result = {"error": "Tool call rejected by user"}
+                                updated_tool_calls.append(tc.model_copy(deep=True))
+                                continue
+
+                            # Resolve the tool from the project registry
+                            tool = self.project.tools.get(tc.name)
+                            if tool is None:
+                                tc.status = ToolCallStatus.rejected
+                                tc.result = {"error": f"Unknown tool '{tc.name}'"}
+                                updated_tool_calls.append(tc.model_copy(deep=True))
+                                continue
+
+                            # Validate/construct the tool's input model
+                            try:
+                                args_model = tool.input_model.model_validate(tc.arguments)
+                            except Exception as e:
+                                tc.status = ToolCallStatus.rejected
+                                tc.result = {"error": f"Invalid arguments for tool '{tc.name}': {str(e)}"}
+                                updated_tool_calls.append(tc.model_copy(deep=True))
+                                continue
+
+                            # Execute the tool
+                            try:
+                                result_obj = await tool.run(self.project, args_model)
+                                if isinstance(result_obj, BaseModel):
+                                    result_payload = result_obj.model_dump()
+                                elif isinstance(result_obj, list):
+                                    result_payload = [
+                                        (item.model_dump() if isinstance(item, BaseModel) else item)
+                                        for item in result_obj
+                                    ]
+                                else:
+                                    result_payload = result_obj
+                                tc.status = ToolCallStatus.completed
+                                tc.result = result_payload
+                            except Exception as e:
+                                tc.status = ToolCallStatus.rejected
+                                tc.result = {"error": f"Tool '{tc.name}' failed: {str(e)}"}
+
                             updated_tool_calls.append(tc.model_copy(deep=True))
 
-                        # Reply to executor with updated tool calls
+                        print("TOOL CALL")
+                        print(req)
+                        print(updated_tool_calls)
+
+                        # Reply to executor with executed tool call results
                         to_send = RespToolCall(tool_calls=updated_tool_calls)
                         continue
 

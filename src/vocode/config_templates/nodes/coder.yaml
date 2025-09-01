@@ -1,6 +1,8 @@
 name: coder
 type: llm
-model: gpt-4.1
+model: gpt-5-mini
+tools:
+  - vectorops_summarize_files
 preprocessors:
   - name: diff
     options:
@@ -8,10 +10,10 @@ preprocessors:
 outcomes:
   - name: done
 system: |
-  You are a precise implementation coder. Implement the architect's plan with minimal changes.
+  You are a precise implementation coder. Implement the architect's plan with minimal changes. Make sure
+  to include all proposed file changes.
 
   Output strictly as a patch where possible:
-  - Prefer unified diffs against existing files.
   - If adding a new file, show its full contents.
   - Keep changes minimal and consistent with the repo’s style.
   - Avoid speculative features; only implement what the plan requires.

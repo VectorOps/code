@@ -132,10 +132,15 @@ class LLMExecutor(Executor):
         outcome_strategy: OutcomeStrategy = cfg.outcome_strategy
         outcome_name: Optional[str] = None
 
-        # Optional external tool definitions (OpenAI tools schema) coming from cfg.extra
+        # Get tool specs from node config
         external_tools: List[Dict[str, Any]] = []
-        if isinstance((cfg.extra or {}).get("tools"), list):
-            external_tools = list(cfg.extra["tools"])  # shallow copy
+        for tool_name in cfg.tools:
+            tool = self.project.tools.get(tool_name)
+            if tool:
+                external_tools.append({
+                    "type": "function",
+                    "function": tool.openapi_spec(),
+                })
 
         tools: Optional[List[Dict[str, Any]]] = None
         if len(outcomes) > 1 and outcome_strategy == OutcomeStrategy.function_call:
@@ -256,8 +261,13 @@ class LLMExecutor(Executor):
                     # Do not forward this special call to the runner
                     continue
                 # Forward all other calls to the runner using our protocol
+                # Parse JSON arguments to a dict as ToolCall.arguments expects a mapping
+                try:
+                    args_obj = json.loads(arguments) if isinstance(arguments, str) and arguments else {}
+                except Exception:
+                    args_obj = {}
                 external_calls.append(
-                    ToolCall(id=call_id, name=name, arguments=str(arguments), type="function")
+                    ToolCall(id=call_id, name=name, arguments=args_obj, type="function")
                 )
 
             if external_calls:
@@ -275,7 +285,8 @@ class LLMExecutor(Executor):
                             "role": "tool",
                             "tool_call_id": rcall.id or "",
                             "name": rcall.name,
-                            "content": rcall.result or "",
+                            # LLM expects a string content; serialize dict result to JSON
+                            "content": json.dumps(rcall.result) if rcall.result is not None else "",
                         }
                     )
                 # Continue loop for model to incorporate tool results

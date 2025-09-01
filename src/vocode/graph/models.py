@@ -192,6 +192,9 @@ class LLMNode(Node):
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     outcome_strategy: OutcomeStrategy = Field(default=OutcomeStrategy.tag)
+    tools: List[str] = Field(
+        default_factory=list, description="List of enabled tool names for this node."
+    )
     extra: Dict[str, Any] = Field(default_factory=dict)
     preprocessors: List[PreprocessorSpec] = Field(
         default_factory=list,

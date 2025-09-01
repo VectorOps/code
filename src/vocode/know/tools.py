@@ -19,6 +19,9 @@ class _KnowToolWrapper(BaseTool):
         super().__init__()
         self._know_tool = know_tool
         self.name = self._know_tool.tool_name
+        # Propagate input/output model types from the Know tool
+        self.input_model = self._know_tool.tool_input
+        self.output_model = self._know_tool.tool_output
 
     def openapi_spec(self) -> dict[str, Any]:
         return self._know_tool.get_openai_schema()

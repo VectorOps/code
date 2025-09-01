@@ -1,6 +1,6 @@
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, TYPE_CHECKING, Optional, Union
+from typing import Any, Dict, TYPE_CHECKING, Optional, Union, Type, List
 
 from pydantic import BaseModel
 
@@ -32,12 +32,14 @@ def get_all_tools() -> Dict[str, "BaseTool"]:
 class BaseTool(ABC):
     # Subclasses must set this to a unique string
     name: str
+    input_model: Type[BaseModel]
+    output_model: Type[BaseModel | List[BaseModel]]
 
     def __init__(self) -> None:
         pass
 
     @abstractmethod
-    async def run(self, project: "Project", args: BaseModel) -> Union[BaseModel, Any]:
+    async def run(self, project: "Project", args: BaseModel) -> Union[BaseModel, List[BaseModel]]:
         """
         Execute this tool within the context of the given Project.
         Subclasses must implement this.

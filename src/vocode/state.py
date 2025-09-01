@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional, Annotated
+from typing import List, Optional, Annotated, Dict, Any, Union
 from pydantic import BaseModel, Field, StringConstraints
 from uuid import UUID, uuid4
 
@@ -46,10 +46,12 @@ class ToolCall(BaseModel):
     )
     status: ToolCallStatus = Field(default=ToolCallStatus.created, description="Tool call status")
     name: str = Field(..., description="Function name to call")
-    arguments: str = Field(..., description="JSON-encoded arguments passed to the function")
-    result: Optional[str] = Field(
+    arguments: Dict[str, Any] = Field(
+        ..., description="Decoded JSON arguments passed to the function"
+    )
+    result: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = Field(
         default=None,
-        description="JSON-encoded result of the function call; None until completed",
+        description="Decoded JSON result of the function call; may be a dict or a list of dicts; None until completed",
     )
 
 

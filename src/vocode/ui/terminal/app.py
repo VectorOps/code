@@ -61,16 +61,6 @@ async def run_terminal(project: Project) -> None:
     def _(event):
         asyncio.create_task(stop_toggle())
 
-    # Handle Ctrl+C when no prompt is active by catching SIGINT and scheduling stop/cancel
-    old_sigint = signal.getsignal(signal.SIGINT)
-    def _sigint_handler(signum, frame):
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        loop.call_soon_threadsafe(lambda: asyncio.create_task(stop_toggle()))
-    signal.signal(signal.SIGINT, _sigint_handler)
-
     def out(*args, **kwargs):
         def _p():
             print(*args, **kwargs, flush=True)

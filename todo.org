@@ -1,6 +1,8 @@
 #+title: Code ToDo
 * [ ] Runner
 ** [ ] Add tool calling support
+* [ ] Error handling
+** [ ] Tool calling timeouts and failures
 * [ ] Cleanup all dependencies
 - Move graph models out of graph, move runtime graph generation out of Graph class
 - Move executor/models.py out to root
@@ -9,6 +11,7 @@
 ** [X] In-memory bidirectional stream implementation for TUI
 * [ ] Terminal UI
 ** [ ] Add logging
+** [ ] Fix line breaks - if line is naturally too long, then moving caret to the beginning of the line does not work, we need to go one line up.
 ** [X] Fix intermediate response streaming
 ** [X] Remove (or disable) prompt when input is not requested
 ** [X] Fix prompt display - it's not visible after output
@@ -21,10 +24,14 @@
 ** [ ] ctrl+c when runner is active does nothing - should stop the runner (verify, might not be the case)
 ** [ ] Add file context management once corresponding node is created
 ** [ ] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
+** [ ] Add approximate cost calculator and output
+** [ ] Add toolbar that shows current cost and mode of operation
 * [ ] Tools
-** [ ] Integrate Know
-*** [ ] Needs a separate execution thread and simple async API wrapper RPC, as it is synchronous
+** [X] Integrate Know
+*** [X] Needs a separate execution thread and simple async API wrapper RPC, as it is synchronous
 - Take callable function as a parameter, run it in Know thread, return results back
+** [ ] Add a way to auto-approve tool calls
+** [ ] Add pattern matching rules to auto-approve rule calls
 * [ ] Graph
 ** [X] Rename output to be outcome
 ** [X] Refactor NodeExecution input_messages and messages. messages should be append only.
@@ -36,6 +43,8 @@
 ** [X] Add a way to get node definition from template and override some of the fields from config
 ** [X] Graph runner
 ** [X] Add a way to rewind history back to resume from a different point
+* [ ] Runner
+** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
 * [ ] Block parsers
 ** [X] Code parsers
 ** [ ] Diff parsers
