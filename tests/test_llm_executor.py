@@ -3,7 +3,7 @@ import json
 import pytest
 
 from pathlib import Path
-from vocode.testing import TestProject
+from vocode.testing import ProjectSandbox
 
 from vocode.runner.executors import llm as llm_mod
 from vocode.runner.executors.llm import LLMExecutor, CHOOSE_OUTCOME_TOOL_NAME
@@ -116,7 +116,7 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
     stub = ACompletionStub([seq1, seq2])
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         execu = LLMExecutor(cfg, project)
         agen = execu.run(messages=[Message(role="user", text="Weather?")])
 
@@ -189,7 +189,7 @@ async def test_llm_executor_tag_strategy_streaming_and_strip(monkeypatch, tmp_pa
     stub = ACompletionStub([seq])
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         agen = LLMExecutor(cfg, project).run(messages=[Message(role="user", text="Question")])
 
         interim, pkt = await drain_until_non_interim(agen)
@@ -223,7 +223,7 @@ async def test_llm_executor_tag_strategy_fallback_to_first_outcome(monkeypatch, 
     stub = ACompletionStub([seq])
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         agen = LLMExecutor(cfg, project).run(messages=[Message(role="user", text="Go")])
 
         _, pkt = await drain_until_non_interim(agen)
@@ -258,7 +258,7 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monke
     stub = ACompletionStub([seq])
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         history = [Message(role="user", text="Hi"), Message(role="agent", text="Prev assistant")]
         agen = LLMExecutor(cfg, project).run(messages=history)
 

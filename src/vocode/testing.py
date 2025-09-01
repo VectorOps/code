@@ -13,14 +13,14 @@ if TYPE_CHECKING:
     from .tools import BaseTool
 
 
-class TestProject:
+class ProjectSandbox:
     """
     A helper for creating Project instances for tests.
     It properly initializes a Project without creating any config files or directories.
     It can be used as an async context manager to handle shutdown.
 
     Usage:
-        async with TestProject.create(tmp_path) as project:
+        async with ProjectSandbox.create(tmp_path) as project:
             # use project instance
             ...
     """
@@ -29,7 +29,7 @@ class TestProject:
         self._project = project
 
     @classmethod
-    def create(cls, base_path: Path) -> "TestProject":
+    def create(cls, base_path: Path) -> "ProjectSandbox":
         """
         Creates a Project instance for testing, avoiding filesystem writes for config.
         """

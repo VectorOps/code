@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 from pathlib import Path
-from vocode.testing import TestProject
+from vocode.testing import ProjectSandbox
 from vocode.graph import Graph, Node, Edge, OutcomeSlot, Workflow
 from vocode.runner.runner import Runner, Executor
 from vocode.runner.models import (
@@ -43,7 +43,7 @@ async def test_message_request_reprompt_and_finish(tmp_path: Path):
             final = msg("agent", f"final:{resp.message.text}")
             yield ReqFinalMessage(message=final)
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
@@ -119,7 +119,7 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
             # Finish
             yield ReqFinalMessage(message=msg("agent", "done"))
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
@@ -174,7 +174,7 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
                 assert messages[1].text == "more"
                 yield ReqFinalMessage(message=msg("agent", "done"))
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
@@ -237,7 +237,7 @@ async def test_transition_to_next_node_and_pass_all_messages(pass_all, tmp_path:
                 assert messages[0].text == "Aout"
             yield ReqFinalMessage(message=msg("agent", "Bout"))
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project, initial_message=msg("system", "sys"))
         task = Assignment()
         it = runner.run(task)
@@ -309,7 +309,7 @@ async def test_error_multiple_outcomes_without_outcome_name(tmp_path: Path):
         async def run(self, messages):
             yield ReqFinalMessage(message=msg("agent", "By"))
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
@@ -340,7 +340,7 @@ async def test_error_unknown_outcome_name(tmp_path: Path):
         async def run(self, messages):
             yield ReqFinalMessage(message=msg("agent", "B"))
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
@@ -369,7 +369,7 @@ async def test_cancel_before_first_yield(tmp_path: Path):
             finally:
                 type(self).closed = True
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
@@ -414,7 +414,7 @@ async def test_cancel_during_asend_after_tool_response(tmp_path: Path):
             finally:
                 type(self).closed = True
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
@@ -458,7 +458,7 @@ async def test_stop_before_first_yield(tmp_path: Path):
             finally:
                 type(self).closed = True
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
@@ -525,7 +525,7 @@ async def test_stop_and_resume_from_last_good_step(tmp_path: Path):
                 # After resume and rerun of A, complete immediately
                 yield ReqFinalMessage(message=msg("agent", "Bdone"))
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
@@ -616,7 +616,7 @@ async def test_run_disallowed_when_running(tmp_path: Path):
             await asyncio.sleep(60)
             yield ReqFinalMessage(message=msg("agent", "done"))
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
@@ -701,7 +701,7 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_
         async def run(self, messages):
             yield ReqFinalMessage(message=msg("agent", "C1"))
 
-    async with TestProject.create(tmp_path) as project:
+    async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project, initial_message=msg("user", "start"))
         task = Assignment()
         it = runner.run(task)
