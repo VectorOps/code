@@ -6,7 +6,7 @@ import asyncio
 if TYPE_CHECKING:
     from vocode.project import Project
 from vocode.graph import Workflow, Node
-from vocode.graph.models import Confirmation
+from vocode.graph.models import Confirmation, ResetPolicy
 from vocode.state import Message, RunnerStatus, Assignment, ToolCallStatus, Step, Activity, StepStatus, ActivityType
 from vocode.runner.models import (
     ReqPacket,
@@ -89,10 +89,12 @@ class Runner:
             n.name: Executor.create_for_node(n, project=self.project) for n in self.workflow.graph.nodes
         }
         self._stop_requested: bool = False
+        self._internal_cancel_requested: bool = False
 
     def cancel(self) -> None:
         """Cancel the currently running executor step, if any."""
         if self._current_exec_task and not self._current_exec_task.done():
+            self._internal_cancel_requested = True
             self._current_exec_task.cancel()
 
     def stop(self) -> None:
@@ -100,6 +102,7 @@ class Runner:
         self._stop_requested = True
         self.status = RunnerStatus.stopped
         if self._current_exec_task and not self._current_exec_task.done():
+            self._internal_cancel_requested = True
             self._current_exec_task.cancel()
 
     def _compute_node_transition(self, current_runtime_node, exec_activity: Activity, step: Step):
@@ -243,8 +246,17 @@ class Runner:
                 rerun_same_node = False
 
                 executor = self._executors[current_runtime_node.name]
+                node_model = current_runtime_node.model
                 # Prepare messages for executor from step executions
-                messages_for_exec = [a.message for a in step.executions if a.message is not None]
+                if node_model.reset_policy == ResetPolicy.never_reset:
+                    messages_for_exec = []
+                    for s in task.steps:
+                        if s.node == current_runtime_node.name:
+                            messages_for_exec.extend(
+                                a.message for a in s.executions if a.message is not None
+                            )
+                else:  # ResetPolicy.always_reset
+                    messages_for_exec = [a.message for a in step.executions if a.message is not None]
                 agen = executor.run(messages_for_exec)
                 current_activity: Optional[Activity] = None
                 user_message_for_rerun: Optional[Message] = None
@@ -261,6 +273,9 @@ class Runner:
                             current_activity.is_complete = True
                         break
                     except asyncio.CancelledError:
+                        if not self._internal_cancel_requested:
+                            raise
+
                         # Runner.cancel() interrupted the in-flight executor
                         if current_activity is not None:
                             current_activity.is_canceled = True
@@ -272,6 +287,7 @@ class Runner:
                         finally:
                             # Reset stop flag after handling cancellation
                             self._stop_requested = False
+                            self._internal_cancel_requested = False
                         # NEW: mark current step if one exists
                         if step is not None:
                             step.status = StepStatus.stopped if self.status == RunnerStatus.stopped else StepStatus.canceled

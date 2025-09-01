@@ -14,6 +14,10 @@ class Confirmation(str, Enum):
     prompt = "prompt"
     auto = "auto"
 
+class ResetPolicy(str, Enum):
+    always_reset = "always_reset"
+    never_reset = "never_reset"
+
 class PreprocessorSpec(BaseModel):
     name: str
     options: Dict[str, Any] = Field(default_factory=dict)
@@ -50,6 +54,10 @@ class Node(BaseModel):
     confirmation: Confirmation = Field(
         default=Confirmation.prompt,
         description="How to handle node final confirmation ('prompt' or 'auto')",
+    )
+    reset_policy: ResetPolicy = Field(
+        default=ResetPolicy.always_reset,
+        description="Defines how message history is handled. 'always_reset' (default): use only current input messages. 'never_reset': accumulate messages from all previous executions of this node.",
     )
 
     # Registry keyed by the existing "type" field value

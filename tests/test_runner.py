@@ -601,3 +601,143 @@ async def test_stop_and_resume_from_last_good_step():
     assert task.steps[2].executions[0].message.text == "A2"
     assert task.steps[2].executions[1].type.value == "executor"
     assert task.steps[2].executions[1].message.text == "Bdone"
+
+
+@pytest.mark.asyncio
+async def test_run_disallowed_when_running():
+    nodes = [{"name": "Block", "type": "block", "outcomes": []}]
+    g = Graph.build(nodes=nodes, edges=[])
+    workflow = Workflow(name="workflow", graph=g)
+
+    class BlockExecutor(Executor):
+        type = "block"
+
+        async def run(self, messages):
+            await asyncio.sleep(60)
+            yield ReqFinalMessage(message=msg("agent", "done"))
+
+    project = Project(base_path=Path("."))
+    runner = Runner(workflow, project)
+    task = Assignment()
+    it = runner.run(task)
+
+    run_task = asyncio.create_task(it.__anext__())
+    await asyncio.sleep(0.01)  # allow runner to start
+
+    assert runner.status == "running"
+    with pytest.raises(RuntimeError, match=".*not allowed when runner status"):
+        # Create a new run iterator and try to advance it; this should fail.
+        await runner.run(task).__anext__()
+
+    # Cleanup
+    run_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+
+@pytest.mark.asyncio
+async def test_reset_policy_auto_confirmation_and_single_outcome_transition():
+    # Graph: A -> B -> A -> C.
+    # - A has never_reset policy, so its second run accumulates messages.
+    # - B has auto confirmation, so it transitions without user input.
+    # - B has one outcome, its executor gives no outcome_name, testing single outcome transition.
+    nodes = [
+        {
+            "name": "A",
+            "type": "a",
+            "outcomes": [OutcomeSlot(name="toB"), OutcomeSlot(name="toC")],
+            "reset_policy": "never_reset",
+            "pass_all_messages": True,  # Pass all to B
+        },
+        {
+            "name": "B",
+            "type": "b",
+            "outcomes": [OutcomeSlot(name="toA")],
+            "confirmation": "auto",
+        },
+        {"name": "C", "type": "c", "outcomes": []},
+    ]
+    edges = [
+        Edge(source_node="A", source_outcome="toB", target_node="B"),
+        Edge(source_node="B", source_outcome="toA", target_node="A"),
+        Edge(source_node="A", source_outcome="toC", target_node="C"),
+    ]
+    g = Graph.build(nodes=nodes, edges=edges)
+    workflow = Workflow(name="workflow", graph=g)
+
+    class AExec(Executor):
+        type = "a"
+        runs = 0
+
+        async def run(self, messages):
+            type(self).runs += 1
+            if type(self).runs == 1:
+                # First run, gets initial message
+                assert len(messages) == 1
+                assert messages[0].role == "user" and messages[0].text == "start"
+                yield ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB")
+            else:
+                # Second run, should accumulate messages from its first run and B's output
+                # Initial "start", A's "A1", and B's output "B1" (which is the input to this step)
+                assert len(messages) == 3
+                texts = {m.text for m in messages}
+                assert texts == {"start", "A1", "B1"}
+                yield ReqFinalMessage(message=msg("agent", "A2"), outcome_name="toC")
+
+    class BExec(Executor):
+        type = "b"
+
+        async def run(self, messages):
+            # Should get all messages from A due to pass_all_messages
+            assert len(messages) == 2
+            assert messages[0].text == "start"
+            assert messages[1].text == "A1"
+            # No outcome_name -> auto-transition due to single outcome
+            yield ReqFinalMessage(message=msg("agent", "B1"))
+
+    class CExec(Executor):
+        type = "c"
+
+        async def run(self, messages):
+            yield ReqFinalMessage(message=msg("agent", "C1"))
+
+    project = Project(base_path=Path("."))
+    runner = Runner(workflow, project, initial_message=msg("user", "start"))
+    task = Assignment()
+    it = runner.run(task)
+
+    # A's first run
+    ev_a1 = await it.__anext__()
+    assert ev_a1.node == "A"
+    assert ev_a1.event.kind == "final_message"
+    assert ev_a1.event.message.text == "A1"
+    assert ev_a1.input_requested is True
+
+    # Approve A1. This triggers B. B is auto-confirmed, so it will yield its final
+    # event with input_requested=False.
+    ev_b1 = await it.asend(None)
+    assert ev_b1.node == "B"
+    assert ev_b1.event.kind == "final_message"
+    assert ev_b1.event.message.text == "B1"
+    assert ev_b1.input_requested is False
+
+    # Since B did not request input, we can immediately advance the runner. This transitions
+    # from B back to A for its second run, which yields its final message.
+    ev_a2 = await it.asend(None)
+    assert ev_a2.node == "A"
+    assert ev_a2.event.kind == "final_message"
+    assert ev_a2.event.message.text == "A2"
+    assert ev_a2.input_requested is True
+
+    # Approve A2. This triggers C.
+    ev_c1 = await it.asend(None)
+    assert ev_c1.node == "C"
+    assert ev_c1.event.kind == "final_message"
+    assert ev_c1.event.message.text == "C1"
+
+    # Approve C to finish.
+    with pytest.raises(StopAsyncIteration):
+        await it.asend(None)
+
+    assert runner.status == "finished"
+    assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
