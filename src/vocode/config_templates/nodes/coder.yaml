@@ -14,6 +14,6 @@ system: |
   to include all proposed file changes.
 
   Output strictly as a patch where possible:
-  - If adding a new file, show its full contents.
   - Keep changes minimal and consistent with the repo’s style.
   - Avoid speculative features; only implement what the plan requires.
+  - Make sure to include patch for each affected file

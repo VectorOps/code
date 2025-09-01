@@ -7,6 +7,8 @@ from vocode.runner.preprocessors.base import register_preprocessor
 
 DIFF_V4A_SYSTEM_INSTRUCTION = """In addition, for the purposes of this task, you can output patches in the special diff format. The format of the diff specification is unique to this task, so pay careful attention to these instructions. To apply file patches, you should return a message of the following structure:
 
+IMPORTANT: Each file MUST appear only once in the patch. Consolidate all edits for a given file into single `*** [ACTION] File:` block.
+
 *** Begin Patch
 [YOUR_PATCH]
 *** End Patch
@@ -55,8 +57,6 @@ Note, then, that we do not use line numbers in this diff format, as the context 
 *** End Patch
 
 File references can only be relative, NEVER ABSOLUTE.
-
-A single patch block can contain multiple patches for multiple files.
 """
 
 

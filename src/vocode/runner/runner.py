@@ -400,10 +400,6 @@ class Runner:
 
                             updated_tool_calls.append(tc.model_copy(deep=True))
 
-                        print("TOOL CALL")
-                        print(req)
-                        print(updated_tool_calls)
-
                         # Reply to executor with executed tool call results
                         to_send = RespToolCall(tool_calls=updated_tool_calls)
                         continue

@@ -289,6 +289,8 @@ class LLMExecutor(Executor):
                             "content": json.dumps(rcall.result) if rcall.result is not None else "",
                         }
                     )
+
+                    #print(conv[-1])
                 # Continue loop for model to incorporate tool results
                 continue
 
