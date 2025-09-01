@@ -19,3 +19,4 @@ mcp.json
 .venv/
 .aider*
 .vocode
+.vocode/data

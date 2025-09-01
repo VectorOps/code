@@ -12,6 +12,7 @@ dependencies = [
     "pyyaml>=6.0.2",
     "structlog>=25.4.0",
     "json5>=0.9",
+    "know @ git+https://github.com/VectorOps/know.git",
 ]
 
 [tool.uv]

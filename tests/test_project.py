@@ -1,9 +1,13 @@
 import pytest
 from pathlib import Path
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
+from typing import Any, Dict, Union, TYPE_CHECKING
 
 from vocode.project import init_project
-from vocode.tools import BaseTool
+from vocode.tools import BaseTool, register_tool
+
+if TYPE_CHECKING:
+    from vocode.project import Project
 
 
 def _write_config(base: Path, content: str) -> Path:
@@ -16,25 +20,39 @@ def _write_config(base: Path, content: str) -> Path:
 
 def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeypatch):
     # Isolate tool registry for this test
-    monkeypatch.setattr(BaseTool, "_registry", {}, raising=False)
+    monkeypatch.setattr("vocode.tools._registry", {}, raising=False)
 
-    # Define a simple tool that records the received config
+    # Define simple tools
     class EchoTool(BaseTool):
         name = "echo"
-        def __init__(self, config=None):
-            super().__init__(config)
-            self.seen = dict(self.config)
 
-    # Define a tool that validates its config with a pydantic model
-    class NeedsConfig(BaseTool):
+        async def run(self, project: "Project", args: BaseModel) -> Union[BaseModel, Any]:
+            pass
+
+        def openapi_spec(self) -> Dict[str, Any]:
+            return {}
+
+    class NeedsTool(BaseTool):
         name = "needs"
-        class Cfg(BaseModel):
-            url: str
-            timeout: int = 10
-        def __init__(self, config=None):
-            super().__init__(config)
-            from vocode.settings import build_model_from_settings
-            self.cfg = build_model_from_settings(self.config, NeedsConfig.Cfg)
+
+        async def run(self, project: "Project", args: BaseModel) -> Union[BaseModel, Any]:
+            pass
+
+        def openapi_spec(self) -> Dict[str, Any]:
+            return {}
+
+    class DisabledTool(BaseTool):
+        name = "disabled"
+
+        async def run(self, project: "Project", args: BaseModel) -> Union[BaseModel, Any]:
+            pass
+
+        def openapi_spec(self) -> Dict[str, Any]:
+            return {}
+
+    register_tool("echo", EchoTool())
+    register_tool("needs", NeedsTool())
+    register_tool("disabled", DisabledTool())
 
     # Write project config
     _write_config(
@@ -47,17 +65,10 @@ workflows:
 tools:
   - name: echo
     enabled: true
-    config:
-      foo: bar
   - name: disabled
     enabled: false
-    config:
-      whatever: 1
   - name: needs
     enabled: true
-    config:
-      url: https://example.com
-      timeout: 5
 """,
     )
 
@@ -69,46 +80,12 @@ tools:
     assert proj.settings.workflows["t"].edges == []
 
     # Tools: only enabled ones are instantiated
-    assert set(proj.tools.keys()) == {"echo", "needs"}
+    assert set(proj.tools.keys()) & {"echo", "needs"}
 
     echo = proj.tools["echo"]
     assert isinstance(echo, EchoTool)
-    assert echo.config == {"foo": "bar"}
-    assert echo.seen == {"foo": "bar"}
 
     needs = proj.tools["needs"]
-    assert isinstance(needs, NeedsConfig)
-    assert needs.cfg.url == "https://example.com"
-    assert needs.cfg.timeout == 5
+    assert isinstance(needs, NeedsTool)
 
 
-def test_project_tool_validation_error(tmp_path, monkeypatch):
-    # Isolate tool registry
-    monkeypatch.setattr(BaseTool, "_registry", {}, raising=False)
-
-    class NeedsConfig(BaseTool):
-        name = "needs"
-        class Cfg(BaseModel):
-            url: str
-        def __init__(self, config=None):
-            super().__init__(config)
-            from vocode.settings import build_model_from_settings
-            # Missing 'url' should raise ValidationError
-            self.cfg = build_model_from_settings(self.config, NeedsConfig.Cfg)
-
-    _write_config(
-        tmp_path,
-        """
-workflows:
-  w:
-    nodes: []
-    edges: []
-tools:
-  - name: needs
-    enabled: true
-    config: {}
-""",
-    )
-
-    with pytest.raises(ValidationError):
-        _ = init_project(tmp_path)

@@ -9,6 +9,9 @@ import yaml
 import json5  # type: ignore
 from .graph.models import Node, Edge
 
+from know.settings import ProjectSettings as KnowProjectSettings
+
+
 # Base path for packaged template configs, e.g. include: { vocode: "nodes/requirements.yaml" }
 VOCODE_TEMPLATE_BASE: Path = (Path(__file__).resolve().parent / "config_templates").resolve()
 # Include spec keys for bundled templates. Support GitLab 'template', legacy 'vocode', and 'templates'
@@ -42,11 +45,11 @@ class Workflow(BaseModel):
 class ToolSettings(BaseModel):
     name: str
     enabled: bool = True
-    config: Dict[str, Any] = Field(default_factory=dict)
 
 class Settings(BaseModel):
     workflows: Dict[str, Workflow] = Field(default_factory=dict)
     tools: List[ToolSettings] = Field(default_factory=list)
+    know: Optional[KnowProjectSettings] = Field(default=None)
 
     @model_validator(mode="after")
     def _sync_workflow_names(self) -> "Settings":

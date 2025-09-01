@@ -1,5 +1,6 @@
 #+title: Code ToDo
-
+* [ ] Runner
+** [ ] Add tool calling support
 * [ ] Cleanup all dependencies
 - Move graph models out of graph, move runtime graph generation out of Graph class
 - Move executor/models.py out to root
@@ -64,6 +65,7 @@
 **** [ ] Tool configuration
 - Integrate Know
 **** [ ] Exposing available tools to LLM from project
+**** [ ] Implement tool calling
 *** [X] Dynamic output selection by LLM
 **** [X] Configurable system prompt extension
 **** [X] Cleanup logic
