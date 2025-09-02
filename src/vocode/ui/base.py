@@ -48,6 +48,7 @@ class UIState:
         self._selected_workflow_name: Optional[str] = None
         self._current_node_name: Optional[str] = None
         self._lock = asyncio.Lock()
+        self._stop_signal: asyncio.Event = asyncio.Event()
 
     # ------------------------
     # Public protocol endpoints
@@ -96,6 +97,7 @@ class UIState:
             self.runner = Runner(workflow=workflow, project=self.project, initial_message=initial_message)
             self._req_counter = 0
             self._last_status = None
+            self._stop_signal.clear()
             self._drive_task = asyncio.create_task(self._drive_runner())
 
     async def stop(self) -> None:
@@ -105,6 +107,7 @@ class UIState:
         async with self._lock:
             if self.runner is None:
                 return
+            self._stop_signal.set()
             self.runner.stop()
 
     async def cancel(self) -> None:
@@ -114,6 +117,7 @@ class UIState:
         async with self._lock:
             if self.runner is None:
                 return
+            self._stop_signal.set()
             self.runner.cancel()
 
     async def restart(self) -> None:
@@ -138,6 +142,7 @@ class UIState:
                 raise RuntimeError("Runner is already active")
             self._req_counter = 0
             self._last_status = None
+            self._stop_signal.clear()
             self._drive_task = asyncio.create_task(self._drive_runner())
 
     # ------------------------
@@ -253,9 +258,23 @@ class UIState:
 
                 # Await UI response only if required
                 if req.input_requested:
-                    # Wait for a matching response
+                    # Wait for a matching response or a stop signal.
                     while True:
-                        ui_resp = await self._incoming.get()
+                        resp_task = asyncio.create_task(self._incoming.get())
+                        stop_task = asyncio.create_task(self._stop_signal.wait())
+                        done, pending = await asyncio.wait({resp_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
+                        # If stop signal fired, close the runner generator and exit promptly.
+                        if stop_task in done:
+                            for t in pending:
+                                t.cancel()
+                            with contextlib.suppress(Exception):
+                                await agen.aclose()
+                            await self._emit_status_if_changed()
+                            return
+                        # Otherwise we have a response task completed.
+                        ui_resp = resp_task.result()
+                        for t in pending:
+                            t.cancel()
                         if ui_resp.kind == UI_PACKET_RUN_INPUT and ui_resp.req_id == req_id:
                             to_send = ui_resp.input
                             break
@@ -270,4 +289,7 @@ class UIState:
         finally:
             # Final status emission (in case it changed just before exit)
             await self._emit_status_if_changed()
+            # Clear stop signal to leave UIState in a clean state for future starts.
+            with contextlib.suppress(Exception):
+                self._stop_signal.clear()
             self._current_node_name = None

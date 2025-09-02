@@ -8,6 +8,7 @@ from vocode.runner.preprocessors.base import apply_preprocessors
 CHOOSE_OUTCOME_TOOL_NAME: Final[str] = "__choose_outcome__"
 OUTCOME_TAG_RE = re.compile(r"^\s*OUTCOME\s*:\s*([A-Za-z0-9_\-]+)\s*$")
 OUTCOME_LINE_PREFIX_RE = re.compile(r"^\s*OUTCOME\s*:\s*")
+MAX_ROUNDS = 32
 
 from litellm import acompletion
 
@@ -163,14 +164,13 @@ class LLMExecutor(Executor):
 
         # Drive the LLM loop with tool-calls as needed
         assistant_text: str = ""
-        max_rounds = 8
         rounds = 0
 
         while True:
             rounds += 1
-            if rounds > max_rounds:
-                # Fallback safety: stop looping
-                break
+            if rounds > MAX_ROUNDS:
+                # Fail explicitly to avoid returning an empty response
+                raise RuntimeError(f"LLMExecutor exceeded maximum rounds ({MAX_ROUNDS}); possible tool loop")
 
             assistant_text_parts: List[str] = []
             tool_call_builders: Dict[int, Dict[str, Any]] = {}

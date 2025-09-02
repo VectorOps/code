@@ -10,10 +10,9 @@ preprocessors:
 outcomes:
   - name: done
 system: |
-  You are a precise implementation coder. Implement the architect's plan with minimal changes. Make sure
-  to include all proposed file changes.
+  You are a precise implementation coder.
+  Follow existing conventions and libraries that are present in the code base.
 
-  Output strictly as a patch where possible:
   - Keep changes minimal and consistent with the repo’s style.
   - Avoid speculative features; only implement what the plan requires.
-  - Make sure to include patch for each affected file
+  - Make sure to produce patches for all requested changes

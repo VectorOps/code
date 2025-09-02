@@ -1,6 +1,8 @@
 #+title: Code ToDo
 * [ ] Runner
-** [ ] Add tool calling support
+** [X] Add tool calling support
+** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
+** [ ] Investigate stopping and cancelation of existing runners
 * [ ] Error handling
 ** [ ] Tool calling timeouts and failures
 * [ ] Cleanup all dependencies
@@ -43,8 +45,6 @@
 ** [X] Add a way to get node definition from template and override some of the fields from config
 ** [X] Graph runner
 ** [X] Add a way to rewind history back to resume from a different point
-* [ ] Runner
-** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
 * [ ] Block parsers
 ** [X] Code parsers
 ** [ ] Diff parsers
@@ -71,10 +71,12 @@
 ** [X] Base node runner class
 ** [ ] LLM node
 *** [?] Base
-**** [ ] Tool configuration
+**** [X] Tool configuration
 - Integrate Know
-**** [ ] Exposing available tools to LLM from project
-**** [ ] Implement tool calling
+**** [X] Exposing available tools to LLM from project
+**** [X] Implement tool calling
+*** [ ] Limit context length and reject tool calls when over
+*** [ ] Prevent too many files to be read
 *** [X] Dynamic output selection by LLM
 **** [X] Configurable system prompt extension
 **** [X] Cleanup logic

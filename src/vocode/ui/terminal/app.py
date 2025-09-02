@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import signal
 from typing import Optional
+import shutil
 
 import click
 
@@ -11,6 +12,7 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.formatted_text import to_formatted_text
+from prompt_toolkit.formatted_text.utils import split_lines, fragment_list_width
 from vocode.ui.terminal import colors
 
 from vocode.project import Project
@@ -34,11 +36,76 @@ from vocode.ui.terminal.commands import CommandContext, run as run_command
 # This is used for overwriting the current line during streaming output.
 ANSI_CARRIAGE_RETURN_AND_CLEAR_TO_EOL = "\r\x1b[K"
 
+# ANSI escape sequence for moving the cursor up one line.
+ANSI_CURSOR_UP = "\x1b[1A"
+
 def _prompt_text(ui: UIState) -> HTML:
     wf = ui.selected_workflow_name or "-"
     node = ui.current_node_name or "-"
     status = getattr(ui.status, "value", str(ui.status))
     return HTML(f"<b>{wf}</b>@<ansicyan>{node}</ansicyan> [{status}]> ")
+
+
+def out(*args, **kwargs):
+    def _p():
+        print(*args, **kwargs, flush=True)
+    try:
+        run_in_terminal(_p)
+    except Exception:
+        _p()
+
+
+def out_fmt(ft):
+    """
+    Print prompt_toolkit AnyFormattedText with our console style.
+    """
+    def _p():
+        print_formatted_text(to_formatted_text(ft), style=colors.get_console_style())
+    try:
+        run_in_terminal(_p)
+    except Exception:
+        # Fallback: degrade to plain text
+        print(to_formatted_text(ft).text, flush=True)
+
+
+def out_fmt_stream(ft):
+    """
+    Print prompt_toolkit AnyFormattedText without a trailing newline,
+    using a carriage return to overwrite the current line.
+    Handles wrapped lines correctly by splitting on newlines, printing
+    full lines, and keeping the cursor positioned at the start of the
+    last (potentially wrapped) line.
+    """
+    # Normalize to a list of (style, text) tuples.
+    parts = list(ft)
+
+    # Clear the current line first (we're overwriting the streamed line).
+    print(ANSI_CARRIAGE_RETURN_AND_CLEAR_TO_EOL, end="")
+
+    # Split into lines using prompt_toolkit helper.
+    lines = list(split_lines(parts))
+
+    # Print all full lines (all but last) with a newline.
+    for line in lines[:-1]:
+        print_formatted_text(to_formatted_text(line), style=colors.get_console_style())
+
+    # Prepare last line.
+    last_line = lines[-1] if lines else []
+
+    # Compute how many wraps the last line will take.
+    width = shutil.get_terminal_size(fallback=(80, 24)).columns
+    last_width = fragment_list_width(last_line)
+    wraps = (last_width - 1) // width if (width > 0 and last_width > 0) else 0
+
+    # Print the last line without a trailing newline (to keep streaming).
+    if last_line:
+        print_formatted_text(to_formatted_text(last_line), style=colors.get_console_style(), end="")
+
+    # If the last line wrapped, move the cursor back up so the next update
+    # will overwrite from the first visual line of this wrapped block.
+    if wraps > 0:
+        print(ANSI_CURSOR_UP * wraps, end="")
+
 
 async def run_terminal(project: Project) -> None:
     ui = UIState(project)
@@ -61,25 +128,25 @@ async def run_terminal(project: Project) -> None:
     def _(event):
         asyncio.create_task(stop_toggle())
 
-    def out(*args, **kwargs):
-        def _p():
-            print(*args, **kwargs, flush=True)
-        try:
-            run_in_terminal(_p)
-        except Exception:
-            _p()
-
-    def out_fmt(ft):
-        """
-        Print prompt_toolkit AnyFormattedText with our console style.
-        """
-        def _p():
-            print_formatted_text(to_formatted_text(ft), style=colors.get_console_style())
-        try:
-            run_in_terminal(_p)
-        except Exception:
-            # Fallback: degrade to plain text
-            print(to_formatted_text(ft).text, flush=True)
+    # Register a SIGINT handler that triggers stop_toggle so Ctrl-C works
+    # even when not focused on prompt_toolkit. Save the previous handler so
+    # it can be restored on exit.
+    old_sigint = None
+    try:
+        old_sigint = signal.getsignal(signal.SIGINT)
+        def _sigint_handler(signum, frame):
+            try:
+                loop = asyncio.get_running_loop()
+                loop.call_soon_threadsafe(lambda: asyncio.create_task(stop_toggle()))
+            except RuntimeError:
+                # No running loop; attempt to create the task directly (best-effort).
+                try:
+                    asyncio.create_task(stop_toggle())
+                except Exception:
+                    pass
+        signal.signal(signal.SIGINT, _sigint_handler)
+    except Exception:
+        old_sigint = None
 
     def request_exit():
         nonlocal should_exit
@@ -89,15 +156,6 @@ async def run_terminal(project: Project) -> None:
             session.app.exit(result="")
 
     ctx = CommandContext(ui=ui, out=lambda s: out(s), stop_toggle=stop_toggle, request_exit=request_exit)
-
-    def out_fmt_stream(ft):
-        """
-        Print prompt_toolkit AnyFormattedText without a trailing newline,
-        using a carriage return to overwrite the current line.
-        """
-
-        print(ANSI_CARRIAGE_RETURN_AND_CLEAR_TO_EOL, end="")
-        print_formatted_text(to_formatted_text(ft), style=colors.get_console_style(), end="")
 
     pending_req: Optional[UIReqRunEvent] = None
 

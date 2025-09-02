@@ -40,7 +40,9 @@ For instructions on [context_before] and [context_after]:
 + [new_code]
 [3 lines of post-context]
 
-Note, then, that we do not use line numbers in this diff format, as the context is enough to uniquely identify code. An example of a message that you might pass as "input" to this function, in order to apply a patch, is shown below.
+Note, then, that we do not use line numbers in this diff format, as the context is enough to uniquely identify code.
+
+An example of a message that you might pass in order to apply a patch, is shown below.
 
 *** Begin Patch
 *** Update File: pygorithm/searching/binary_search.py
@@ -53,7 +55,12 @@ Note, then, that we do not use line numbers in this diff format, as the context 
 @@     def search():
 -        pass
 +        raise NotImplementedError()
-
+*** Update File: pygorithm/searching/binary_search_test.py
+@@ class TestSubclass
+@@     def test_search():
+-          pass
++          raise NotImplementedError.
+*** Delete File: pygorithm/searching/dummy.py
 *** End Patch
 
 File references can only be relative, NEVER ABSOLUTE.
