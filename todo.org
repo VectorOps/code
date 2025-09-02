@@ -1,5 +1,6 @@
 #+title: Code ToDo
 * [ ] Runner
+** [ ] When looping on the same node - we need to append message to existing history. Update protocol to return user input back to executor without creating a new executor instance and losing a lot of function call context.
 ** [X] Add tool calling support
 ** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
 ** [ ] Investigate stopping and cancelation of existing runners
