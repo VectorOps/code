@@ -4,12 +4,14 @@ import pathlib
 from typing import AsyncIterator, List, Optional, Tuple
 
 from vocode.runner.runner import Executor
-from vocode.graph.models import ApplyPatchNode
+from vocode.graph.models import ApplyPatchNode, ResetPolicy
 from vocode.state import Message
+import asyncio
 from vocode.runner.models import (
     ReqPacket,
     ReqMessageRequest,
     ReqFinalMessage,
+    RespMessage,
 )
 
 from .v4a import process_patch, DiffError
@@ -23,6 +25,8 @@ class ApplyPatchExecutor(Executor):
         super().__init__(config=config, project=project)
         if not isinstance(config, ApplyPatchNode):
             raise TypeError("ApplyPatchExecutor requires config to be an ApplyPatchNode")
+        if config.reset_policy != ResetPolicy.always_reset:
+            raise ValueError("ApplyPatchExecutor supports only ResetPolicy.always_reset")
         # Buffers for dummy FS helpers (dry-run writes/removes)
         self._writes: List[Tuple[str, str]] = []
         self._removes: List[str] = []
@@ -69,39 +73,62 @@ class ApplyPatchExecutor(Executor):
 
     async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
         cfg: ApplyPatchNode = self.config  # type: ignore[assignment]
-        if (cfg.patch_format or "v4a").lower() != "v4a":
-            final = Message(role="agent", text=f"Unsupported patch format: {cfg.patch_format}")
-            _ = (yield ReqFinalMessage(message=final, outcome_name="fail"))
-            return
+        next_patch_text: Optional[str] = None
 
-        patch_text = self._extract_patch_text(messages)
-        if not patch_text:
-            # Ask for a patch message
-            reply = (yield ReqMessageRequest())
-            # Runner guarantees a RespMessage here; extract patch from the returned message
+        while True:
+            # Enforce supported patch format
+            if (cfg.patch_format or "v4a").lower() != "v4a":
+                final = Message(role="agent", text=f"Unsupported patch format: {cfg.patch_format}")
+                post = (yield ReqFinalMessage(message=final, outcome_name="fail"))
+                if isinstance(post, RespMessage):
+                    # Format is fixed; ignore additional input and present the same final again
+                    continue
+                await asyncio.Event().wait()
+
+            # Determine patch text: either from carried-over post-final message or inputs/history
+            if next_patch_text is None:
+                patch_text = self._extract_patch_text(messages)
+                if not patch_text:
+                    reply = (yield ReqMessageRequest())
+                    try:
+                        msg = reply.message  # type: ignore[attr-defined]
+                    except Exception:
+                        msg = None
+                    patch_text = self._extract_patch_text([msg] if msg is not None else [])
+                    if not patch_text:
+                        final = Message(role="agent", text="No patch provided.")
+                        post = (yield ReqFinalMessage(message=final, outcome_name="fail"))
+                        if isinstance(post, RespMessage):
+                            # Try to extract patch from the post-final message; if none, use raw text
+                            next_patch_text = self._extract_patch_text([post.message]) or (post.message.text or "")
+                            continue
+                        await asyncio.Event().wait()
+            else:
+                patch_text = next_patch_text
+                next_patch_text = None
+
+            # Reset dummy FS buffers for this attempt
+            self._writes.clear()
+            self._removes.clear()
+
+            outcome = "success"
             try:
-                msg = reply.message  # type: ignore[attr-defined]
-            except Exception:
-                msg = None
-            patch_text = self._extract_patch_text([msg] if msg is not None else [])
-            if not patch_text:
-                final = Message(role="agent", text="No patch provided.")
-                _ = (yield ReqFinalMessage(message=final, outcome_name="fail"))
-                return
+                _ = process_patch(
+                    patch_text,
+                    open_fn=self._open_file,
+                    write_fn=self._write_file,
+                    remove_fn=self._remove_file,
+                )
+                final = Message(role="agent", text="Done!")
+            except DiffError as e:
+                final = Message(role="agent", text=f"Error applying patch: {e}")
+                outcome = "fail"
 
-        outcome = "success"
-        try:
-            _ = process_patch(
-                patch_text,
-                open_fn=self._open_file,
-                write_fn=self._write_file,
-                remove_fn=self._remove_file,
-            )
-            # Intentionally do not modify the file system; this is a dry-run with dummy helpers.
-            final = Message(role="agent", text="Done!")
-        except DiffError as e:
-            final = Message(role="agent", text=f"Error applying patch: {e}")
-            outcome = "fail"
+            post = (yield ReqFinalMessage(message=final, outcome_name=outcome))
+            if isinstance(post, RespMessage):
+                # Continue in-loop using the new patch content
+                next_patch_text = self._extract_patch_text([post.message]) or (post.message.text or "")
+                continue
 
-        _ = (yield ReqFinalMessage(message=final, outcome_name=outcome))
-        return
+            # Pause until runner closes/resets this executor
+            await asyncio.Event().wait()

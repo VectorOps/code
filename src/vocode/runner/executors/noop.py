@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from typing import AsyncIterator, List, Optional
+import asyncio
 
 from vocode.runner.runner import Executor
 from vocode.graph.models import NoopNode
 from vocode.state import Message
-from vocode.runner.models import ReqPacket, ReqFinalMessage
+from vocode.runner.models import ReqPacket, ReqFinalMessage, RespMessage
 
 class NoopExecutor(Executor):
     # Must match NoopNode.type
@@ -24,7 +25,6 @@ class NoopExecutor(Executor):
         if len(outs) == 1:
             outcome_name = outs[0].name
         elif len(outs) > 1:
-            # Prefer a conventional outcome name if present, otherwise first
             names = [s.name for s in outs]
             for pref in ("next", "success"):
                 if pref in names:
@@ -33,7 +33,12 @@ class NoopExecutor(Executor):
             if outcome_name is None:
                 outcome_name = outs[0].name
 
-        # Emit a final message and let Runner transition (or stop if no outcomes)
-        final = Message(role="agent", text="")
-        _ = (yield ReqFinalMessage(message=final, outcome_name=outcome_name))
-        return
+        while True:
+            final = Message(role="agent", text="")
+            resp = (yield ReqFinalMessage(message=final, outcome_name=outcome_name))
+            # If runner sends a message back (additional requirements), just loop and immediately
+            # provide another final; otherwise executor remains paused on approval.
+            if isinstance(resp, RespMessage):
+                # ignore content, loop to yield another final
+                continue
+            await asyncio.Event().wait()

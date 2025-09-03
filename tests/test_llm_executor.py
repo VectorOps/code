@@ -85,18 +85,7 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
         model="gpt-x",
         outcomes=[OutcomeSlot(name="accept"), OutcomeSlot(name="reject")],
         outcome_strategy=OutcomeStrategy.function_call,
-        extra={
-            "tools": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "weather",
-                        "description": "Get weather",
-                        "parameters": {"type": "object", "properties": {}},
-                    },
-                }
-            ]
-        },
+        tools=["weather"],
     )
 
     # First model streaming: emits content and an external tool call (weather)
@@ -117,6 +106,16 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
+        class _DummyWeatherTool:
+            def openapi_spec(self):
+                return {
+                    "name": "weather",
+                    "description": "Get weather",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+
+        project.tools["weather"] = _DummyWeatherTool()
+
         execu = LLMExecutor(cfg, project)
         agen = execu.run(messages=[Message(role="user", text="Weather?")])
 
@@ -128,7 +127,7 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
         tc = pkt.tool_calls[0]
         assert tc.name == "weather"
         assert tc.id == "call_1"
-        assert tc.arguments == '{"city":"NYC"}'  # concatenated from streamed parts
+        assert tc.arguments == {"city": "NYC"}  # parsed from streamed parts
 
         # Ensure tools passed include both external tool and choose_outcome function
         tools_sent = stub.calls[0]["tools"]
@@ -143,8 +142,8 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
             id="call_1",
             name="weather",
             type="function",
-            arguments='{"city":"NYC"}',
-            result='{"temp":72}',
+            arguments={"city": "NYC"},
+            result={"temp": 72},
         )
         first_pkt = await agen.asend(RespToolCall(tool_calls=[tool_result]))
 
@@ -168,8 +167,7 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
         assert pkt2.outcome_name == "accept"
 
         # Finalize generator
-        with pytest.raises(StopAsyncIteration):
-            await agen.asend(None)
+        await agen.aclose()
 
 
 @pytest.mark.asyncio
@@ -207,8 +205,7 @@ async def test_llm_executor_tag_strategy_streaming_and_strip(monkeypatch, tmp_pa
         # No tools provided for tag strategy with no external tools
         assert stub.calls[0]["tools"] is None
 
-        with pytest.raises(StopAsyncIteration):
-            await agen.asend(None)
+        await agen.aclose()
 
 
 @pytest.mark.asyncio
@@ -233,8 +230,7 @@ async def test_llm_executor_tag_strategy_fallback_to_first_outcome(monkeypatch, 
         # Fallback to first outcome when tag missing
         assert pkt.outcome_name == "first"
 
-        with pytest.raises(StopAsyncIteration):
-            await agen.asend(None)
+        await agen.aclose()
 
 
 @pytest.mark.asyncio
@@ -243,22 +239,25 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monke
         name="LLM",
         model="gpt-x",
         system="sys",
-        outcomes=[OutcomeSlot(name="done")],  # single outcome
-        outcome_strategy=OutcomeStrategy.function_call,  # shouldn't add choose_outcome when only one
-        extra={
-            "tools": [
-                {
-                    "type": "function",
-                    "function": {"name": "weather", "parameters": {"type": "object", "properties": {}}},
-                }
-            ]
-        },
+        outcomes=[OutcomeSlot(name="done")],
+        outcome_strategy=OutcomeStrategy.function_call,
+        tools=["weather"],
     )
     seq = [chunk_content("Fin.")]
     stub = ACompletionStub([seq])
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
+        class _DummyWeatherTool:
+            def openapi_spec(self):
+                return {
+                    "name": "weather",
+                    "description": "",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+
+        project.tools["weather"] = _DummyWeatherTool()
+
         history = [Message(role="user", text="Hi"), Message(role="agent", text="Prev assistant")]
         agen = LLMExecutor(cfg, project).run(messages=history)
 
@@ -281,5 +280,4 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monke
         assert {"role": "user", "content": "Hi"} in sent_msgs
         assert {"role": "assistant", "content": "Prev assistant"} in sent_msgs
 
-        with pytest.raises(StopAsyncIteration):
-            await agen.asend(None)
+        await agen.aclose()

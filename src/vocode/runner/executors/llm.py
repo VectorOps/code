@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import AsyncIterator, List, Optional, Dict, Any, Final
 import json
 import re
+import asyncio
 from vocode.runner.preprocessors.base import apply_preprocessors
 
 CHOOSE_OUTCOME_TOOL_NAME: Final[str] = "__choose_outcome__"
@@ -21,6 +22,7 @@ from vocode.runner.models import (
     ReqFinalMessage,
     ReqInterimMessage,
     RespPacket,
+    RespMessage,          # add this
     PACKET_TOOL_CALL,
 )
 
@@ -44,7 +46,7 @@ class LLMExecutor(Executor):
         if cfg.system:
             sys_text = cfg.system
             # Apply LLMNode-specific preprocessors to the system prompt only
-            preprocs = getattr(cfg, "preprocessors", []) or []
+            preprocs = cfg.preprocessors or []
             if preprocs:
                 preproc_names = [p.name for p in preprocs]
                 sys_text = apply_preprocessors(preproc_names, sys_text)
@@ -164,13 +166,9 @@ class LLMExecutor(Executor):
 
         # Drive the LLM loop with tool-calls as needed
         assistant_text: str = ""
-        rounds = 0
+        tool_rounds = 0
 
         while True:
-            rounds += 1
-            if rounds > MAX_ROUNDS:
-                # Fail explicitly to avoid returning an empty response
-                raise RuntimeError(f"LLMExecutor exceeded maximum rounds ({MAX_ROUNDS}); possible tool loop")
 
             assistant_text_parts: List[str] = []
             tool_call_builders: Dict[int, Dict[str, Any]] = {}
@@ -291,6 +289,13 @@ class LLMExecutor(Executor):
                     )
 
                     #print(conv[-1])
+                # Count only rounds that include external tool calls
+                tool_rounds += 1
+                if tool_rounds > MAX_ROUNDS:
+                    raise RuntimeError(
+                        f"LLMExecutor exceeded maximum function-call rounds ({MAX_ROUNDS}); possible tool loop"
+                    )
+
                 # Continue loop for model to incorporate tool results
                 continue
 
@@ -316,9 +321,24 @@ class LLMExecutor(Executor):
                         else:
                             outcome_name = outcomes[0]
 
-            break  # exit loop
+            # Instead of exiting after one round, present the final and possibly accept a post-final user message
+            final_msg = Message(role="agent", text=assistant_text)
+            resp = (yield ReqFinalMessage(message=final_msg, outcome_name=outcome_name))
 
-        # Return final message and the selected outcome (if any)
-        final_msg = Message(role="agent", text=assistant_text)
-        _ = (yield ReqFinalMessage(message=final_msg, outcome_name=outcome_name))
-        return
+            # If runner sent a user message in response to the final (additional requirements),
+            # continue the same executor by appending it to the conversation; otherwise
+            # just pause here (runner will not send anything on approval).
+            if isinstance(resp, RespMessage):
+                # Append new user message and continue the loop without resetting conv
+                conv.append({"role": self._map_role(resp.message.role), "content": resp.message.text})
+                # Reset outcome_name for next turn
+                outcome_name = None
+                assistant_text = ""
+                # Reset function-call round counter for a new user-provided turn
+                tool_rounds = 0
+                # Continue outer while loop to produce a next assistant response
+                continue
+
+            # Otherwise, stay paused on this executor until the runner closes or resets it.
+            # Await indefinitely to remain suspended; runner will aclose() / recreate as needed.
+            await asyncio.Event().wait()

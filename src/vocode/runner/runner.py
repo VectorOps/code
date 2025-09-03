@@ -89,6 +89,8 @@ class Runner:
         self._executors: Dict[str, Executor] = {
             n.name: Executor.create_for_node(n, project=self.project) for n in self.workflow.graph.nodes
         }
+        # Map of node_name -> async generator (executor.run(...)) to support long-lived executors
+        self._agen_map: Dict[str, AsyncIterator[ReqPacket]] = {}
         self._stop_requested: bool = False
         self._internal_cancel_requested: bool = False
 
@@ -146,6 +148,35 @@ class Runner:
     def _find_runtime_node_by_name(self, name: str):
         """Locate the RuntimeNode by name using Graph's runtime map."""
         return self.workflow.graph.get_runtime_node_by_name(name)
+
+    def _get_previous_node_messages(
+        self,
+        task: Assignment,
+        node_name: str,
+        exclude_step: Optional[Step] = None,
+    ) -> List[Message]:
+        """
+        Collect all prior messages for the given node across earlier steps, excluding interim executor chunks.
+        Includes:
+          - user messages
+          - executor final messages (is_complete=True)
+        Excludes:
+          - interim executor messages (is_complete=False)
+          - messages from 'exclude_step' (the current in-flight step)
+        """
+        msgs: List[Message] = []
+        for s in task.steps:
+            if s is exclude_step:
+                continue
+            if s.node != node_name:
+                continue
+            for a in s.executions:
+                if a.message is None:
+                    continue
+                if a.type == ActivityType.executor and not a.is_complete:
+                    continue
+                msgs.append(a.message)
+        return msgs
 
     def _prepare_resume(self, task: Assignment):
         """
@@ -246,22 +277,57 @@ class Runner:
             while rerun_same_node:
                 rerun_same_node = False
 
-                executor = self._executors[current_runtime_node.name]
                 node_model = current_runtime_node.model
-                # Prepare messages for executor from step executions
-                if node_model.reset_policy == ResetPolicy.never_reset:
-                    messages_for_exec = []
-                    for s in task.steps:
-                        if s.node == current_runtime_node.name:
-                            messages_for_exec.extend(
-                                a.message for a in s.executions if a.message is not None
-                            )
-                else:  # ResetPolicy.always_reset
-                    messages_for_exec = [a.message for a in step.executions if a.message is not None]
-                agen = executor.run(messages_for_exec)
-                current_activity: Optional[Activity] = None
-                user_message_for_rerun: Optional[Message] = None
+                node_name = current_runtime_node.name
+                policy = node_model.reset_policy
+
+
+                # Collect initial inputs (added when the step was created)
+                initial_user_inputs: List[Message] = [
+                    a.message for a in step.executions
+                    if a.message is not None and a.type == ActivityType.user
+                ]
+
+                # Policy: executor instance and generator lifecycle
+                # Close any existing generator if policy requires fresh run
+                if policy in (ResetPolicy.always_reset, ResetPolicy.keep_results):
+                    old_gen = self._agen_map.pop(node_name, None)
+                    if old_gen is not None:
+                        try:
+                            await old_gen.aclose()
+                        except Exception:
+                            pass
+
+                # For always_reset, also replace the executor instance to reset internal state
+                if policy == ResetPolicy.always_reset:
+                    # Replace executor instance
+                    self._executors[node_name] = Executor.create_for_node(node_model, project=self.project)
+
+                executor = self._executors[node_name]
+
+                # Obtain or create the async generator
+                agen = self._agen_map.get(node_name)
                 to_send: Optional[RespPacket] = None
+
+                if agen is None:
+                    # Build initial messages depending on policy
+                    start_messages: List[Message] = []
+                    if policy == ResetPolicy.keep_results:
+                        prev_msgs = self._get_previous_node_messages(task, node_name, exclude_step=step)
+                        if prev_msgs:
+                            start_messages.extend(prev_msgs)
+                    # For always_reset and keep_state (first run), add current initial inputs
+                    start_messages.extend(initial_user_inputs)
+                    agen = executor.run(start_messages)
+                    self._agen_map[node_name] = agen
+                else:
+                    # keep_state: resume existing generator with a new input message (if any)
+                    if initial_user_inputs:
+                        last_input = initial_user_inputs[-1]
+                        to_send = RespMessage(message=last_input)
+
+                current_activity: Optional[Activity] = None
+                to_send = to_send
 
                 while True:
                     try:
@@ -292,6 +358,13 @@ class Runner:
                         # NEW: mark current step if one exists
                         if step is not None:
                             step.status = StepStatus.stopped if self.status == RunnerStatus.stopped else StepStatus.canceled
+                        # Ensure current node generator is also closed/removed if present
+                        gen_to_close = self._agen_map.pop(current_runtime_node.name, None)
+                        if gen_to_close is not None:
+                            try:
+                                await gen_to_close.aclose()
+                            except Exception:
+                                pass
                         return
                     finally:
                         self._current_exec_task = None
@@ -334,18 +407,18 @@ class Runner:
                         )
                         step.executions.append(current_activity)
 
+                        # If user provides additional requirements, send them back to the executor WITHOUT
+                        # adding to running history; continue the same node/executor in-place.
+                        if resp is not None and resp.kind == PACKET_MESSAGE:
+                            to_send = resp  # Send directly back into the executor
+                            continue
+
                         # Approval handling: None or approved=True => success => proceed to next node
                         if resp is None or (resp.kind == PACKET_APPROVAL and resp.approved):
-                            # No response expected back to executor
+                            # Executor remains paused on the last yield; transition to next node
                             break
 
-                        # If a user message was provided instead, re-run same node with that message
-                        if resp is not None and resp.kind == PACKET_MESSAGE:
-                            step.executions.append(Activity(type=ActivityType.user, message=resp.message))
-                            user_message_for_rerun = resp.message
-                            break
-
-                        # Otherwise, treat as success and proceed
+                        # Any other response: treat as success and proceed
                         break
 
                     elif req.kind == PACKET_TOOL_CALL:
@@ -422,10 +495,6 @@ class Runner:
                         to_send = None
                         continue
 
-                # If we got a user-provided message to re-run the same node, do so
-                if user_message_for_rerun is not None:
-                    rerun_same_node = True
-                    continue
 
                 # Mark this step as finished (no rerun for this node)
                 step.status = StepStatus.finished
@@ -439,6 +508,15 @@ class Runner:
                 if next_runtime_node is None:
                     self.status = RunnerStatus.finished
                     return
+
+                # If this node's executor should not be reused, close and drop its generator now.
+                if policy in (ResetPolicy.always_reset, ResetPolicy.keep_results):
+                    gen_to_close = self._agen_map.pop(node_name, None)
+                    if gen_to_close is not None:
+                        try:
+                            await gen_to_close.aclose()
+                        except Exception:
+                            pass
 
                 current_runtime_node = next_runtime_node
                 pending_input_messages = list(next_input_messages)

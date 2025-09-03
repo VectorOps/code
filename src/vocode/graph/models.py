@@ -16,7 +16,8 @@ class Confirmation(str, Enum):
 
 class ResetPolicy(str, Enum):
     always_reset = "always_reset"
-    never_reset = "never_reset"
+    keep_results = "keep_results"
+    keep_state = "keep_state"
 
 class PreprocessorSpec(BaseModel):
     name: str
@@ -57,7 +58,12 @@ class Node(BaseModel):
     )
     reset_policy: ResetPolicy = Field(
         default=ResetPolicy.always_reset,
-        description="Defines how message history is handled. 'always_reset' (default): use only current input messages. 'never_reset': accumulate messages from all previous executions of this node.",
+        description=(
+            "Defines how executor state is handled.\n"
+            "- 'always_reset' (default): create a new executor each run; only current inputs are passed.\n"
+            "- 'keep_results': create a new executor each run, but include the previous final message of this node as an input in addition to current inputs.\n"
+            "- 'keep_state': reuse the same long-lived executor and resume it by sending new input messages; executor internal state is preserved."
+        ),
     )
 
     # Registry keyed by the existing "type" field value

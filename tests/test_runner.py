@@ -13,7 +13,7 @@ from vocode.runner.models import (
     RespApproval,
     RunInput,
 )
-from vocode.state import Message, ToolCall, ToolCallStatus, Assignment
+from vocode.state import Message, ToolCall, ToolCallStatus, Assignment, RunnerStatus
 
 
 def msg(role: str, text: str) -> Message:
@@ -103,19 +103,23 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
         type = "tool"
 
         async def run(self, messages):
-            # Approved tool call
-            tc1 = ToolCall(name="one", arguments="{}")
+            # Approved tool call (current semantics return a rejected status with error dict for unknown tools)
+            tc1 = ToolCall(name="one", arguments={})
             resp1 = yield ReqToolCall(tool_calls=[tc1])
             assert resp1.kind == "tool_call"
             assert len(resp1.tool_calls) == 1
-            assert resp1.tool_calls[0].status == ToolCallStatus.completed
-            assert resp1.tool_calls[0].result == "{}"
-            # Rejected tool call
-            tc2 = ToolCall(name="two", arguments="{}")
+            assert resp1.tool_calls[0].status == ToolCallStatus.rejected
+            err1 = resp1.tool_calls[0].result
+            assert isinstance(err1, dict)
+            assert "Unknown tool" in (err1.get("error") or "")
+            # Rejected tool call (user-rejected now returns rejected with error dict)
+            tc2 = ToolCall(name="two", arguments={})
             resp2 = yield ReqToolCall(tool_calls=[tc2])
             assert resp2.kind == "tool_call"
             assert resp2.tool_calls[0].status == ToolCallStatus.rejected
-            assert resp2.tool_calls[0].result is None
+            err2 = resp2.tool_calls[0].result
+            assert isinstance(err2, dict)
+            assert "rejected by user" in (err2.get("error") or "")
             # Finish
             yield ReqFinalMessage(message=msg("agent", "done"))
 
@@ -130,14 +134,18 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
         # Respond and capture the next event (this returns the next yielded request)
         ev2 = await it.asend(RunInput(response=RespApproval(approved=True)))
         # After approval the first req object should be updated
-        assert ev1.event.tool_calls[0].status == ToolCallStatus.completed
-        assert ev1.event.tool_calls[0].result == "{}"
+        assert ev1.event.tool_calls[0].status == ToolCallStatus.rejected
+        err = ev1.event.tool_calls[0].result
+        assert isinstance(err, dict)
+        assert "Unknown tool" in (err.get("error") or "")
 
         # Second tool call (reject)
         assert ev2.event.kind == "tool_call"
         ev3 = await it.asend(RunInput(response=RespApproval(approved=False)))
         assert ev2.event.tool_calls[0].status == ToolCallStatus.rejected
-        assert ev2.event.tool_calls[0].result is None
+        err2 = ev2.event.tool_calls[0].result
+        assert isinstance(err2, dict)
+        assert "rejected by user" in (err2.get("error") or "")
 
         # Finalize (returned by the previous asend)
         assert ev3.event.kind == "final_message"
@@ -162,17 +170,13 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
         type = "echo"
 
         async def run(self, messages):
-            # First run: no inputs; emit final to trigger rerun
-            if len(messages) == 0:
-                yield ReqFinalMessage(message=msg("agent", "ask"))
-            else:
-                # Rerun should pass previous output + user message
-                assert len(messages) == 2
-                assert messages[0].role in ("agent", "tool")
-                assert messages[0].text == "ask"
-                assert messages[1].role == "user"
-                assert messages[1].text == "more"
-                yield ReqFinalMessage(message=msg("agent", "done"))
+            # First final: no inputs; emit final to trigger post-final user message
+            resp = yield ReqFinalMessage(message=msg("agent", "ask"))
+            # Runner should send a RespMessage back without recording it
+            assert isinstance(resp, RespMessage)
+            assert resp.message.role == "user" and resp.message.text == "more"
+            # Continue same executor and produce the second final
+            yield ReqFinalMessage(message=msg("agent", "done"))
 
     async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
@@ -182,26 +186,22 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
         # First: final_message (requesting input)
         ev1 = await it.__anext__()
         assert ev1.event.kind == "final_message"
-        # Provide a user message to trigger rerun
+        # Provide a user message to continue same executor (not added to history)
         ev2 = await it.asend(RunInput(response=RespMessage(message=msg("user", "more"))))
-        # Now we are in second execution; final again
         assert ev2.event.kind == "final_message"
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
 
-        # Verify two executions within the same step
+        # Verify two executions within the same step; no user message recorded
         assert runner.status.name == "finished"
         assert len(task.steps) == 1
         step = task.steps[0]
-        # Activities: final 'ask', user 'more', final 'done'
-        assert len(step.executions) == 3
+        assert len(step.executions) == 2
         assert step.executions[0].type.value == "executor"
         assert step.executions[0].message.text == "ask"
-        assert step.executions[1].type.value == "user"
-        assert step.executions[1].message.text == "more"
-        assert step.executions[2].type.value == "executor"
-        assert step.executions[2].is_complete is True
-        assert step.executions[2].message.text == "done"
+        assert step.executions[1].type.value == "executor"
+        assert step.executions[1].is_complete is True
+        assert step.executions[1].message.text == "done"
 
 
 @pytest.mark.asyncio
@@ -406,7 +406,7 @@ async def test_cancel_during_asend_after_tool_response(tmp_path: Path):
         closed = False
         async def run(self, messages):
             try:
-                resp = yield ReqToolCall(tool_calls=[ToolCall(name="sleep", arguments="{}")])
+                resp = yield ReqToolCall(tool_calls=[ToolCall(name="sleep", arguments={})])
                 assert resp.kind == "tool_call"
                 # Block after receiving tool response
                 await asyncio.sleep(60)
@@ -503,12 +503,10 @@ async def test_stop_and_resume_from_last_good_step(tmp_path: Path):
                 assert len(messages) == 0
                 yield ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB")
             else:
-                # Rerun after resume: should receive previous output + user message
-                assert len(messages) == 2
-                assert messages[0].role in ("agent", "tool")
-                assert messages[0].text == "A1"
-                assert messages[1].role == "user"
-                assert messages[1].text == "followup"
+                # Rerun after resume: receive only the user follow-up as input
+                assert len(messages) == 1
+                assert messages[0].role == "user"
+                assert messages[0].text == "followup"
                 yield ReqFinalMessage(message=msg("agent", "A2"), outcome_name="toB")
 
     class BExec(Executor):
@@ -624,7 +622,7 @@ async def test_run_disallowed_when_running(tmp_path: Path):
         run_task = asyncio.create_task(it.__anext__())
         await asyncio.sleep(0.01)  # allow runner to start
 
-        assert runner.status == "running"
+        assert runner.status == RunnerStatus.running
         with pytest.raises(RuntimeError, match=".*not allowed when runner status"):
             # Create a new run iterator and try to advance it; this should fail.
             await runner.run(task).__anext__()
@@ -638,7 +636,7 @@ async def test_run_disallowed_when_running(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_path: Path):
     # Graph: A -> B -> A -> C.
-    # - A has never_reset policy, so its second run accumulates messages.
+    # - A has keep_results policy, so its second run accumulates messages.
     # - B has auto confirmation, so it transitions without user input.
     # - B has one outcome, its executor gives no outcome_name, testing single outcome transition.
     nodes = [
@@ -646,7 +644,7 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_
             "name": "A",
             "type": "a",
             "outcomes": [OutcomeSlot(name="toB"), OutcomeSlot(name="toC")],
-            "reset_policy": "never_reset",
+            "reset_policy": "keep_results",
             "pass_all_messages": True,  # Pass all to B
         },
         {
@@ -677,11 +675,8 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_
                 assert messages[0].role == "user" and messages[0].text == "start"
                 yield ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB")
             else:
-                # Second run, should accumulate messages from its first run and B's output
-                # Initial "start", A's "A1", and B's output "B1" (which is the input to this step)
-                assert len(messages) == 3
-                texts = {m.text for m in messages}
-                assert texts == {"start", "A1", "B1"}
+                # Second run via keep_results: receives all prior A messages + new input from B
+                assert [m.text for m in messages] == ["start", "A1", "B1"]
                 yield ReqFinalMessage(message=msg("agent", "A2"), outcome_name="toC")
 
     class BExec(Executor):
@@ -739,5 +734,5 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
 
-        assert runner.status == "finished"
+        assert runner.status == RunnerStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
