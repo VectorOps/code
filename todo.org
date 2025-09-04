@@ -1,9 +1,11 @@
 #+title: Code ToDo
 * [ ] Runner
-** [ ] When looping on the same node - we need to append message to existing history. Update protocol to return user input back to executor without creating a new executor instance and losing a lot of function call context.
+** [X] When looping on the same node - we need to append message to existing history. Update protocol to return user input back to executor without creating a new executor instance and losing a lot of function call context.
 ** [X] Add tool calling support
 ** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
-** [ ] Investigate stopping and cancelation of existing runners
+** [X] Investigate stopping and cancelation of existing runners
+** [ ] Figure out if we can store node reset semantics at the edge level? So failure might keep the state, but initial entry should not?
+- Patch node failing and going back to coder should persist coder state and append patch error
 * [ ] Error handling
 ** [ ] Tool calling timeouts and failures
 * [ ] Cleanup all dependencies
