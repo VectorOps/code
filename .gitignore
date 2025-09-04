@@ -18,5 +18,4 @@ mcp.json
 # Virtual environments
 .venv/
 .aider*
-.vocode
 .vocode/data

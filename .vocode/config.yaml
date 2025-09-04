@@ -1,0 +1,55 @@
+# Default Vocode configuration
+workflows:
+  architect:
+    nodes:
+      - name: prompt
+        type: input
+        message: Enter your request
+        confirmation: auto
+        outcomes:
+          - name: done
+      - $include:
+          template: nodes/architect.yaml
+      - $include:
+          template: nodes/coder.yaml
+      - $include:
+          template: nodes/apply_patch.yaml
+      - name: finish
+        type: noop
+    edges:
+      - prompt.done -> architect
+      - architect.done -> coder
+      - coder.done -> apply
+      - apply.success -> finish
+      - apply.fail -> coder
+  diff:
+    nodes:
+      - name: prompt
+        type: input
+        message: Enter your request
+        confirmation: auto
+        outcomes:
+          - name: done
+      - $include:
+          template: nodes/architect.yaml
+        model: gpt-4.1
+      - name: finish
+        type: noop
+    edges:
+      - prompt.done -> architect
+      - architect.done -> finish
+  coder:
+    nodes:
+      - name: prompt
+        type: input
+        message: Enter your request
+        confirmation: auto
+        outcomes:
+          - name: done
+      - $include:
+          template: nodes/coder.yaml
+      - name: finish
+        type: noop
+    edges:
+      - prompt.done -> coder
+      - coder.done -> finish
