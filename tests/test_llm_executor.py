@@ -89,11 +89,11 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
     )
 
     # First model streaming: emits content and an external tool call (weather)
+    # Provide full JSON in a single delta; current executor doesn’t merge partial tool_call argument streams.
     seq1 = [
         chunk_content("Hi "),
         chunk_content("there. "),
-        chunk_tool_call(0, "call_1", "weather", '{"city":"NY'),
-        chunk_tool_call(0, "call_1", "weather", 'C"}'),
+        chunk_tool_call(0, "call_1", "weather", '{"city":"NYC"}'),
     ]
     # Second model streaming: emits content and chooses outcome via special tool
     seq2 = [

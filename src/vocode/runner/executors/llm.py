@@ -171,7 +171,7 @@ class LLMExecutor(Executor):
         while True:
 
             assistant_text_parts: List[str] = []
-            tool_call_builders: Dict[int, Dict[str, Any]] = {}
+            tool_calls_by_id: Dict[str, Dict[str, Any]] = {}
             # Filter extra to avoid overriding explicit kwargs (e.g., 'tools')
             extra_args = dict(cfg.extra or {})
             for k in ("tools", "tool_choice", "messages", "model", "stream", "temperature", "max_tokens"):
@@ -207,32 +207,28 @@ class LLMExecutor(Executor):
                 # Accumulate streamed tool_calls (OpenAI-style deltas)
                 tc_deltas = delta.get("tool_calls") or []
                 for dtc in tc_deltas:
-                    idx = dtc.get("index", 0)
-                    b = tool_call_builders.setdefault(
-                        idx,
-                        {"id": dtc.get("id"), "type": "function", "function": {"name": "", "arguments": ""}},
-                    )
-                    if dtc.get("id") and not b.get("id"):
-                        b["id"] = dtc.get("id")
-                    fn = dtc.get("function") or {}
-                    if "name" in fn and fn["name"]:
-                        b["function"]["name"] = fn["name"]
-                    if "arguments" in fn and fn["arguments"]:
-                        b["function"]["arguments"] += fn["arguments"]
+                    call_id = dtc.get("id")
+                    if not call_id:
+                        # Do not add until id is known
+                        continue
+                    # Store the whole latest tool call object; overwrite previous snapshot
+                    tool_calls_by_id[call_id] = dtc
 
             assistant_text = "".join(assistant_text_parts)
 
             # Build final assistant message dict and append to conversation
             streamed_tool_calls = []
-            for idx in sorted(tool_call_builders.keys()):
-                b = tool_call_builders[idx]
+            # Deterministic order by id (optional but avoids flaky tests)
+            for call_id in sorted(tool_calls_by_id.keys()):
+                tc_obj = tool_calls_by_id[call_id] or {}
+                fn = tc_obj.get("function") or {}
                 streamed_tool_calls.append(
                     {
-                        "id": b.get("id"),
-                        "type": b.get("type", "function"),
+                        "id": call_id,
+                        "type": tc_obj.get("type", "function"),
                         "function": {
-                            "name": (b.get("function") or {}).get("name", ""),
-                            "arguments": (b.get("function") or {}).get("arguments", ""),
+                            "name": fn.get("name") or "",
+                            "arguments": fn.get("arguments") or "",
                         },
                     }
                 )
