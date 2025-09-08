@@ -2,12 +2,14 @@
 * [ ] Runner
 ** [X] When looping on the same node - we need to append message to existing history. Update protocol to return user input back to executor without creating a new executor instance and losing a lot of function call context.
 ** [X] Add tool calling support
+** [X] Allow edges to control history retainment value
 ** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
 ** [X] Investigate stopping and cancelation of existing runners
 ** [ ] Figure out if we can store node reset semantics at the edge level? So failure might keep the state, but initial entry should not?
 - Patch node failing and going back to coder should persist coder state and append patch error
 * [ ] Error handling
 ** [ ] Tool calling timeouts and failures
+** [ ] Add a way for human to unlock by retrying last operation
 * [ ] Cleanup all dependencies
 - Move graph models out of graph, move runtime graph generation out of Graph class
 - Move executor/models.py out to root
@@ -15,8 +17,8 @@
 * [X] UI protocol
 ** [X] In-memory bidirectional stream implementation for TUI
 * [ ] Terminal UI
-** [ ] Add logging
-** [ ] Fix line breaks - if line is naturally too long, then moving caret to the beginning of the line does not work, we need to go one line up.
+** [ ] Add way to show log messages (inline? out of process?)
+** [X] Fix line breaks - if line is naturally too long, then moving caret to the beginning of the line does not work, we need to go one line up.
 ** [X] Fix intermediate response streaming
 ** [X] Remove (or disable) prompt when input is not requested
 ** [X] Fix prompt display - it's not visible after output
@@ -37,17 +39,6 @@
 - Take callable function as a parameter, run it in Know thread, return results back
 ** [ ] Add a way to auto-approve tool calls
 ** [ ] Add pattern matching rules to auto-approve rule calls
-* [ ] Graph
-** [X] Rename output to be outcome
-** [X] Refactor NodeExecution input_messages and messages. messages should be append only.
-** [X] Add a way to override values from a shared config. Options:
-- Through special value
-- Though path in the settings of <tool_name.node_name.field_name> syntax
-- Both?
-- Also read from files when file is defined
-** [X] Add a way to get node definition from template and override some of the fields from config
-** [X] Graph runner
-** [X] Add a way to rewind history back to resume from a different point
 * [ ] Block parsers
 ** [X] Code parsers
 ** [ ] Diff parsers
@@ -73,11 +64,12 @@
 - We need machinery to go back in time and reset graph execution to a specific history
 ** [X] Base node runner class
 ** [ ] LLM node
-*** [?] Base
+*** [X] Base
 **** [X] Tool configuration
 - Integrate Know
 **** [X] Exposing available tools to LLM from project
 **** [X] Implement tool calling
+*** [ ] Verify if we're including files multiple times in responsing, thus burning tokens
 *** [ ] Limit context length and reject tool calls when over
 *** [ ] Prevent too many files to be read
 *** [X] Dynamic output selection by LLM
@@ -108,3 +100,14 @@
 - Should start a runner
 - Wait for runner to finish
 - Pass all messages through to UI
+* [X] Graph
+** [X] Rename output to be outcome
+** [X] Refactor NodeExecution input_messages and messages. messages should be append only.
+** [X] Add a way to override values from a shared config. Options:
+- Through special value
+- Though path in the settings of <tool_name.node_name.field_name> syntax
+- Both?
+- Also read from files when file is defined
+** [X] Add a way to get node definition from template and override some of the fields from config
+** [X] Graph runner
+** [X] Add a way to rewind history back to resume from a different point

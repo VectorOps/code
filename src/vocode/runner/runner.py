@@ -111,26 +111,30 @@ class Runner:
     def _compute_node_transition(self, current_runtime_node, exec_activity: Activity, step: Step):
         """
         Decide the next runtime node and the input messages for it based on the executed node's result.
-        Returns (next_runtime_node, next_input_messages) or (None, None) if the flow should finish.
+        Returns (next_runtime_node, next_input_messages, edge_reset_policy) or (None, None, None) if the flow should finish.
         """
         node_model = current_runtime_node.model
 
-        # If the node has no outcomes, we're done
         if not node_model.outcomes:
-            return None, None
+            return None, None, None
 
-        # Choose next outcome
+        # Choose outcome and next node
         outcome_name = exec_activity.outcome_name
         if outcome_name:
             next_runtime_node = current_runtime_node.get_child_by_outcome(outcome_name)
             if next_runtime_node is None:
-                raise ValueError(f"No edge defined from node '{node_model.name}' via outcome '{outcome_name}'")
+                raise ValueError(
+                    f"No edge defined from node '{node_model.name}' via outcome '{outcome_name}'"
+                )
+            selected_outcome = outcome_name
         else:
-            # No outcome provided: if there is exactly one, follow it; otherwise error
             if len(node_model.outcomes) == 1:
-                next_runtime_node = current_runtime_node.get_child_by_outcome(node_model.outcomes[0].name)
+                selected_outcome = node_model.outcomes[0].name
+                next_runtime_node = current_runtime_node.get_child_by_outcome(selected_outcome)
                 if next_runtime_node is None:
-                    raise ValueError(f"No edge defined from node '{node_model.name}' via its only outcome")
+                    raise ValueError(
+                        f"No edge defined from node '{node_model.name}' via its only outcome"
+                    )
             else:
                 raise ValueError(
                     f"Node '{node_model.name}' did not provide an outcome and has {len(node_model.outcomes)} outcomes"
@@ -143,7 +147,24 @@ class Runner:
             last_msg = next((a.message for a in reversed(step.executions) if a.message is not None), None)
             msgs = [last_msg] if last_msg is not None else []
 
-        return next_runtime_node, msgs
+        # Look up the edge to obtain the reset_policy override (if any)
+        edge_reset_policy = None
+        try:
+            graph = self.workflow.graph
+            edge_reset_policy = next(
+                (
+                    e.reset_policy
+                    for e in graph.edges
+                    if e.source_node == node_model.name
+                    and e.source_outcome == selected_outcome
+                    and e.target_node == next_runtime_node.name
+                ),
+                None,
+            )
+        except Exception:
+            edge_reset_policy = None
+
+        return next_runtime_node, msgs, edge_reset_policy
 
     def _find_runtime_node_by_name(self, name: str):
         """Locate the RuntimeNode by name using Graph's runtime map."""
@@ -253,21 +274,27 @@ class Runner:
                     current_runtime_node = rn
                     reuse_step = last_step
                     pending_input_messages = []
+                    incoming_policy_override: Optional[ResetPolicy] = None
                 else:
-                    next_runtime_node, next_input_messages = self._compute_node_transition(rn, last_act, last_step)
+                    next_runtime_node, next_input_messages, next_edge_policy = self._compute_node_transition(
+                        rn, last_act, last_step
+                    )
                     if next_runtime_node is None:
                         self.status = RunnerStatus.finished
                         await self._close_all_generators()
                         return
                     current_runtime_node = next_runtime_node
                     pending_input_messages = list(next_input_messages)
+                    incoming_policy_override = next_edge_policy
             else:  # ResumeMode.RERUN
                 current_runtime_node = rn
                 reuse_step = last_step
                 pending_input_messages = []
+                incoming_policy_override: Optional[ResetPolicy] = None
         else:
             current_runtime_node = graph.root
             pending_input_messages = [self.initial_message] if self.initial_message is not None else []
+            incoming_policy_override: Optional[ResetPolicy] = None
 
         # Main loop
         while True:
@@ -285,7 +312,9 @@ class Runner:
             # Node selection
             node_model = current_runtime_node.model
             node_name = current_runtime_node.name
-            policy = node_model.reset_policy
+            # Determine reset policy for this run (edge override wins once)
+            policy = incoming_policy_override or node_model.reset_policy
+            incoming_policy_override = None
 
 
             # Collect initial inputs (added when the step was created)
@@ -507,7 +536,7 @@ class Runner:
             last_exec_activity = next((a for a in reversed(step.executions) if a.type == ActivityType.executor and a.is_complete), None)
             if last_exec_activity is None:
                 raise RuntimeError("No completed executor activity found to compute transition")
-            next_runtime_node, next_input_messages = self._compute_node_transition(
+            next_runtime_node, next_input_messages, next_edge_policy = self._compute_node_transition(
                 current_runtime_node, last_exec_activity, step
             )
             if next_runtime_node is None:
@@ -526,3 +555,4 @@ class Runner:
 
             current_runtime_node = next_runtime_node
             pending_input_messages = list(next_input_messages)
+            incoming_policy_override = next_edge_policy

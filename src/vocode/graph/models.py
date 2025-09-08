@@ -3,7 +3,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator, AliasCh
 from enum import Enum
 import re
 
-EDGE_ALT_SYNTAX_RE = re.compile(r"^\s*([A-Za-z0-9_\-]+)\.([A-Za-z0-9_\-]+)\s*->\s*([A-Za-z0-9_\-]+)\s*$")
+EDGE_ALT_SYNTAX_RE = re.compile(
+    r"^\s*([A-Za-z0-9_\-]+)\.([A-Za-z0-9_\-]+)\s*->\s*([A-Za-z0-9_\-]+)(?::([A-Za-z0-9_\-]+))?\s*$"
+)
 
 
 class OutcomeSlot(BaseModel):
@@ -174,20 +176,30 @@ class Edge(BaseModel):
     source_node: str = Field(..., description="Name of the source node")
     source_outcome: str = Field(..., description="Name of the outcome slot on the source node")
     target_node: str = Field(..., description="Name of the target node")
+    reset_policy: Optional[ResetPolicy] = Field(
+        default=None,
+        description="Optional reset policy override applied when traversing this edge.",
+    )
 
     @model_validator(mode="before")
     @classmethod
     def _parse_alt_syntax(cls, v: Any) -> Any:
-        # Accept "source.node -> target" string form
+        # Accept "source.node -> target[:reset_policy]" string form
         if isinstance(v, str):
             m = EDGE_ALT_SYNTAX_RE.match(v)
             if not m:
-                raise ValueError("Edge string must be '<source_node>.<source_outcome> -> <target_node>'")
-            return {
+                raise ValueError(
+                    "Edge string must be '<source_node>.<source_outcome> -> <target_node>[:<reset_policy>]'"
+                )
+            data = {
                 "source_node": m.group(1),
                 "source_outcome": m.group(2),
                 "target_node": m.group(3),
             }
+            rp = m.group(4)
+            if rp:
+                data["reset_policy"] = rp  # Parsed by pydantic into ResetPolicy
+            return data
         return v
 
 

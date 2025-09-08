@@ -736,3 +736,162 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_
 
         assert runner.status == RunnerStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
+
+@pytest.mark.asyncio
+async def test_edge_reset_policy_override_short_syntax(tmp_path: Path):
+    # Graph:
+    #   B (default keep_state) --again--> B:always_reset (short syntax override)
+    #   B --done--> C
+    nodes = [
+        {
+            "name": "B",
+            "type": "bshort",
+            "outcomes": [OutcomeSlot(name="again"), OutcomeSlot(name="done")],
+            "reset_policy": "keep_state",
+        },
+        {"name": "C", "type": "cshort", "outcomes": []},
+    ]
+    edges = [
+        "B.again -> B:always_reset",  # short syntax override
+        "B.done -> C",
+    ]
+    g = Graph.build(nodes=nodes, edges=edges)
+    workflow = Workflow(name="workflow", graph=g)
+
+    class BShortExec(Executor):
+        type = "bshort"
+        next_id = 1
+        global_runs = 0  # track runs across instances for this test
+
+        def __init__(self, config, project):
+            super().__init__(config, project)
+            self.instance_id = type(self).next_id
+            type(self).next_id += 1
+
+        async def run(self, messages):
+            if type(self).global_runs == 0:
+                type(self).global_runs += 1
+                # First final: loop back to B (new instance due to always_reset override)
+                yield ReqFinalMessage(message=msg("agent", f"B1:{self.instance_id}"), outcome_name="again")
+            else:
+                type(self).global_runs += 1
+                # Second final: go to C
+                yield ReqFinalMessage(message=msg("agent", f"B2:{self.instance_id}"), outcome_name="done")
+
+    class CShortExec(Executor):
+        type = "cshort"
+        async def run(self, messages):
+            yield ReqFinalMessage(message=msg("agent", "C"))
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        # First B final
+        ev_b1 = await it.__anext__()
+        assert ev_b1.node == "B" and ev_b1.event.kind == "final_message"
+        id1 = int(ev_b1.event.message.text.split(":", 1)[1])
+
+        # Approve -> B again (override always_reset => new instance)
+        ev_b2 = await it.asend(None)
+        assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
+        id2 = int(ev_b2.event.message.text.split(":", 1)[1])
+        assert id2 != id1  # instance replaced due to edge override
+
+        # Approve -> C
+        ev_c = await it.asend(None)
+        assert ev_c.node == "C" and ev_c.event.kind == "final_message"
+
+        # Approve -> finish
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(None)
+
+
+@pytest.mark.asyncio
+async def test_edge_reset_policy_override_full_syntax(tmp_path: Path):
+    # Graph:
+    #   A --toB--> B (edge override keep_state)
+    #   B --again--> B (edge override keep_state)
+    #   B --done--> C
+    # B default policy is always_reset, but both incoming edges override to keep_state so the same
+    # B executor instance should be reused across the two B runs.
+    nodes = [
+        {"name": "A", "type": "afull", "outcomes": [OutcomeSlot(name="toB")]},
+        {
+            "name": "B",
+            "type": "bfull",
+            "outcomes": [OutcomeSlot(name="again"), OutcomeSlot(name="done")],
+            "reset_policy": "always_reset",
+        },
+        {"name": "C", "type": "cfull", "outcomes": []},
+    ]
+    edges = [
+        Edge(source_node="A", source_outcome="toB", target_node="B", reset_policy="keep_state"),
+        Edge(source_node="B", source_outcome="again", target_node="B", reset_policy="keep_state"),
+        Edge(source_node="B", source_outcome="done", target_node="C"),
+    ]
+    g = Graph.build(nodes=nodes, edges=edges)
+    workflow = Workflow(name="workflow", graph=g)
+
+    class AFullExec(Executor):
+        type = "afull"
+        async def run(self, messages):
+            yield ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB")
+
+    class BFullExec(Executor):
+        type = "bfull"
+        next_id = 1
+        def __init__(self, config, project):
+            super().__init__(config, project)
+            self.instance_id = type(self).next_id
+            type(self).next_id += 1
+            self._runs = 0
+
+        async def run(self, messages):
+            # Keep-state: the SAME generator instance is resumed for the second B run,
+            # so this generator must yield twice.
+            while True:
+                if self._runs == 0:
+                    self._runs += 1
+                    _ = yield ReqFinalMessage(
+                        message=msg("agent", f"B1:{self.instance_id}"), outcome_name="again"
+                    )
+                else:
+                    self._runs += 1
+                    _ = yield ReqFinalMessage(
+                        message=msg("agent", f"B2:{self.instance_id}"), outcome_name="done"
+                    )
+
+    class CFullExec(Executor):
+        type = "cfull"
+        async def run(self, messages):
+            yield ReqFinalMessage(message=msg("agent", "C"))
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        # A final -> approve to move to B
+        ev_a = await it.__anext__()
+        assert ev_a.node == "A" and ev_a.event.kind == "final_message"
+        ev_b1 = await it.asend(None)
+
+        # First B final
+        assert ev_b1.node == "B" and ev_b1.event.kind == "final_message"
+        id1 = int(ev_b1.event.message.text.split(":", 1)[1])
+
+        # Approve -> B again (override keep_state => reuse same instance)
+        ev_b2 = await it.asend(None)
+        assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
+        id2 = int(ev_b2.event.message.text.split(":", 1)[1])
+        assert id2 == id1  # instance reused due to edge override
+
+        # Approve -> C
+        ev_c = await it.asend(None)
+        assert ev_c.node == "C" and ev_c.event.kind == "final_message"
+
+        # Approve -> finish
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(None)
