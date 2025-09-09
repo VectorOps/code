@@ -9,8 +9,11 @@ workflows:
         outcomes:
           - name: done
       - $include:
+          template: nodes/discovery.yaml
+          function_tokens_pct: 25
+      - $include:
           template: nodes/architect.yaml
-          function_tokens_pct: 50
+          function_tokens_pct: 25
       - $include:
           template: nodes/coder.yaml
       - $include:
@@ -19,7 +22,8 @@ workflows:
       - name: finish
         type: noop
     edges:
-      - prompt.done -> architect
+      - prompt.done -> discovery
+      - discovery.done -> architect
       - architect.done -> coder
       - coder.done -> apply
       - apply.success -> finish

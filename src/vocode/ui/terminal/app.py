@@ -3,6 +3,7 @@ import contextlib
 import signal
 from typing import Optional
 import shutil
+from pathlib import Path
 
 import click
 
@@ -13,6 +14,7 @@ from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.formatted_text import to_formatted_text
 from prompt_toolkit.formatted_text.utils import split_lines, fragment_list_width
+from prompt_toolkit.history import FileHistory
 from vocode.ui.terminal import colors
 
 from vocode.project import Project
@@ -111,7 +113,14 @@ def out_fmt_stream(ft):
 
 async def run_terminal(project: Project) -> None:
     ui = UIState(project)
-    session = PromptSession()
+    try:
+        hist_dir = Path(getattr(project, "base_path", ".")) / ".vocode"
+        hist_dir.mkdir(parents=True, exist_ok=True)
+        hist_path = hist_dir / "data" / "terminal_history"
+        session = PromptSession(history=FileHistory(str(hist_path)))
+    except Exception:
+        # Fall back to in-memory history if anything goes wrong
+        session = PromptSession()
     kb = KeyBindings()
     should_exit = False
 

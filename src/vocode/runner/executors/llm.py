@@ -24,6 +24,8 @@ from vocode.runner.models import (
     RespPacket,
     RespMessage,          # add this
     PACKET_TOOL_CALL,
+    ReqLogMessage,
+    LogLevel,
 )
 
 
@@ -286,6 +288,15 @@ class LLMExecutor(Executor):
             self._acc_completion_tokens += completion_tokens
             self._acc_cost_dollars += round_cost
 
+            # Emit a log message summarizing this round
+            _ = yield ReqLogMessage(
+                text=(
+                    f"LLM tokens: input={prompt_tokens}, output={completion_tokens}, "
+                    f"total_input={self._acc_prompt_tokens}, total_output={self._acc_completion_tokens}, "
+                    f"accumulated_cost=${self._acc_cost_dollars:.6f}"
+                ),
+                level=LogLevel.info,
+            )
 
             # Build final assistant message dict and append to conversation
             streamed_tool_calls = []

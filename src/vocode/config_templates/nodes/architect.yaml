@@ -2,8 +2,6 @@ name: architect
 type: llm
 model: gpt-5
 tools:
-  - vectorops_list_files
-  - vectorops_search
   - vectorops_summarize_files
   - vectorops_read_files
 outcomes:
