@@ -7,6 +7,7 @@
 ** [X] Investigate stopping and cancelation of existing runners
 ** [ ] Figure out if we can store node reset semantics at the edge level? So failure might keep the state, but initial entry should not?
 - Patch node failing and going back to coder should persist coder state and append patch error
+** [ ] Figure out why final messages can be duplicated sometimes
 * [ ] Error handling
 ** [ ] Tool calling timeouts and failures
 ** [ ] Add a way for human to unlock by retrying last operation

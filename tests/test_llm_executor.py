@@ -14,6 +14,7 @@ from vocode.runner.models import (
     ReqToolCall,
     ReqFinalMessage,
     RespToolCall,
+    ReqLogMessage,
 )
 
 
@@ -73,6 +74,8 @@ async def drain_until_non_interim(agen):
         pkt = await anext(agen)
         if isinstance(pkt, ReqInterimMessage):
             interim_texts.append(pkt.message.text)
+            continue
+        if isinstance(pkt, ReqLogMessage):
             continue
         return interim_texts, pkt
 
@@ -147,19 +150,17 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
         )
         first_pkt = await agen.asend(RespToolCall(tool_calls=[tool_result]))
 
-        # Drain interim messages until final
         interim_msgs2 = []
-        if isinstance(first_pkt, ReqInterimMessage):
-            interim_msgs2.append(first_pkt.message.text)
-            # continue draining remaining packets until non-interim
-            while True:
+        pkt2 = first_pkt
+        while True:
+            if isinstance(pkt2, ReqLogMessage):
                 pkt2 = await anext(agen)
-                if isinstance(pkt2, ReqInterimMessage):
-                    interim_msgs2.append(pkt2.message.text)
-                    continue
-                break
-        else:
-            pkt2 = first_pkt
+                continue
+            if isinstance(pkt2, ReqInterimMessage):
+                interim_msgs2.append(pkt2.message.text)
+                pkt2 = await anext(agen)
+                continue
+            break
         assert interim_msgs2 == ["It is ", "sunny."]
         assert isinstance(pkt2, ReqFinalMessage)
         assert pkt2.message is not None

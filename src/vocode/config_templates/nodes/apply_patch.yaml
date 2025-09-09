@@ -1,6 +1,7 @@
 name: apply
 type: apply_patch
 format: v4a
+confirmation: auto
 outcomes:
   - name: success
     description: All patches were applied successfully
