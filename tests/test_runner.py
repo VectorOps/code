@@ -205,10 +205,10 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("pass_all", [True, False])
-async def test_transition_to_next_node_and_pass_all_messages(pass_all, tmp_path: Path):
+@pytest.mark.parametrize("mode", ["all_messages", "final_response"])
+async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Path):
     nodes = [
-        {"name": "A", "type": "a", "outcomes": [OutcomeSlot(name="toB")], "pass_all_messages": pass_all},
+        {"name": "A", "type": "a", "outcomes": [OutcomeSlot(name="toB")], "message_mode": mode},
         {"name": "B", "type": "b", "outcomes": []},
     ]
     edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
@@ -226,8 +226,8 @@ async def test_transition_to_next_node_and_pass_all_messages(pass_all, tmp_path:
         type = "b"
 
         async def run(self, messages):
-            # Expect messages based on pass_all flag and initial messages
-            if pass_all:
+            # Expect messages based on mode and initial messages
+            if mode == "all_messages":
                 assert len(messages) == 2  # initial system + A's output
                 assert messages[0].role == "system"
                 assert messages[0].text == "sys"
@@ -259,7 +259,7 @@ async def test_transition_to_next_node_and_pass_all_messages(pass_all, tmp_path:
     assert task.steps[0].executions[0].type.value == "user"
     assert task.steps[0].executions[1].message.text == "Aout"
     assert task.steps[0].executions[1].type.value == "executor"
-    if pass_all:
+    if mode == "all_messages":
         # B step includes carried inputs (system + A's output) and its final
         assert len(task.steps[1].executions) == 3
         assert task.steps[1].executions[0].type.value == "user"
@@ -645,7 +645,7 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_
             "type": "a",
             "outcomes": [OutcomeSlot(name="toB"), OutcomeSlot(name="toC")],
             "reset_policy": "keep_results",
-            "pass_all_messages": True,  # Pass all to B
+            "message_mode": "all_messages",  # Pass all to B
         },
         {
             "name": "B",
@@ -806,6 +806,90 @@ async def test_edge_reset_policy_override_short_syntax(tmp_path: Path):
         # Approve -> finish
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
+
+
+@pytest.mark.asyncio
+async def test_final_message_confirm_requires_explicit_approval_and_reprompts(tmp_path: Path):
+    # Single-node graph with confirmation=confirm
+    nodes = [{"name": "C", "type": "conf", "outcomes": [], "confirmation": "confirm"}]
+    g = Graph.build(nodes=nodes, edges=[])
+    workflow = Workflow(name="workflow", graph=g)
+
+    class ConfirmExec(Executor):
+        type = "conf"
+        async def run(self, messages):
+            # Immediately yield a final message
+            yield ReqFinalMessage(message=msg("agent", "done"))
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        # First: final_message requests explicit approval
+        ev1 = await it.__anext__()
+        assert ev1.node == "C"
+        assert ev1.event.kind == "final_message"
+        assert ev1.input_requested is True
+
+        # Sending a user message should NOT be accepted; runner should re-prompt final_message
+        ev2 = await it.asend(RunInput(response=RespMessage(message=msg("user", "not approval"))))
+        assert ev2.node == "C"
+        assert ev2.event.kind == "final_message"
+        assert ev2.input_requested is True
+        assert ev2.event.message is not None and ev2.event.message.text == "done"
+
+        # Now approve explicitly -> runner should finish
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(RunInput(response=RespApproval(approved=True)))
+
+        # Runner state and recorded activities: only the executor final is recorded
+        assert runner.status.name == "finished"
+        assert len(task.steps) == 1
+        step = task.steps[0]
+        assert step.node == "C"
+        assert step.status.name == "finished"
+        assert len(step.executions) == 1
+        assert step.executions[0].type.value == "executor"
+        assert step.executions[0].is_complete is True
+        assert step.executions[0].message is not None
+        assert step.executions[0].message.text == "done"
+
+
+@pytest.mark.asyncio
+async def test_final_message_confirm_reject_stops_runner(tmp_path: Path):
+    nodes = [{"name": "C", "type": "conf", "outcomes": [], "confirmation": "confirm"}]
+    g = Graph.build(nodes=nodes, edges=[])
+    workflow = Workflow(name="workflow", graph=g)
+
+    class ConfirmExec(Executor):
+        type = "conf"
+        async def run(self, messages):
+            yield ReqFinalMessage(message=msg("agent", "done"))
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        ev1 = await it.__anext__()
+        assert ev1.event.kind == "final_message" and ev1.input_requested is True
+
+        # Reject explicitly -> runner should stop
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(RunInput(response=RespApproval(approved=False)))
+
+        assert runner.status.name == "stopped"
+        assert len(task.steps) == 1
+        step = task.steps[0]
+        assert step.node == "C"
+        assert step.status.name == "stopped"
+        # Final executor message should be recorded before stop
+        assert len(step.executions) == 1
+        ex = step.executions[0]
+        assert ex.type.value == "executor"
+        assert ex.is_complete is True
+        assert ex.message is not None and ex.message.text == "done"
 
 
 @pytest.mark.asyncio

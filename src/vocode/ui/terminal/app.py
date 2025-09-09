@@ -28,8 +28,10 @@ from vocode.runner.models import (
     PACKET_TOOL_CALL,
     PACKET_MESSAGE,
     PACKET_FINAL_MESSAGE,
+    PACKET_LOG,
 )
 from vocode.state import Message, RunnerStatus
+from vocode.graph.models import Confirmation
 from vocode.ui.terminal.commands import CommandContext, run as run_command
 
 # ANSI escape sequence for carriage return and clearing from cursor to the end of the line.
@@ -177,12 +179,40 @@ async def run_terminal(project: Project) -> None:
             elif ev.kind == PACKET_TOOL_CALL:
                 hint = "(approve? [Y/n])"
             elif ev.kind == PACKET_FINAL_MESSAGE:
-                hint = "(Enter to continue, or type a reply)"
+                conf = _current_node_confirmation()
+                if conf == Confirmation.confirm:
+                    hint = "(approve? [Y/N])"
+                else:
+                    hint = "(Enter to continue, or type a reply)"
         return HTML(hint) if hint else None
+
+    def _current_node_confirmation() -> Optional[Confirmation]:
+        try:
+            name = ui.current_node_name
+            wf = ui.workflow
+            if not name or wf is None:
+                return None
+            for n in wf.graph.nodes:
+                if n.name == name:
+                    return getattr(n, "confirmation", None)
+            return None
+        except Exception:
+            return None
 
     async def handle_run_event(req: UIReqRunEvent) -> None:
         nonlocal pending_req, stream_buffer
         ev = req.event.event
+
+        # Debug/log messages from executors: print immediately without requesting input
+        if ev.kind == PACKET_LOG:
+            _finish_stream()
+            level = getattr(ev, "level", None)
+            # If it's an Enum (LogLevel), use its string value; otherwise use as-is.
+            if level is not None and hasattr(level, "value"):
+                level = level.value
+            prefix = f"[{level}] " if level else "[log] "
+            out(prefix + getattr(ev, "text", ""))
+            return
 
         if ev.kind == PACKET_MESSAGE and ev.message:
             speaker = ev.message.role or "assistant"
@@ -282,6 +312,21 @@ async def run_terminal(project: Project) -> None:
                     continue
 
                 if ev.kind == PACKET_FINAL_MESSAGE:
+                    conf = _current_node_confirmation()
+                    if conf == Confirmation.confirm:
+                        ans = text.strip().lower()
+                        if ans in ("y", "yes"):
+                            await ui.respond_approval(req_id, True)
+                            pending_req = None
+                            continue
+                        if ans in ("n", "no"):
+                            await ui.respond_approval(req_id, False)
+                            pending_req = None
+                            continue
+                        out("Please answer Y or N.")
+                        # Do not clear pending_req; re-prompt
+                        continue
+                    # prompt mode behavior
                     if text.strip() == "":
                         await ui.respond_approval(req_id, True)
                     else:

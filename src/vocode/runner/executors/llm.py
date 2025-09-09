@@ -36,6 +36,10 @@ class LLMExecutor(Executor):
         if not isinstance(config, LLMNode):
             # Allow base Node but prefer LLMNode
             raise TypeError("LLMExecutor requires config to be an LLMNode")
+        # Token/cost accumulators
+        self._acc_prompt_tokens: int = 0
+        self._acc_completion_tokens: int = 0
+        self._acc_cost_dollars: float = 0.0
 
     def _map_role(self, role: str) -> str:
         # Normalize internal "agent" to OpenAI "assistant"
@@ -124,6 +128,34 @@ class LLMExecutor(Executor):
             return "Choose exactly one of the following outcomes:\n" + outcome_desc_bullets
         return "Choose the appropriate outcome."
 
+    def _estimate_text_tokens(self, text: str, model: str) -> int:
+        try:
+            import tiktoken  # type: ignore
+            try:
+                enc = tiktoken.encoding_for_model(model)
+            except Exception:
+                enc = tiktoken.get_encoding("cl100k_base")
+            return len(enc.encode(text or ""))
+        except Exception:
+            # Fallback heuristic: ~4 chars per token
+            return max(1, int(len(text or "") / 4))
+
+    def _estimate_messages_tokens(self, msgs: List[Dict[str, Any]], model: str) -> int:
+        total = 0
+        for m in msgs:
+            content = m.get("content")
+            if isinstance(content, str):
+                total += self._estimate_text_tokens(content, model)
+        return total
+
+    def _get_input_cost_per_1k(self, cfg: LLMNode) -> float:
+        extra = cfg.extra or {}
+        return float(extra.get("input_cost_per_1k") or extra.get("prompt_cost_per_1k") or 0.0)
+
+    def _get_output_cost_per_1k(self, cfg: LLMNode) -> float:
+        extra = cfg.extra or {}
+        return float(extra.get("output_cost_per_1k") or extra.get("completion_cost_per_1k") or 0.0)
+
     async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
         cfg: LLMNode = self.config  # type: ignore[assignment]
         conv: List[Dict[str, Any]] = self._build_base_messages(cfg, messages)
@@ -171,18 +203,32 @@ class LLMExecutor(Executor):
         while True:
 
             assistant_text_parts: List[str] = []
-            tool_calls_by_id: Dict[str, Dict[str, Any]] = {}
+            tool_calls_by_idx: Dict[int, Dict[str, Any]] = {}
             # Filter extra to avoid overriding explicit kwargs (e.g., 'tools')
             extra_args = dict(cfg.extra or {})
             for k in ("tools", "tool_choice", "messages", "model", "stream", "temperature", "max_tokens"):
                 extra_args.pop(k, None)
+
+            # Compute effective max_tokens
+            effective_max_tokens = cfg.max_tokens
+            if tools and cfg.function_tokens_pct is not None:
+                try:
+                    model_limit = int((cfg.extra or {}).get("model_max_tokens") or 0)
+                except Exception:
+                    model_limit = 0
+                if model_limit > 0:
+                    pct = cfg.function_tokens_pct
+                    effective_max_tokens = max(1, int(model_limit * pct / 100))
+
+            # Estimate prompt tokens for this call
+            prompt_tokens = self._estimate_messages_tokens(conv, cfg.model)
 
             # Start streaming
             stream = await acompletion(
                 model=cfg.model,
                 messages=conv,
                 temperature=cfg.temperature,
-                max_tokens=cfg.max_tokens,
+                max_tokens=effective_max_tokens,
                 tools=tools,
                 tool_choice="auto" if tools else None,
                 stream=True,
@@ -204,31 +250,56 @@ class LLMExecutor(Executor):
                     # Emit an interim message with just this piece
                     _ = yield ReqInterimMessage(message=Message(role="agent", text=content_piece))
 
-                # Accumulate streamed tool_calls (OpenAI-style deltas)
+                # Accumulate streamed tool_calls (OpenAI-style deltas) by index, concatenating arguments
                 tc_deltas = delta.get("tool_calls") or []
                 for dtc in tc_deltas:
-                    call_id = dtc.get("id")
-                    if not call_id:
-                        # Do not add until id is known
-                        continue
-                    # Store the whole latest tool call object; overwrite previous snapshot
-                    tool_calls_by_id[call_id] = dtc
+                    # OpenAI-style tool_calls deltas are dicts; accumulate by index and concatenate arguments
+                    idx = dtc.get("index", 0)
+                    _id = dtc.get("id")
+                    _type = dtc.get("type")
+                    fn = dtc.get("function") or {}
+                    name = fn.get("name")
+                    args_part = fn.get("arguments") or ""
+
+                    entry = tool_calls_by_idx.get(idx)
+                    if entry is None:
+                        entry = {"id": None, "type": "function", "function": {"name": None, "arguments": ""}}
+                        tool_calls_by_idx[idx] = entry
+
+                    if _id:
+                        entry["id"] = _id
+                    if _type:
+                        entry["type"] = _type
+                    if name:
+                        entry["function"]["name"] = name
+                    if args_part:
+                        entry["function"]["arguments"] += args_part
 
             assistant_text = "".join(assistant_text_parts)
 
+            # Compute completion tokens and update accumulators/cost
+            completion_tokens = self._estimate_text_tokens(assistant_text, cfg.model)
+            in_rate = self._get_input_cost_per_1k(cfg)
+            out_rate = self._get_output_cost_per_1k(cfg)
+            round_cost = (prompt_tokens / 1000.0) * in_rate + (completion_tokens / 1000.0) * out_rate
+            self._acc_prompt_tokens += prompt_tokens
+            self._acc_completion_tokens += completion_tokens
+            self._acc_cost_dollars += round_cost
+
+
             # Build final assistant message dict and append to conversation
             streamed_tool_calls = []
-            # Deterministic order by id (optional but avoids flaky tests)
-            for call_id in sorted(tool_calls_by_id.keys()):
-                tc_obj = tool_calls_by_id[call_id] or {}
+            # Deterministic order by index to preserve original sequence
+            for idx in sorted(tool_calls_by_idx.keys()):
+                tc_obj = tool_calls_by_idx[idx] or {}
                 fn = tc_obj.get("function") or {}
                 streamed_tool_calls.append(
                     {
-                        "id": call_id,
+                        "id": (tc_obj.get("id") or ""),
                         "type": tc_obj.get("type", "function"),
                         "function": {
-                            "name": fn.get("name") or "",
-                            "arguments": fn.get("arguments") or "",
+                            "name": (fn.get("name") or ""),
+                            "arguments": (fn.get("arguments") or ""),
                         },
                     }
                 )

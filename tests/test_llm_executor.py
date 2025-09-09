@@ -171,6 +171,42 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
 
 
 @pytest.mark.asyncio
+async def test_llm_executor_function_tokens_pct_applied(monkeypatch, tmp_path):
+    # Two outcomes force choose_outcome tool injection -> tools enabled
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        outcomes=[OutcomeSlot(name="yes"), OutcomeSlot(name="no")],
+        outcome_strategy=OutcomeStrategy.function_call,
+        function_tokens_pct=20,
+        extra={"model_max_tokens": 1000},
+    )
+    seq = [
+        chunk_content("Short reply."),
+        chunk_tool_call(0, "co_1", CHOOSE_OUTCOME_TOOL_NAME, '{"outcome":"yes"}'),
+    ]
+    stub = ACompletionStub([seq])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        agen = LLMExecutor(cfg, project).run(messages=[Message(role="user", text="Q?")])
+
+        # Drain until final (no external tools to execute)
+        _, pkt = await drain_until_non_interim(agen)
+        assert isinstance(pkt, ReqFinalMessage)
+        assert pkt.message is not None
+        assert pkt.message.text == "Short reply."
+        assert pkt.outcome_name == "yes"
+
+        # Verify that max_tokens was set to 20% of model_max_tokens
+        call = stub.calls[0]
+        assert call["tools"] is not None  # choose_outcome tool injected
+        assert call["max_tokens"] == 200
+
+        await agen.aclose()
+
+
+@pytest.mark.asyncio
 async def test_llm_executor_tag_strategy_streaming_and_strip(monkeypatch, tmp_path):
     cfg = LLMNode(
         name="LLM",

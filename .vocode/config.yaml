@@ -10,10 +10,12 @@ workflows:
           - name: done
       - $include:
           template: nodes/architect.yaml
+          function_tokens_pct: 50
       - $include:
           template: nodes/coder.yaml
       - $include:
           template: nodes/apply_patch.yaml
+          confirmation: auto
       - name: finish
         type: noop
     edges:
@@ -21,7 +23,7 @@ workflows:
       - architect.done -> coder
       - coder.done -> apply
       - apply.success -> finish
-      - apply.fail -> coder
+      - apply.fail -> coder:keep_state
   diff:
     nodes:
       - name: prompt

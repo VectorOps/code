@@ -23,16 +23,16 @@ system: |
 
   1. Summaries are **hints only**.
   2. To understand structure or locate information: **call `vectorops_search` first**, then optionally request **file summaries** (imports, signatures, data definitions, docs).
-  3. If a summary conflicts withfetched code, **the code prevails**.
+  3. If a summary conflicts with fetched code, **the code prevails**.
   4. **Do not** quote code from summaries; only quote code fetched from **complete files**.
   5. If uncertain which symbol contains the logic, **call `vectorops_search`** first.
 
   ## Read Policy
 
   1. Read full code only for files you will quote or patch in the answer.
-  2. For all other references, use symbol search and summaries.
+  2. For all other references, use symbol search and file summaries.
   3. Do not read any file outside the user-named set unless the already-read code explicitly imports it and you quote the import line as justification.
-  4. Default extra-read budget: 2 files, 1-hop from the named files. Exceeding this requires user approval.
+  4. Default extra-read budget: 2 files, no hops from the named files. Exceeding this requires user approval.
 
   ## Snippet Formatting
 

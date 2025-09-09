@@ -15,11 +15,17 @@ class OutcomeSlot(BaseModel):
 class Confirmation(str, Enum):
     prompt = "prompt"
     auto = "auto"
+    confirm = "confirm"  # require explicit Y/N approval
 
 class ResetPolicy(str, Enum):
     always_reset = "always_reset"
     keep_results = "keep_results"
     keep_state = "keep_state"
+
+class MessageMode(str, Enum):
+    final_response = "final_response"
+    all_messages = "all_messages"
+    concatenate_final = "concatenate_final"
 
 class PreprocessorSpec(BaseModel):
     name: str
@@ -50,9 +56,14 @@ class Node(BaseModel):
     name: str = Field(..., description="Unique node name")
     type: str = Field(..., description="Node type identifier")
     outcomes: List[OutcomeSlot] = Field(default_factory=list)
-    pass_all_messages: bool = Field(
-        default=False,
-        description="If True, pass all messages to the next node; if False, pass only the last message.",
+    message_mode: MessageMode = Field(
+        default=MessageMode.final_response,
+        description=(
+            "How to pass messages to the next node.\n"
+            "- 'final_response' (default): pass only the final executor message.\n"
+            "- 'all_messages': pass all messages from this step (initial inputs + interim + final).\n"
+            "- 'concatenate_final': concatenate input message(s) with the final output into a single message."
+        ),
     )
     confirmation: Confirmation = Field(
         default=Confirmation.prompt,
@@ -218,6 +229,16 @@ class LLMNode(Node):
         default_factory=list,
         description="Pre-execution preprocessors applied to the LLM system prompt",
     )
+    function_tokens_pct: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=100,
+        description=(
+            "Optional percent (1-100) of the model's total token limit to use as max_tokens "
+            "when tools are enabled (function-answer mode). "
+            "Requires extra['model_max_tokens'] to be set."
+        ),
+    )
 
 class InputNode(Node):
     type: str = "input"
@@ -227,9 +248,9 @@ class NoopNode(Node):
     type: str = "noop"
     # Auto-skip without prompting for approval
     confirmation: Confirmation = Field(default=Confirmation.auto, description="No-op auto confirmation")
-    # Pass all prior messages through to the next node by default
-    pass_all_messages: bool = Field(
-        default=True,
+    # No-op defaults to passing all messages to the next node
+    message_mode: MessageMode = Field(
+        default=MessageMode.all_messages,
         description="No-op defaults to passing all messages to the next node",
     )
 

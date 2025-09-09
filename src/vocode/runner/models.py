@@ -1,5 +1,6 @@
 from typing import Annotated, Optional, Union, List, Literal
 from pydantic import BaseModel, Field
+from enum import Enum
 
 from vocode.state import Message, ToolCall, Activity
 
@@ -7,7 +8,14 @@ PACKET_MESSAGE_REQUEST = "message_request"
 PACKET_TOOL_CALL = "tool_call"
 PACKET_MESSAGE = "message"
 PACKET_FINAL_MESSAGE = "final_message"
+PACKET_LOG = "log"
 PACKET_APPROVAL = "approval"
+
+class LogLevel(str, Enum):
+    debug = "debug"
+    info = "info"
+    warning = "warning"
+    error = "error"
 
 # Executor -> Runner events (discriminated by 'kind')
 class ReqMessageRequest(BaseModel):
@@ -39,12 +47,22 @@ class ReqFinalMessage(BaseModel):
     outcome_name: Optional[str] = None
 
 
+class ReqLogMessage(BaseModel):
+    """
+    Debug/log message emitted by an executor. Never requests input.
+    """
+    kind: Literal["log"] = PACKET_LOG
+    text: str
+    level: Optional[LogLevel] = None
+
+
 ReqPacket = Annotated[
     Union[
         ReqMessageRequest,
         ReqToolCall,
         ReqInterimMessage,
         ReqFinalMessage,
+        ReqLogMessage,
     ],
     Field(discriminator="kind"),
 ]

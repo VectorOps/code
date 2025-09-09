@@ -3,11 +3,12 @@ from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List, TYPE_CHE
 from enum import Enum
 
 import asyncio
+import contextlib
 from pydantic import BaseModel
 if TYPE_CHECKING:
     from vocode.project import Project
 from vocode.graph import Workflow, Node
-from vocode.graph.models import Confirmation, ResetPolicy
+from vocode.graph.models import Confirmation, ResetPolicy, MessageMode
 from vocode.state import Message, RunnerStatus, Assignment, ToolCallStatus, Step, Activity, StepStatus, ActivityType
 from vocode.runner.models import (
     ReqPacket,
@@ -140,12 +141,36 @@ class Runner:
                     f"Node '{node_model.name}' did not provide an outcome and has {len(node_model.outcomes)} outcomes"
                 )
 
-        # Determine input messages for the next node
-        if node_model.pass_all_messages:
+        # Determine input messages for the next node based on message_mode
+        mode = node_model.message_mode
+        if mode == MessageMode.all_messages:
             msgs = [a.message for a in step.executions if a.message is not None]
+        elif mode == MessageMode.final_response:
+            final_msg = exec_activity.message or next(
+                (a.message for a in reversed(step.executions) if a.message is not None),
+                None,
+            )
+            msgs = [final_msg] if final_msg is not None else []
+        elif mode == MessageMode.concatenate_final:
+            input_msgs = [
+                a.message
+                for a in step.executions
+                if a.message is not None and a.type == ActivityType.user
+            ]
+            final_msg = exec_activity.message
+            parts = [m.text for m in input_msgs if m.text is not None]
+            if final_msg is not None and final_msg.text is not None:
+                parts.append(final_msg.text)
+            combined_text = "\n".join(parts)
+            if combined_text:
+                role = (final_msg.role if final_msg is not None else (input_msgs[-1].role if input_msgs else "agent"))
+                msgs = [Message(role=role, text=combined_text)]
+            else:
+                msgs = []
         else:
-            last_msg = next((a.message for a in reversed(step.executions) if a.message is not None), None)
-            msgs = [last_msg] if last_msg is not None else []
+            # Fallback to final_response semantics
+            final_msg = exec_activity.message
+            msgs = [final_msg] if final_msg is not None else []
 
         # Look up the edge to obtain the reset_policy override (if any)
         edge_reset_policy = None
@@ -411,9 +436,9 @@ class Runner:
                 if req.kind in (PACKET_MESSAGE_REQUEST, PACKET_TOOL_CALL):
                     input_requested = True
                 elif req.kind == PACKET_FINAL_MESSAGE:
-                    # Request input only if node confirmation is 'prompt'
+                    # Request input for 'prompt' and 'confirm' modes
                     node_conf = current_runtime_node.model.confirmation
-                    input_requested = node_conf == Confirmation.prompt
+                    input_requested = node_conf in (Confirmation.prompt, Confirmation.confirm)
                 else:
                     input_requested = False
                 self.status = RunnerStatus.waiting_input if input_requested else RunnerStatus.running
@@ -441,15 +466,45 @@ class Runner:
                     )
                     step.executions.append(current_activity)
 
-                    # If user provides additional requirements, send them back to the executor WITHOUT
-                    # adding to running history; continue the same node/executor in-place.
+                    node_conf = current_runtime_node.model.confirmation
+
+                    if node_conf == Confirmation.confirm:
+                        # Force explicit Y/N approval; re-prompt until we get an approval packet.
+                        while True:
+                            if resp is not None and resp.kind == PACKET_APPROVAL:
+                                if resp.approved:
+                                    # Proceed to next node
+                                    break
+                                # Rejected: stop executor and runner politely.
+                                self.status = RunnerStatus.stopped
+                                step.status = StepStatus.stopped
+                                with contextlib.suppress(Exception):
+                                    await agen.aclose()
+                                gen_in_map = self._agen_map.pop(current_runtime_node.name, None)
+                                if gen_in_map is not None and gen_in_map is not agen:
+                                    with contextlib.suppress(Exception):
+                                        await gen_in_map.aclose()
+                                return
+                            # Not an approval response: ask again.
+                            self.status = RunnerStatus.waiting_input
+                            run_event = RunEvent(
+                                node=current_runtime_node.name,
+                                execution=current_activity,
+                                event=req,
+                                input_requested=True,
+                            )
+                            run_input = (yield run_event)
+                            resp = run_input.response if run_input is not None else None
+                        # Reaching here means approved => proceed to next node.
+                        break
+
+                    # prompt mode: allow additional user message sent back to executor
                     if resp is not None and resp.kind == PACKET_MESSAGE:
                         to_send = resp  # Send directly back into the executor
                         continue
 
                     # Approval handling: None or approved=True => success => proceed to next node
                     if resp is None or (resp.kind == PACKET_APPROVAL and resp.approved):
-                        # Executor remains paused on the last yield; transition to next node
                         break
 
                     # Any other response: treat as success and proceed

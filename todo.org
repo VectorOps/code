@@ -52,16 +52,7 @@
 * [ ] Nodes
 ** [X] Add project as a parameter to executor
 ** [ ] Add a node that injects files in context. Add file manager.
-** [ ] [#A] Think how to manage state for a run
-- Sometimes we need to maintain the state when additional information is found and added to state
-- Sometimes we need to start fresh
-- But need to maintain state if looped by human
-- Most likely make it a setting of a Node (explicit config). Via enum?
-  - Always resets
-  - Human resets
-  - Robot resets
-  - Never resets
-- We need machinery to go back in time and reset graph execution to a specific history
+** [X] [#A] Think how to manage state for a run
 ** [X] Base node runner class
 ** [ ] LLM node
 *** [X] Base
@@ -69,8 +60,8 @@
 - Integrate Know
 **** [X] Exposing available tools to LLM from project
 **** [X] Implement tool calling
-*** [ ] Verify if we're including files multiple times in responsing, thus burning tokens
-*** [ ] Limit context length and reject tool calls when over
+*** [X] Verify if we're including files multiple times in responsing, thus burning tokens
+*** [X] Limit context length and reject tool calls when over
 *** [ ] Prevent too many files to be read
 *** [X] Dynamic output selection by LLM
 **** [X] Configurable system prompt extension
