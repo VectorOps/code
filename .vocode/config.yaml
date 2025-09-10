@@ -59,3 +59,23 @@ workflows:
     edges:
       - prompt.done -> coder
       - coder.done -> finish
+  idler:
+    nodes:
+      - name: prompt
+        type: input
+        message: Enter your request
+        confirmation: auto
+        outcomes:
+          - name: done
+      - name: pause
+        type: noop
+        sleep_seconds: 15
+        confirmation: auto
+        outcomes:
+          - name: done
+      - name: done
+        type: noop
+        confirmation: auto
+    edges:
+      - prompt.done -> pause
+      - pause.done -> done

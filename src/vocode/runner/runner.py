@@ -226,24 +226,26 @@ class Runner:
 
     def _prepare_resume(self, task: Assignment):
         """
-        Returns (runtime_node, step, last_activity, mode) or None.
-        mode ∈ {ResumeMode.PROMPT, ResumeMode.RERUN}:
-          - ResumeMode.PROMPT: last activity was executor-provided final; synthesize a final_message event.
-          - ResumeMode.RERUN: last activity was user-provided; immediately rerun the node.
+        Find the last successfully finished step, compute the transition to the next node,
+        and return (next_runtime_node, input_messages_for_next, incoming_edge_reset_policy).
+        If no finished steps are found, return None (start from the graph root).
+        If the last finished node has no outgoing edges, return (None, None, None) to indicate completion.
         """
         if not task.steps:
             return None
         for step in reversed(task.steps):
-            if step.status == StepStatus.finished and step.executions:
-                last_act = step.executions[-1]
-                if not last_act.is_complete and last_act.type == ActivityType.executor:
-                    # Prefer resuming only from a complete executor final; otherwise skip
+            if step.status == StepStatus.finished:
+                last_exec = next(
+                    (a for a in reversed(step.executions) if a.type == ActivityType.executor and a.is_complete),
+                    None,
+                )
+                if last_exec is None:
                     continue
-                rn = self._find_runtime_node_by_name(step.node)
-                if rn is None:
+                cur_rn = self._find_runtime_node_by_name(step.node)
+                if cur_rn is None:
                     return None
-                mode = ResumeMode.PROMPT if last_act.type == ActivityType.executor else ResumeMode.RERUN
-                return rn, step, last_act, mode
+                next_rn, msgs, edge_policy = self._compute_node_transition(cur_rn, last_exec, step)
+                return next_rn, msgs, edge_policy
         return None
 
     async def _close_all_generators(self) -> None:
@@ -273,49 +275,21 @@ class Runner:
         graph = self.workflow.graph
 
         # Runner resuming
-        resume_plan = None
+        resume_info = None
         if prev_status == RunnerStatus.stopped:
-            resume_plan = self._prepare_resume(task)
+            resume_info = self._prepare_resume(task)
 
         reuse_step: Optional[Step] = None
         pending_input_messages: List[Message] = []
 
-        if resume_plan is not None:
-            rn, last_step, last_act, mode = resume_plan
-            if mode is ResumeMode.PROMPT:
-                req = ReqFinalMessage(message=last_act.message, outcome_name=last_act.outcome_name)
-                self.status = RunnerStatus.waiting_input
-                resume_event = RunEvent(
-                    node=rn.name,
-                    execution=last_act,
-                    event=req,
-                    input_requested=True,
-                )
-                run_input: Optional[RunInput] = (yield resume_event)
-                resp = run_input.response if run_input is not None else None
-                if resp is not None and resp.kind == PACKET_MESSAGE:
-                    last_step.status = StepStatus.running
-                    last_step.executions.append(Activity(type=ActivityType.user, message=resp.message))
-                    current_runtime_node = rn
-                    reuse_step = last_step
-                    pending_input_messages = []
-                    incoming_policy_override: Optional[ResetPolicy] = None
-                else:
-                    next_runtime_node, next_input_messages, next_edge_policy = self._compute_node_transition(
-                        rn, last_act, last_step
-                    )
-                    if next_runtime_node is None:
-                        self.status = RunnerStatus.finished
-                        await self._close_all_generators()
-                        return
-                    current_runtime_node = next_runtime_node
-                    pending_input_messages = list(next_input_messages)
-                    incoming_policy_override = next_edge_policy
-            else:  # ResumeMode.RERUN
-                current_runtime_node = rn
-                reuse_step = last_step
-                pending_input_messages = []
-                incoming_policy_override: Optional[ResetPolicy] = None
+        if resume_info is not None:
+            next_rn, next_msgs, incoming_policy_override = resume_info
+            if next_rn is None:
+                self.status = RunnerStatus.finished
+                await self._close_all_generators()
+                return
+            current_runtime_node = next_rn
+            pending_input_messages = list(next_msgs or [])
         else:
             current_runtime_node = graph.root
             pending_input_messages = [self.initial_message] if self.initial_message is not None else []
@@ -414,9 +388,20 @@ class Runner:
                         # Reset stop flag after handling cancellation
                         self._stop_requested = False
                         self._internal_cancel_requested = False
-                    # NEW: mark current step if one exists
+                    # Update history per stop/cancel policy
                     if step is not None:
-                        step.status = StepStatus.stopped if self.status == RunnerStatus.stopped else StepStatus.canceled
+                        if self.status == RunnerStatus.stopped:
+                            # Remove the in-progress step entirely (pretend it never happened)
+                            try:
+                                if task.steps and task.steps[-1] is step:
+                                    task.steps.pop()
+                                else:
+                                    task.steps.remove(step)
+                            except ValueError:
+                                pass
+                        else:
+                            # Cancel keeps the step marked as canceled
+                            step.status = StepStatus.canceled
                     # Ensure current node generator is removed; avoid double-closing if it's the same object
                     gen_in_map = self._agen_map.pop(current_runtime_node.name, None)
                     if gen_in_map is not None and gen_in_map is not agen:

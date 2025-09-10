@@ -244,6 +244,10 @@ class InputNode(Node):
     type: str = "input"
     message: str
 
+class MessageNode(Node):
+    type: str = "message"
+    message: str
+
 class NoopNode(Node):
     type: str = "noop"
     # Auto-skip without prompting for approval
@@ -252,6 +256,11 @@ class NoopNode(Node):
     message_mode: MessageMode = Field(
         default=MessageMode.all_messages,
         description="No-op defaults to passing all messages to the next node",
+    )
+    sleep_seconds: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="If set, sleep for this many seconds before producing the final response.",
     )
 
 class ApplyPatchNode(Node):

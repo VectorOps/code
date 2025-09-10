@@ -19,6 +19,10 @@ class NoopExecutor(Executor):
 
     async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
         cfg: NoopNode = self.config  # type: ignore[assignment]
+        # Optional delay before emitting the final message
+        delay = cfg.sleep_seconds
+        if delay is not None and delay > 0:
+            await asyncio.sleep(delay)
         outcome_name: Optional[str] = None
 
         outs = cfg.outcomes or []

@@ -162,11 +162,13 @@ class LLMExecutor(Executor):
         cfg: LLMNode = self.config  # type: ignore[assignment]
         conv: List[Dict[str, Any]] = self._build_base_messages(cfg, messages)
 
+        """
         # Emit a log message summarizing this round
         _ = yield ReqLogMessage(
             text='\n'.join(m.text for m in messages),
             level=LogLevel.debug,
         )
+        """
 
         # Outcome handling strategy
         outcomes: List[str] = self._get_outcome_names(cfg)

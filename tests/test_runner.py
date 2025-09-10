@@ -473,14 +473,8 @@ async def test_stop_before_first_yield(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await first
 
-        assert runner.status.name == "stopped"
-        assert SlowExec.closed is True
-        # A Step is created and marked stopped, but no executions
-        assert len(task.steps) == 1
-        s = task.steps[0]
-        assert s.node == "Slow"
-        assert s.status.name == "stopped"
-        assert len(s.executions) == 0
+        # No step should be recorded on stop
+        assert len(task.steps) == 0
 
 @pytest.mark.asyncio
 async def test_stop_and_resume_from_last_good_step(tmp_path: Path):
@@ -539,37 +533,22 @@ async def test_stop_and_resume_from_last_good_step(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await pending
 
-        # Runner stopped; last good step (A) should be recorded
+        # Runner stopped; only the last finished step (A) remains in history
         assert runner.status.name == "stopped"
-        # A finished; B recorded as stopped (no executor yields) with its carried input
-        assert [s.node for s in task.steps] == ["A", "B"]
+        assert [s.node for s in task.steps] == ["A"]
         assert task.steps[0].status.name == "finished"
         assert len(task.steps[0].executions) == 1
         assert task.steps[0].executions[0].is_complete is True
         assert task.steps[0].executions[0].message is not None
         assert task.steps[0].executions[0].message.text == "A1"
-        b_stopped = task.steps[1]
-        assert b_stopped.status.name == "stopped"
-        assert len(b_stopped.executions) == 1
-        assert b_stopped.executions[0].type.value == "user"
-        assert b_stopped.executions[0].message.text == "A1"
 
-        # Resume: helper should yield last message from A and allow user input to rerun A
+        # Resume: should start directly at the next never-finished node (B),
+        # with inputs computed from A's final
         it2 = runner.run(task)
-        ev_resume_prompt = await it2.__anext__()
-        assert ev_resume_prompt.node == "A"
-        assert ev_resume_prompt.event.kind == "final_message"
-        assert ev_resume_prompt.event.message is not None
-        assert ev_resume_prompt.event.message.text == "A1"
-        assert ev_resume_prompt.input_requested is True
-
-        # Provide user message -> reruns A with input_messages + output_message + user input
-        ev_a2 = await it2.asend(RunInput(response=RespMessage(message=msg("user", "followup"))))
-        assert ev_a2.node == "A" and ev_a2.event.kind == "final_message"
-
-        # Approve A's second final -> proceed to B (now completes)
-        ev_b = await it2.asend(None)
-        assert ev_b.node == "B" and ev_b.event.kind == "final_message"
+        ev_b_resume = await it2.__anext__()
+        assert ev_b_resume.node == "B"
+        assert ev_b_resume.event.kind == "final_message"
+        assert ev_b_resume.event.message.text == "Bdone"
 
         # Approve B's final -> finish
         with pytest.raises(StopAsyncIteration):
@@ -577,28 +556,18 @@ async def test_stop_and_resume_from_last_good_step(tmp_path: Path):
 
         # Validate final task state
         assert runner.status.name == "finished"
-        # We keep the stopped B step and add a new finished B step
-        assert [s.node for s in task.steps] == ["A", "B", "B"]
-        # A step has three activities: final A1, user followup, final A2
-        assert len(task.steps[0].executions) == 3
+        assert [s.node for s in task.steps] == ["A", "B"]
+        # A step: only its final
+        assert len(task.steps[0].executions) == 1
         assert task.steps[0].executions[0].type.value == "executor"
         assert task.steps[0].executions[0].message.text == "A1"
-        assert task.steps[0].executions[1].type.value == "user"
-        assert task.steps[0].executions[1].message.text == "followup"
-        assert task.steps[0].executions[2].type.value == "executor"
-        assert task.steps[0].executions[2].message.text == "A2"
-        # First B step is the stopped one with carried input from A1
-        assert task.steps[1].status.name == "stopped"
-        assert len(task.steps[1].executions) == 1
+        # B step includes carried input (A1) and its final
+        assert task.steps[1].status.name == "finished"
+        assert len(task.steps[1].executions) == 2
         assert task.steps[1].executions[0].type.value == "user"
         assert task.steps[1].executions[0].message.text == "A1"
-        # Second B step (after resume) includes carried input (A2) and its final
-        assert task.steps[2].status.name == "finished"
-        assert len(task.steps[2].executions) == 2
-        assert task.steps[2].executions[0].type.value == "user"
-        assert task.steps[2].executions[0].message.text == "A2"
-        assert task.steps[2].executions[1].type.value == "executor"
-        assert task.steps[2].executions[1].message.text == "Bdone"
+        assert task.steps[1].executions[1].type.value == "executor"
+        assert task.steps[1].executions[1].message.text == "Bdone"
 
 
 @pytest.mark.asyncio

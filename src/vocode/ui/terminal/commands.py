@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
+from vocode.state import RunnerStatus
 
 if TYPE_CHECKING:
     from vocode.ui.base import UIState
@@ -97,3 +98,20 @@ async def _stop(ctx: CommandContext, args: List[str]) -> None:
 @register("/quit", "Exit the CLI")
 async def _quit(ctx: CommandContext, args: List[str]) -> None:
     ctx.request_exit()
+
+
+@register("/continue", "Continue execution if the runner is stopped")
+async def _continue(ctx: CommandContext, args: List[str]) -> None:
+    status = ctx.ui.status
+    if status != RunnerStatus.stopped:
+        if status == RunnerStatus.running:
+            ctx.out("Run is already in progress.")
+        elif status == RunnerStatus.waiting_input:
+            ctx.out("Runner is waiting for input.")
+        else:
+            ctx.out(f"Cannot continue when status is '{status.value}'. Try /reset.")
+        return
+    try:
+        await ctx.ui.restart()
+    except Exception as e:
+        ctx.out(f"Failed to continue: {e}")
