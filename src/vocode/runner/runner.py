@@ -257,6 +257,40 @@ class Runner:
             except Exception:
                 pass
 
+    async def rewind(self, task: Assignment, n: int = 1) -> None:
+        """
+        Rewind history by removing the last n steps from the assignment,
+        closing any executor generators and resetting executors so the
+        rewound nodes are as if they never executed.
+
+        Allowed when runner is idle, stopped, or finished.
+        """
+        if n <= 0:
+            raise ValueError("rewind 'n' must be >= 1")
+
+        if self.status in (RunnerStatus.running, RunnerStatus.waiting_input):
+            raise RuntimeError(f"Cannot rewind while runner status is '{self.status}'")
+
+        # Close any existing generators and clear the map.
+        await self._close_all_generators()
+
+        # Recreate fresh executor instances for all nodes to forget any prior state.
+        self._executors = {
+            node.name: Executor.create_for_node(node, project=self.project)
+            for node in self.workflow.graph.nodes
+        }
+
+        # Remove the last n steps (if fewer, remove all).
+        to_remove = min(n, len(task.steps))
+        for _ in range(to_remove):
+            task.steps.pop()
+
+        # Reset internal flags and set a resumable state.
+        self._stop_requested = False
+        self._internal_cancel_requested = False
+        self._current_exec_task = None
+        self.status = RunnerStatus.stopped
+
     async def run(
         self,
         task: Assignment,

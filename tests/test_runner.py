@@ -76,7 +76,6 @@ async def test_message_request_reprompt_and_finish(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
 
-        # Runner state and task state
         assert runner.status.name == "finished"
         assert len(task.steps) == 1
         step = task.steps[0]
@@ -91,6 +90,126 @@ async def test_message_request_reprompt_and_finish(tmp_path: Path):
         assert step.executions[2].is_complete is True
         assert step.executions[2].message is not None
         assert step.executions[2].message.text == "final:hi"
+
+
+@pytest.mark.asyncio
+async def test_rewind_one_step_and_resume(tmp_path: Path):
+    # Graph: A -> B
+    nodes = [
+        {"name": "A", "type": "a", "outcomes": [OutcomeSlot(name="toB")]},
+        {"name": "B", "type": "b", "outcomes": []},
+    ]
+    edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
+    g = Graph.build(nodes=nodes, edges=edges)
+    workflow = Workflow(name="workflow", graph=g)
+
+    class AExec(Executor):
+        type = "a"
+        async def run(self, messages):
+            yield ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB")
+
+    class BExec(Executor):
+        type = "b"
+        runs = 0
+        async def run(self, messages):
+            type(self).runs += 1
+            yield ReqFinalMessage(message=msg("agent", f"B{type(self).runs}"))
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        # Complete A then B
+        ev_a = await it.__anext__()
+        assert ev_a.node == "A" and ev_a.event.kind == "final_message"
+        ev_b = await it.asend(None)
+        assert ev_b.node == "B" and ev_b.event.kind == "final_message"
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(None)
+        assert runner.status == RunnerStatus.finished
+        assert [s.node for s in task.steps] == ["A", "B"]
+
+        # Rewind last step (B)
+        await runner.rewind(task, 1)
+        assert runner.status == RunnerStatus.stopped
+        assert [s.node for s in task.steps] == ["A"]
+
+        # Resume -> should start at B again, fresh
+        it2 = runner.run(task)
+        ev_b2 = await it2.__anext__()
+        assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
+        with pytest.raises(StopAsyncIteration):
+            await it2.asend(None)
+        assert runner.status == RunnerStatus.finished
+        assert [s.node for s in task.steps] == ["A", "B"]
+
+
+@pytest.mark.asyncio
+async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
+    # Graph: A -> B -> C
+    nodes = [
+        {"name": "A", "type": "a", "outcomes": [OutcomeSlot(name="toB")]},
+        {"name": "B", "type": "b", "outcomes": [OutcomeSlot(name="toC")]},
+        {"name": "C", "type": "c", "outcomes": []},
+    ]
+    edges = [
+        Edge(source_node="A", source_outcome="toB", target_node="B"),
+        Edge(source_node="B", source_outcome="toC", target_node="C"),
+    ]
+    g = Graph.build(nodes=nodes, edges=edges)
+    workflow = Workflow(name="workflow", graph=g)
+
+    class AExec(Executor):
+        type = "a"
+        async def run(self, messages):
+            yield ReqFinalMessage(message=msg("agent", "A"), outcome_name="toB")
+
+    class BExec(Executor):
+        type = "b"
+        async def run(self, messages):
+            yield ReqFinalMessage(message=msg("agent", "B"), outcome_name="toC")
+
+    class CExec(Executor):
+        type = "c"
+        runs = 0
+        async def run(self, messages):
+            type(self).runs += 1
+            yield ReqFinalMessage(message=msg("agent", f"C{type(self).runs}"))
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        # Finish A -> B -> C
+        ev_a = await it.__anext__()
+        assert ev_a.node == "A" and ev_a.event.kind == "final_message"
+        ev_b = await it.asend(None)
+        assert ev_b.node == "B" and ev_b.event.kind == "final_message"
+        ev_c = await it.asend(None)
+        assert ev_c.node == "C" and ev_c.event.kind == "final_message"
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(None)
+        assert runner.status == RunnerStatus.finished
+        assert [s.node for s in task.steps] == ["A", "B", "C"]
+
+        # Rewind last two steps (B, C)
+        await runner.rewind(task, 2)
+        assert runner.status == RunnerStatus.stopped
+        assert [s.node for s in task.steps] == ["A"]
+
+        # Resume -> should execute B then C again
+        it2 = runner.run(task)
+        ev_b2 = await it2.__anext__()
+        assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
+        ev_c2 = await it2.asend(None)
+        assert ev_c2.node == "C" and ev_c2.event.kind == "final_message"
+        with pytest.raises(StopAsyncIteration):
+            await it2.asend(None)
+        assert runner.status == RunnerStatus.finished
+        assert [s.node for s in task.steps] == ["A", "B", "C"]
+
 
 
 @pytest.mark.asyncio
