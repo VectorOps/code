@@ -70,7 +70,10 @@ workflows:
       - name: pause
         type: noop
         sleep_seconds: 15
-        confirmation: auto
+        outcomes:
+          - name: done
+      - name: debug
+        type: debug
         outcomes:
           - name: done
       - name: done
@@ -78,4 +81,5 @@ workflows:
         confirmation: auto
     edges:
       - prompt.done -> pause
-      - pause.done -> done
+      - pause.done -> debug
+      - debug.done -> done

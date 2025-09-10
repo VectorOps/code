@@ -209,6 +209,17 @@ class UIState:
     def selected_workflow_name(self) -> Optional[str]:
         return self._selected_workflow_name
 
+    async def rewind(self, n: int = 1) -> None:
+        """
+        Rewind the last n steps. Allowed only when the runner is not running or waiting for input.
+        """
+        async with self._lock:
+            if self.runner is None or self.assignment is None:
+                raise RuntimeError("No runner/assignment to rewind")
+            if self.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
+                raise RuntimeError("Cannot rewind while runner is running or waiting for input")
+            await self.runner.rewind(self.assignment, n)
+
     # ------------------------
     # Internal driver
     # ------------------------

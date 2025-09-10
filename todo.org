@@ -1,5 +1,16 @@
 #+title: Code ToDo
 * [ ] Runner
+** [ ] make following changes:
+1. update runner to handle continuation of stopped executors
+2. make base tool and llm tool changes to support execution continuation
+3. for llm - refactor main loop to be in separate protected method and make run() start new loop always and new method to continue execution to clean up internal state - both should be using internal loop
+** [ ] Make history management explicit:
+- Executors should emit (or maintain) internal state linked to ReqFinalMessage
+- Rewind functionality can restart executor generator after it stopped to and ReqFinalMessage
+- Continuation can be either from ReqFinalMessage being yield, or canned response to ReqFinalMessage is provided
+- Rewind takes in number of steps (or execution ids) to go back to node that needs to be retried
+- Extend executors to continue generator from correct state point
+- Update UI to continue from previous message state if user provides input using new rewind functionality
 ** [X] When looping on the same node - we need to append message to existing history. Update protocol to return user input back to executor without creating a new executor instance and losing a lot of function call context.
 ** [X] Add tool calling support
 ** [X] Allow edges to control history retainment value

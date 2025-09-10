@@ -211,7 +211,6 @@ class LLMExecutor(Executor):
         tool_rounds = 0
 
         while True:
-
             assistant_text_parts: List[str] = []
             tool_calls_by_idx: Dict[int, Dict[str, Any]] = {}
             # Filter extra to avoid overriding explicit kwargs (e.g., 'tools')

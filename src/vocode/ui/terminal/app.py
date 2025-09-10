@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import signal
-from typing import Optional
+from typing import Optional, Union
 import shutil
 from pathlib import Path
 
@@ -26,6 +26,8 @@ from vocode.runner.models import (
     ReqToolCall,
     ReqInterimMessage,
     ReqFinalMessage,
+    RespMessage,
+    RespApproval,
     PACKET_MESSAGE_REQUEST,
     PACKET_TOOL_CALL,
     PACKET_MESSAGE,
@@ -169,6 +171,7 @@ async def run_terminal(project: Project) -> None:
     ctx = CommandContext(ui=ui, out=lambda s: out(s), stop_toggle=stop_toggle, request_exit=request_exit)
 
     pending_req: Optional[UIReqRunEvent] = None
+    queued_resp: Optional[Union[RespMessage, RespApproval]] = None
 
     stream_buffer: Optional[MessageBuffer] = None
 
@@ -209,7 +212,7 @@ async def run_terminal(project: Project) -> None:
             return None
 
     async def handle_run_event(req: UIReqRunEvent) -> None:
-        nonlocal pending_req, stream_buffer
+        nonlocal pending_req, stream_buffer, queued_resp
         ev = req.event.event
 
         # Debug/log messages from executors: print immediately without requesting input
@@ -237,6 +240,11 @@ async def run_terminal(project: Project) -> None:
         if ev.kind == PACKET_MESSAGE_REQUEST:
             _finish_stream()
             pending_req = req if req.event.input_requested else None
+            # Auto-respond if we have a queued response
+            if pending_req is not None and queued_resp is not None:
+                await ui.respond_packet(pending_req.req_id, queued_resp)
+                queued_resp = None
+                pending_req = None
             return
 
         if ev.kind == PACKET_TOOL_CALL:
@@ -245,6 +253,11 @@ async def run_terminal(project: Project) -> None:
             for i, tc in enumerate(ev.tool_calls, start=1):
                 out(f"  {i}. {tc.name}({tc.arguments})")
             pending_req = req if req.event.input_requested else None
+            # Auto-respond if we have a queued response (typically approval)
+            if pending_req is not None and queued_resp is not None:
+                await ui.respond_packet(pending_req.req_id, queued_resp)
+                queued_resp = None
+                pending_req = None
             return
 
         if ev.kind == PACKET_FINAL_MESSAGE:
@@ -259,6 +272,11 @@ async def run_terminal(project: Project) -> None:
                 out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
 
             pending_req = req if req.event.input_requested else None
+            # Auto-respond if we have a queued response (approval or user message)
+            if pending_req is not None and queued_resp is not None:
+                await ui.respond_packet(pending_req.req_id, queued_resp)
+                queued_resp = None
+                pending_req = None
             return
 
     async def event_consumer():
@@ -298,6 +316,33 @@ async def run_terminal(project: Project) -> None:
                     break
                 if not handled:
                     out("Unknown command. Type /help")
+                continue
+
+            # If stopped and no pending request, treat input as a replacement for the last input boundary.
+            if pending_req is None and ui.status == RunnerStatus.stopped:
+                t = text.strip()
+                if t != "":
+                    # Build a queued response: approval for y/n, otherwise a user message.
+                    if t.lower() in ("y", "yes", "n", "no"):
+                        approved = t.lower() in ("y", "yes")
+                        queued_resp = RespApproval(approved=approved)
+                    else:
+                        queued_resp = RespMessage(message=Message(role="user", text=text))
+
+                    # Drop the last step and restart; first input boundary will receive the queued response.
+                    try:
+                        await ui.rewind(1)
+                    except Exception as e:
+                        out(f"Failed to rewind: {e}")
+                        queued_resp = None
+                        continue
+
+                    try:
+                        await ui.restart()
+                    except Exception as e:
+                        out(f"Failed to restart: {e}")
+                        queued_resp = None
+                    # Do not prompt further here; event_consumer will deliver the next request and auto-reply.
                 continue
 
             if pending_req is not None:
