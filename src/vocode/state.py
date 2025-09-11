@@ -73,6 +73,7 @@ class Activity(BaseModel):
     outcome_name: Optional[str] = None
     is_canceled: bool = Field(False, description="True when this execution was explicitly canceled by the runner")
     is_complete: bool = Field(False, description="True when this activity represents a completed final result")
+    state: Optional[Any] = Field(default=None, description="Opaque executor state to carry between run cycles")
 
     def clone(self, **overrides) -> "Activity":
         data = {
@@ -82,6 +83,7 @@ class Activity(BaseModel):
             "outcome_name": self.outcome_name,
             "is_canceled": self.is_canceled,
             "is_complete": self.is_complete,
+            "state": self.state,
         }
         data.update(overrides)
         return Activity(**data)

@@ -1,4 +1,4 @@
-from typing import Annotated, Optional, Union, List, Literal
+from typing import Annotated, Optional, Union, List, Literal, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -98,6 +98,12 @@ RespPacket = Annotated[
     ],
     Field(discriminator="kind"),
 ]
+
+
+class ExecRunInput(BaseModel):
+    messages: List[Message] = Field(default_factory=list)
+    state: Optional[Any] = None
+    response: Optional["RespPacket"] = None
 
 
 # Runner to consumer events

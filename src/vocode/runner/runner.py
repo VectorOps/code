@@ -1,13 +1,11 @@
 
-from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List, TYPE_CHECKING
-from enum import Enum
+from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List, TYPE_CHECKING, Any
 
 import asyncio
-import contextlib
 from pydantic import BaseModel
 if TYPE_CHECKING:
     from vocode.project import Project
-from vocode.graph import Workflow, Node
+from vocode.graph import Node
 from vocode.graph.models import Confirmation, ResetPolicy, MessageMode
 from vocode.state import Message, RunnerStatus, Assignment, ToolCallStatus, Step, Activity, StepStatus, ActivityType
 from vocode.runner.models import (
@@ -22,6 +20,7 @@ from vocode.runner.models import (
     ReqFinalMessage,
     RespMessage,
     RespApproval,
+    ExecRunInput,
     PACKET_MESSAGE_REQUEST,
     PACKET_TOOL_CALL,
     PACKET_MESSAGE,
@@ -30,9 +29,6 @@ from vocode.runner.models import (
 )
 
 
-class ResumeMode(str, Enum):
-    PROMPT = "prompt"
-    RERUN = "rerun"
 
 
 class Executor:
@@ -66,15 +62,12 @@ class Executor:
             raise ValueError(f"No executor registered for node type '{node.type}'")
         return sub(config=node, project=project)
 
-    async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
+    async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         """
-        Async generator from Executor to Runner using a yield-and-reply protocol:
-        - yield ExecMessage(kind='message', message=...)
-        - yield ExecToolCall(kind='tool_call', tool_calls=[ToolCall(...)]) and expect the runner to resume
-          this generator with a reply via `agen.asend(ExecutorPacket(...))`. The yielded
-          expression inside the generator will evaluate to that ExecutorPacket instance.
-        - yield ExecFinalMessage(kind='final', message=..., outcome_name=...) once to finish.
-        Runner drives the generator with `anext()` and `asend(...)`.
+        Async generator from Executor to Runner. Executors yield (packet, state) tuples:
+        - may yield zero or more (PACKET_MESSAGE, state) interim messages,
+        - must end a cycle by yielding a non-PACKET_MESSAGE packet as (packet, state).
+        They DO NOT expect responses via .asend(); runner re-invokes run() with ExecRunInput(response=...) and state.
         """
         raise NotImplementedError("Executor subclasses must implement 'run' as an async generator")
 
@@ -90,8 +83,6 @@ class Runner:
         self._executors: Dict[str, Executor] = {
             n.name: Executor.create_for_node(n, project=self.project) for n in self.workflow.graph.nodes
         }
-        # Map of node_name -> async generator (executor.run(...)) to support long-lived executors
-        self._agen_map: Dict[str, AsyncIterator[ReqPacket]] = {}
         self._stop_requested: bool = False
         self._internal_cancel_requested: bool = False
 
@@ -224,6 +215,26 @@ class Runner:
                 msgs.append(a.message)
         return msgs
 
+    def _get_previous_node_state(
+        self,
+        task: Assignment,
+        node_name: str,
+        exclude_step: Optional[Step] = None,
+    ) -> Optional[object]:
+        """
+        Returns the most recent executor state for a node from prior steps.
+        Prefers the last execution with a non-None state, skipping exclude_step.
+        """
+        for s in reversed(task.steps):
+            if s is exclude_step:
+                continue
+            if s.node != node_name:
+                continue
+            for a in reversed(s.executions):
+                if a.type == ActivityType.executor and a.state is not None:
+                    return a.state
+        return None
+
     def _prepare_resume(self, task: Assignment):
         """
         Find the last successfully finished step, compute the transition to the next node,
@@ -248,20 +259,11 @@ class Runner:
                 return next_rn, msgs, edge_policy
         return None
 
-    async def _close_all_generators(self) -> None:
-        gens = list(self._agen_map.values())
-        self._agen_map.clear()
-        for g in gens:
-            try:
-                await g.aclose()
-            except Exception:
-                pass
 
     async def rewind(self, task: Assignment, n: int = 1) -> None:
         """
-        Rewind history by removing the last n steps from the assignment,
-        closing any executor generators and resetting executors so the
-        rewound nodes are as if they never executed.
+        Rewind history by removing the last n steps from the assignment
+        and resetting executors so the rewound nodes are as if they never executed.
 
         Allowed when runner is idle, stopped, or finished.
         """
@@ -271,8 +273,7 @@ class Runner:
         if self.status in (RunnerStatus.running, RunnerStatus.waiting_input):
             raise RuntimeError(f"Cannot rewind while runner status is '{self.status}'")
 
-        # Close any existing generators and clear the map.
-        await self._close_all_generators()
+        # Reset executors so the rewound nodes are as if they never executed.
 
         # Recreate fresh executor instances for all nodes to forget any prior state.
         self._executors = {
@@ -307,20 +308,19 @@ class Runner:
         prev_status = self.status
         self.status = RunnerStatus.running
         graph = self.workflow.graph
+        incoming_policy_override: Optional[ResetPolicy] = None
 
         # Runner resuming
         resume_info = None
         if prev_status == RunnerStatus.stopped:
             resume_info = self._prepare_resume(task)
 
-        reuse_step: Optional[Step] = None
         pending_input_messages: List[Message] = []
 
         if resume_info is not None:
             next_rn, next_msgs, incoming_policy_override = resume_info
             if next_rn is None:
                 self.status = RunnerStatus.finished
-                await self._close_all_generators()
                 return
             current_runtime_node = next_rn
             pending_input_messages = list(next_msgs or [])
@@ -331,16 +331,12 @@ class Runner:
 
         # Main loop
         while True:
-            step: Optional[Step] = reuse_step
-            reuse_step = None
-
-            if step is None:
-                step = Step(node=current_runtime_node.name, status=StepStatus.running)
-                task.steps.append(step)
-                # Add any pending input messages (including initial_message or carry-over messages)
-                for m in pending_input_messages:
-                    step.executions.append(Activity(type=ActivityType.user, message=m))
-                pending_input_messages = []
+            step = Step(node=current_runtime_node.name, status=StepStatus.running)
+            task.steps.append(step)
+            # Add any pending input messages (including initial_message or carry-over messages)
+            for m in pending_input_messages:
+                step.executions.append(Activity(type=ActivityType.user, message=m))
+            pending_input_messages = []
 
             # Node selection
             node_model = current_runtime_node.model
@@ -349,202 +345,215 @@ class Runner:
             policy = incoming_policy_override or node_model.reset_policy
             incoming_policy_override = None
 
-
             # Collect initial inputs (added when the step was created)
             initial_user_inputs: List[Message] = [
                 a.message for a in step.executions
                 if a.message is not None and a.type == ActivityType.user
             ]
 
-            # Policy: executor instance and generator lifecycle
-            # Close any existing generator if policy requires fresh run
-            if policy in (ResetPolicy.always_reset, ResetPolicy.keep_results):
-                old_gen = self._agen_map.pop(node_name, None)
-                if old_gen is not None:
-                    try:
-                        await old_gen.aclose()
-                    except Exception:
-                        pass
+            # Build base input messages for this node execution (first cycle only)
+            base_input_messages: List[Message] = []
+            if policy == ResetPolicy.keep_results:
+                base_input_messages.extend(
+                    self._get_previous_node_messages(task, node_name, exclude_step=step)
+                )
+            base_input_messages.extend(initial_user_inputs)
+
+            # Compute initial state based on reset policy
+            if policy == ResetPolicy.keep_state:
+                current_state = self._get_previous_node_state(task, node_name, exclude_step=step)
+            else:
+                current_state = None
 
             # For always_reset, also replace the executor instance to reset internal state
             if policy == ResetPolicy.always_reset:
-                # Replace executor instance
                 self._executors[node_name] = Executor.create_for_node(node_model, project=self.project)
-
             executor = self._executors[node_name]
 
-            # Obtain or create the async generator
-            agen = self._agen_map.get(node_name)
-            to_send: Optional[RespPacket] = None
-
-            if agen is None:
-                # Build initial messages depending on policy
-                start_messages: List[Message] = []
-                if policy == ResetPolicy.keep_results:
-                    prev_msgs = self._get_previous_node_messages(task, node_name, exclude_step=step)
-                    if prev_msgs:
-                        start_messages.extend(prev_msgs)
-                # For always_reset and keep_state (first run), add current initial inputs
-                start_messages.extend(initial_user_inputs)
-                agen = executor.run(start_messages)
-                self._agen_map[node_name] = agen
-            else:
-                # keep_state: resume existing generator with a new input message (if any)
-                if initial_user_inputs:
-                    last_input = initial_user_inputs[-1]
-                    to_send = RespMessage(message=last_input)
-
-            current_activity: Optional[Activity] = None
+            # Runner cycles: repeatedly invoke executor until it yields a final or request we handle externally
+            resp: Optional[RespPacket] = None
+            last_exec_activity: Optional[Activity] = None
 
             while True:
+                # Invoke executor for one cycle
+                agen = executor.run(ExecRunInput(messages=base_input_messages, state=current_state, response=resp))
+                resp = None  # response is one-shot for each cycle
+
+                # Stream interim messages; stop at first non-message packet
+                req: Optional[ReqPacket] = None
+                current_activity: Optional[Activity] = None
                 try:
-                    self._current_exec_task = asyncio.create_task(agen.asend(to_send))
-                    req: ReqPacket = await self._current_exec_task
-                    to_send = None
-                except StopAsyncIteration:
-                    # Executor ended without explicit final; mark as completed
-                    if current_activity is not None:
-                        current_activity.is_complete = True
-                    break
-                except asyncio.CancelledError:
-                    if not self._internal_cancel_requested:
-                        raise
-
-                    # Runner.cancel() interrupted the in-flight executor
-                    if current_activity is not None:
-                        current_activity.is_canceled = True
-                    self.status = RunnerStatus.stopped if self._stop_requested else RunnerStatus.canceled
-                    try:
-                        await agen.aclose()
-                    except Exception:
-                        pass
-                    finally:
-                        # Reset stop flag after handling cancellation
-                        self._stop_requested = False
-                        self._internal_cancel_requested = False
-                    # Update history per stop/cancel policy
-                    if step is not None:
-                        if self.status == RunnerStatus.stopped:
-                            # Remove the in-progress step entirely (pretend it never happened)
-                            try:
-                                if task.steps and task.steps[-1] is step:
-                                    task.steps.pop()
-                                else:
-                                    task.steps.remove(step)
-                            except ValueError:
-                                pass
-                        else:
-                            # Cancel keeps the step marked as canceled
-                            step.status = StepStatus.canceled
-                    # Ensure current node generator is removed; avoid double-closing if it's the same object
-                    gen_in_map = self._agen_map.pop(current_runtime_node.name, None)
-                    if gen_in_map is not None and gen_in_map is not agen:
+                    while True:
                         try:
-                            await gen_in_map.aclose()
-                        except Exception:
-                            pass
-                    return
-                finally:
-                    self._current_exec_task = None
+                            self._current_exec_task = asyncio.create_task(anext(agen))
+                            pkt, yielded_state = await self._current_exec_task
+                        finally:
+                            self._current_exec_task = None
 
-                # Update execution with any interim output for visibility
-                if req.kind == PACKET_MESSAGE:
-                    current_activity = Activity(type=ActivityType.executor, message=req.message)
-                    step.executions.append(current_activity)
+                        if pkt.kind == PACKET_MESSAGE:
+                            current_activity = Activity(
+                                type=ActivityType.executor,
+                                message=pkt.message,
+                                is_complete=False,
+                                state=yielded_state if yielded_state is not None else current_state,
+                            )
+                            # Do not record interim messages in step history
 
+                            self.status = RunnerStatus.running
+
+                            run_event = RunEvent(
+                                node=current_runtime_node.name,
+                                execution=current_activity,
+                                event=pkt,
+                                input_requested=False,
+                            )
+                            _ = (yield run_event)
+                            continue
+
+                        # Non-message => end of this executor cycle
+                        req = pkt
+
+                        # Capture updated state if provided
+                        if yielded_state is not None:
+                            current_state = yielded_state
+
+                        break
+                except StopAsyncIteration:
+                    # Executor ended without emitting a completion packet; treat as done for this cycle
+                    req = None
+
+                # If nothing returned, mark step finished and transition
+                if req is None:
+                    step.status = StepStatus.finished
+
+                    # Find last complete executor activity for transition (may be from previous cycles)
+                    last_exec_activity = next(
+                        (a for a in reversed(step.executions) if a.type == ActivityType.executor and a.is_complete),
+                        None,
+                    )
+                    if last_exec_activity is None:
+                        # No explicit final; allow transition with last interim if any (message_mode may handle)
+                        last_interim = next(
+                            (a for a in reversed(step.executions) if a.type == ActivityType.executor and a.message is not None),
+                            None,
+                        )
+                        if last_interim is None:
+                            raise RuntimeError("Executor finished without emitting any messages")
+                        last_exec_activity = last_interim.clone(is_complete=True)
+                        step.executions.append(last_exec_activity)
+
+                    # Compute next node/inputs
+                    next_runtime_node, next_input_messages, next_edge_policy = self._compute_node_transition(
+                        current_runtime_node, last_exec_activity, step
+                    )
+                    if next_runtime_node is None:
+                        self.status = RunnerStatus.finished
+                        return
+                    current_runtime_node = next_runtime_node
+                    pending_input_messages = list(next_input_messages)
+                    incoming_policy_override = next_edge_policy
+                    break
+
+                # Handle completion packet kinds
+                # Figure out if input is requested from UI
                 if req.kind in (PACKET_MESSAGE_REQUEST, PACKET_TOOL_CALL):
                     input_requested = True
                 elif req.kind == PACKET_FINAL_MESSAGE:
-                    # Request input for 'prompt' and 'confirm' modes
                     node_conf = current_runtime_node.model.confirmation
                     input_requested = node_conf in (Confirmation.prompt, Confirmation.confirm)
                 else:
                     input_requested = False
-                self.status = RunnerStatus.waiting_input if input_requested else RunnerStatus.running
 
-                # Emit event and await optional input
+                # Prepare default activity placeholder for UI emission
+                placeholder_exec = current_activity or Activity(type=ActivityType.executor)
                 run_event = RunEvent(
                     node=current_runtime_node.name,
-                    execution=current_activity or Activity(type=ActivityType.executor),
+                    execution=placeholder_exec,
                     event=req,
                     input_requested=input_requested,
                 )
                 run_input: Optional[RunInput] = (yield run_event)
-                resp = run_input.response if run_input is not None else None
+                resp_packet: Optional[RespPacket] = run_input.response if run_input is not None else None
 
-                # Default: no response back to executor unless specified below
-                to_send = None
-
-                # Handle executor requests
+                # PACKET_FINAL_MESSAGE: finalize (with confirm/prompt)
                 if req.kind == PACKET_FINAL_MESSAGE:
-                    current_activity = Activity(
+                    final_act = Activity(
                         type=ActivityType.executor,
                         message=req.message,
                         outcome_name=req.outcome_name,
                         is_complete=True,
+                        state=current_state,
                     )
-                    step.executions.append(current_activity)
 
                     node_conf = current_runtime_node.model.confirmation
 
+                    # confirm: require explicit approval
                     if node_conf == Confirmation.confirm:
-                        # Force explicit Y/N approval; re-prompt until we get an approval packet.
+                        # Re-prompt until approval or stop on reject
                         while True:
-                            if resp is not None and resp.kind == PACKET_APPROVAL:
-                                if resp.approved:
-                                    # Proceed to next node
+                            if resp_packet is not None and resp_packet.kind == PACKET_APPROVAL:
+                                if resp_packet.approved:
+                                    step.executions.append(final_act)
                                     break
-                                # Rejected: stop executor and runner politely.
+                                # Rejected: record final and stop runner
+                                step.executions.append(final_act)
                                 self.status = RunnerStatus.stopped
                                 step.status = StepStatus.stopped
-                                with contextlib.suppress(Exception):
-                                    await agen.aclose()
-                                gen_in_map = self._agen_map.pop(current_runtime_node.name, None)
-                                if gen_in_map is not None and gen_in_map is not agen:
-                                    with contextlib.suppress(Exception):
-                                        await gen_in_map.aclose()
                                 return
-                            # Not an approval response: ask again.
+                            # Ask again
                             self.status = RunnerStatus.waiting_input
                             run_event = RunEvent(
                                 node=current_runtime_node.name,
-                                execution=current_activity,
+                                execution=final_act,
                                 event=req,
                                 input_requested=True,
                             )
                             run_input = (yield run_event)
-                            resp = run_input.response if run_input is not None else None
-                        # Reaching here means approved => proceed to next node.
-                        break
+                            resp_packet = run_input.response if run_input is not None else None
 
-                    # prompt mode: allow additional user message sent back to executor
-                    if resp is not None and resp.kind == PACKET_MESSAGE:
-                        to_send = resp  # Send directly back into the executor
-                        continue
+                    # prompt: allow one more user message; if provided, run another cycle
+                    elif node_conf == Confirmation.prompt:
+                        if resp_packet is not None and resp_packet.kind == PACKET_MESSAGE:
+                            # Record this final, but continue same node with provided user message (not recorded)
+                            step.executions.append(final_act)
+                            resp = resp_packet
+                            continue
+                        # No extra message provided; accept final
+                        step.executions.append(final_act)
 
-                    # Approval handling: None or approved=True => success => proceed to next node
-                    if resp is None or (resp.kind == PACKET_APPROVAL and resp.approved):
-                        break
+                    else:
+                        # No confirmation/prompt: accept final
+                        step.executions.append(final_act)
 
-                    # Any other response: treat as success and proceed
-                    break
+                    # Final accepted: finish step and transition
+                    step.status = StepStatus.finished
+                    last_exec_activity = final_act
+                    next_runtime_node, next_input_messages, next_edge_policy = self._compute_node_transition(
+                        current_runtime_node, last_exec_activity, step
+                    )
+                    if next_runtime_node is None:
+                        self.status = RunnerStatus.finished
+                        return
+                    current_runtime_node = next_runtime_node
+                    pending_input_messages = list(next_input_messages)
+                    incoming_policy_override = next_edge_policy
+                    break  # move to next node
 
-                elif req.kind == PACKET_TOOL_CALL:
+                # PACKET_TOOL_CALL: execute tools and re-run executor with results
+                if req.kind == PACKET_TOOL_CALL:
                     # Default to approved unless explicitly rejected by a response
                     approved = True
-                    if resp is not None and resp.kind == PACKET_APPROVAL:
-                        approved = resp.approved
+                    if resp_packet is not None and resp_packet.kind == PACKET_APPROVAL:
+                        approved = resp_packet.approved
 
                     updated_tool_calls = []
                     for tc in req.tool_calls:
-                        # Respect explicit rejection
                         if not approved:
                             tc.status = ToolCallStatus.rejected
                             tc.result = {"error": "Tool call rejected by user"}
                             updated_tool_calls.append(tc.model_copy(deep=True))
                             continue
 
-                        # Resolve the tool from the project registry
                         tool = self.project.tools.get(tc.name)
                         if tool is None:
                             tc.status = ToolCallStatus.rejected
@@ -552,7 +561,6 @@ class Runner:
                             updated_tool_calls.append(tc.model_copy(deep=True))
                             continue
 
-                        # Validate/construct the tool's input model
                         try:
                             args_model = tool.input_model.model_validate(tc.arguments)
                         except Exception as e:
@@ -561,7 +569,6 @@ class Runner:
                             updated_tool_calls.append(tc.model_copy(deep=True))
                             continue
 
-                        # Execute the tool
                         try:
                             result_obj = await tool.run(self.project, args_model)
                             if isinstance(result_obj, BaseModel):
@@ -581,52 +588,34 @@ class Runner:
 
                         updated_tool_calls.append(tc.model_copy(deep=True))
 
-                    # Reply to executor with executed tool call results
-                    to_send = RespToolCall(tool_calls=updated_tool_calls)
+                    # Prepare response for next cycle
+                    resp = RespToolCall(tool_calls=updated_tool_calls)
+                    # Continue outer loop to re-run executor with tool results
                     continue
 
-                elif req.kind == PACKET_MESSAGE_REQUEST:
-                    # Require a message; if not provided, keep prompting until we get one
-                    if resp is None or resp.kind != PACKET_MESSAGE:
-                        while True:
-                            self.status = RunnerStatus.waiting_input
-                            run_input = (yield run_event)
-                            resp = run_input.response if run_input is not None else None
-                            if resp is not None and resp.kind == PACKET_MESSAGE:
-                                break
-                    step.executions.append(Activity(type=ActivityType.user, message=resp.message))
-                    to_send = resp  # guaranteed RespMessage here
+                # PACKET_MESSAGE_REQUEST: ask for user message then re-run executor with it
+                if req.kind == PACKET_MESSAGE_REQUEST:
+                    # Require a message; keep prompting until we get one
+                    user_msg_packet: Optional[RespMessage] = None
+                    while True:
+                        if resp_packet is not None and resp_packet.kind == PACKET_MESSAGE:
+                            user_msg_packet = resp_packet
+                            break
+                        self.status = RunnerStatus.waiting_input
+                        run_event = RunEvent(
+                            node=current_runtime_node.name,
+                            execution=placeholder_exec,
+                            event=req,
+                            input_requested=True,
+                        )
+                        run_input = (yield run_event)
+                        resp_packet = run_input.response if run_input is not None else None
+                    # Record user message in history
+                    step.executions.append(Activity(type=ActivityType.user, message=user_msg_packet.message))
+                    # Set response for next executor cycle
+                    resp = user_msg_packet
                     continue
 
-                else:
-                    # For other request kinds (e.g., interim messages), send nothing
-                    to_send = None
-                    continue
+                # Any other packet kinds: no-op; continue outer loop
+                continue
 
-
-            # Mark this step as finished (no rerun for this node)
-            step.status = StepStatus.finished
-
-            last_exec_activity = next((a for a in reversed(step.executions) if a.type == ActivityType.executor and a.is_complete), None)
-            if last_exec_activity is None:
-                raise RuntimeError("No completed executor activity found to compute transition")
-            next_runtime_node, next_input_messages, next_edge_policy = self._compute_node_transition(
-                current_runtime_node, last_exec_activity, step
-            )
-            if next_runtime_node is None:
-                self.status = RunnerStatus.finished
-                await self._close_all_generators()
-                return
-
-            # If this node's executor should not be reused, close and drop its generator now.
-            if policy in (ResetPolicy.always_reset, ResetPolicy.keep_results):
-                gen_to_close = self._agen_map.pop(node_name, None)
-                if gen_to_close is not None:
-                    try:
-                        await gen_to_close.aclose()
-                    except Exception:
-                        pass
-
-            current_runtime_node = next_runtime_node
-            pending_input_messages = list(next_input_messages)
-            incoming_policy_override = next_edge_policy

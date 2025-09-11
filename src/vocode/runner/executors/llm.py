@@ -13,6 +13,9 @@ MAX_ROUNDS = 32
 
 from litellm import acompletion
 
+from enum import Enum
+from pydantic import BaseModel, Field
+
 from vocode.runner.runner import Executor
 from vocode.graph.models import LLMNode, OutcomeStrategy
 from vocode.state import Message, ToolCall
@@ -21,13 +24,25 @@ from vocode.runner.models import (
     ReqToolCall,
     ReqFinalMessage,
     ReqInterimMessage,
-    RespPacket,
-    RespMessage,          # add this
-    PACKET_TOOL_CALL,
-    ReqLogMessage,
-    LogLevel,
+    RespToolCall,
+    RespMessage,
+    ExecRunInput,
 )
 
+
+class LLMExpect(str, Enum):
+    none = "none"
+    tools = "tools"
+    post_final_user = "post_final_user"
+
+class LLMState(BaseModel):
+    conv: List[Dict[str, Any]] = Field(default_factory=list)
+    expect: LLMExpect = LLMExpect.none
+    acc_prompt_tokens: int = 0
+    acc_completion_tokens: int = 0
+    acc_cost_dollars: float = 0
+    pending_outcome_name: Optional[str] = None
+    tool_rounds: int = 0
 
 class LLMExecutor(Executor):
     # Must match LLMNode.type
@@ -38,10 +53,6 @@ class LLMExecutor(Executor):
         if not isinstance(config, LLMNode):
             # Allow base Node but prefer LLMNode
             raise TypeError("LLMExecutor requires config to be an LLMNode")
-        # Token/cost accumulators
-        self._acc_prompt_tokens: int = 0
-        self._acc_completion_tokens: int = 0
-        self._acc_cost_dollars: float = 0.0
 
     def _map_role(self, role: str) -> str:
         # Normalize internal "agent" to OpenAI "assistant"
@@ -158,24 +169,46 @@ class LLMExecutor(Executor):
         extra = cfg.extra or {}
         return float(extra.get("output_cost_per_1k") or extra.get("completion_cost_per_1k") or 0.0)
 
-    async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
+    async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: LLMNode = self.config  # type: ignore[assignment]
-        conv: List[Dict[str, Any]] = self._build_base_messages(cfg, messages)
 
-        """
-        # Emit a log message summarizing this round
-        _ = yield ReqLogMessage(
-            text='\n'.join(m.text for m in messages),
-            level=LogLevel.debug,
-        )
-        """
+        # Restore or initialize state
+        if isinstance(inp.state, LLMState):
+            state: LLMState = inp.state
+        else:
+            # Build conversation from node system + provided history messages
+            base_conv = self._build_base_messages(cfg, inp.messages or [])
+            state = LLMState(conv=base_conv)
+
+        # Integrate incoming response into conversation
+        if inp.response is not None and inp.response.kind == "tool_call":
+            # Append tool results into the conversation for each completed tool call
+            for rcall in inp.response.tool_calls:
+                state.conv.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": rcall.id or "",
+                        "name": rcall.name,
+                        "content": json.dumps(rcall.result) if rcall.result is not None else "",
+                    }
+                )
+            state.expect = LLMExpect.none
+            # Count only rounds that include external tool calls
+            state.tool_rounds = max(0, state.tool_rounds)
+        elif inp.response is not None and inp.response.kind == "message":
+            # Append user reply to conversation (post-final continuation)
+            state.conv.append({"role": self._map_role(inp.response.message.role), "content": inp.response.message.text})
+            state.expect = LLMExpect.none
+
+        conv: List[Dict[str, Any]] = state.conv
+
 
         # Outcome handling strategy
         outcomes: List[str] = self._get_outcome_names(cfg)
         outcome_desc_bullets: str = self._get_outcome_desc_bullets(cfg)
         outcome_choice_desc: str = self._get_outcome_choice_desc(cfg, outcome_desc_bullets)
         outcome_strategy: OutcomeStrategy = cfg.outcome_strategy
-        outcome_name: Optional[str] = None
+        outcome_name: Optional[str] = state.pending_outcome_name or None
 
         # Get tool specs from node config
         external_tools: List[Dict[str, Any]] = []
@@ -208,7 +241,6 @@ class LLMExecutor(Executor):
 
         # Drive the LLM loop with tool-calls as needed
         assistant_text: str = ""
-        tool_rounds = 0
 
         while True:
             assistant_text_parts: List[str] = []
@@ -257,7 +289,7 @@ class LLMExecutor(Executor):
                 if content_piece:
                     assistant_text_parts.append(content_piece)
                     # Emit an interim message with just this piece
-                    _ = yield ReqInterimMessage(message=Message(role="agent", text=content_piece))
+                    _ = yield (ReqInterimMessage(message=Message(role="agent", text=content_piece)), None)
 
                 # Accumulate streamed tool_calls (OpenAI-style deltas) by index, concatenating arguments
                 tc_deltas = delta.get("tool_calls") or []
@@ -291,19 +323,10 @@ class LLMExecutor(Executor):
             in_rate = self._get_input_cost_per_1k(cfg)
             out_rate = self._get_output_cost_per_1k(cfg)
             round_cost = (prompt_tokens / 1000.0) * in_rate + (completion_tokens / 1000.0) * out_rate
-            self._acc_prompt_tokens += prompt_tokens
-            self._acc_completion_tokens += completion_tokens
-            self._acc_cost_dollars += round_cost
+            state.acc_prompt_tokens += prompt_tokens
+            state.acc_completion_tokens += completion_tokens
+            state.acc_cost_dollars += round_cost
 
-            # Emit a log message summarizing this round
-            _ = yield ReqLogMessage(
-                text=(
-                    f"LLM tokens: input={prompt_tokens}, output={completion_tokens}, "
-                    f"total_input={self._acc_prompt_tokens}, total_output={self._acc_completion_tokens}, "
-                    f"accumulated_cost=${self._acc_cost_dollars:.6f}"
-                ),
-                level=LogLevel.info,
-            )
 
             # Build final assistant message dict and append to conversation
             streamed_tool_calls = []
@@ -340,7 +363,8 @@ class LLMExecutor(Executor):
                         parsed = {}
                     sel = parsed.get("outcome")
                     if isinstance(sel, str) and sel in outcomes:
-                        outcome_name = sel
+                        # record selected outcome for next cycle
+                        state.pending_outcome_name = sel
                     # Do not forward this special call to the runner
                     continue
                 # Forward all other calls to the runner using our protocol
@@ -354,38 +378,21 @@ class LLMExecutor(Executor):
                 )
 
             if external_calls:
-                # Ask runner to execute tools and send back results
-                resp_packet: RespPacket = (yield ReqToolCall(tool_calls=external_calls))
-                returned_calls: List[ToolCall]
-                if resp_packet.kind == PACKET_TOOL_CALL:
-                    returned_calls = resp_packet.tool_calls
-                else:
-                    returned_calls = external_calls
-
-                for rcall in returned_calls:
-                    conv.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": rcall.id or "",
-                            "name": rcall.name,
-                            # LLM expects a string content; serialize dict result to JSON
-                            "content": json.dumps(rcall.result) if rcall.result is not None else "",
-                        }
-                    )
-
-                    #print(conv[-1])
-                # Count only rounds that include external tool calls
-                tool_rounds += 1
-                if tool_rounds > MAX_ROUNDS:
+                # Expect tool results on the next cycle
+                state.expect = LLMExpect.tools
+                # Limit tool call loops
+                state.tool_rounds += 1
+                if state.tool_rounds > MAX_ROUNDS:
                     raise RuntimeError(
                         f"LLMExecutor exceeded maximum function-call rounds ({MAX_ROUNDS}); possible tool loop"
                     )
-
-                # Continue loop for model to incorporate tool results
-                continue
+                yield (ReqToolCall(tool_calls=external_calls), state)
+                return
 
             # No tool calls -> proceed to finalize content and outcome
             # assistant_text already set above
+
+            outcome_name: Optional[str] = state.pending_outcome_name or None
 
             if len(outcomes) > 1:
                 if outcome_strategy == OutcomeStrategy.tag:
@@ -393,6 +400,7 @@ class LLMExecutor(Executor):
                     if selected:
                         outcome_name = selected
                         assistant_text = self._strip_outcome_line(assistant_text)
+                        state.pending_outcome_name = selected
                     else:
                         # Fallback if tag not found
                         outcome_name = outcome_name or outcomes[0]
@@ -403,27 +411,14 @@ class LLMExecutor(Executor):
                         if selected:
                             outcome_name = selected
                             assistant_text = self._strip_outcome_line(assistant_text)
+                            state.pending_outcome_name = selected
                         else:
                             outcome_name = outcomes[0]
 
-            # Instead of exiting after one round, present the final and possibly accept a post-final user message
+            # Finalize: prepare final message and persist state. Allow post-final user reply on next cycle.
             final_msg = Message(role="agent", text=assistant_text)
-            resp = (yield ReqFinalMessage(message=final_msg, outcome_name=outcome_name))
-
-            # If runner sent a user message in response to the final (additional requirements),
-            # continue the same executor by appending it to the conversation; otherwise
-            # just pause here (runner will not send anything on approval).
-            if isinstance(resp, RespMessage):
-                # Append new user message and continue the loop without resetting conv
-                conv.append({"role": self._map_role(resp.message.role), "content": resp.message.text})
-                # Reset outcome_name for next turn
-                outcome_name = None
-                assistant_text = ""
-                # Reset function-call round counter for a new user-provided turn
-                tool_rounds = 0
-                # Continue outer while loop to produce a next assistant response
-                continue
-
-            # Otherwise, stay paused on this executor until the runner closes or resets it.
-            # Await indefinitely to remain suspended; runner will aclose() / recreate as needed.
-            await asyncio.Event().wait()
+            selected_outcome = outcome_name
+            state.pending_outcome_name = None
+            state.expect = LLMExpect.post_final_user
+            yield (ReqFinalMessage(message=final_msg, outcome_name=selected_outcome), state)
+            return

@@ -14,7 +14,7 @@ from vocode.runner.models import (
     ReqToolCall,
     ReqFinalMessage,
     RespToolCall,
-    ReqLogMessage,
+    ExecRunInput,
 )
 
 
@@ -70,14 +70,14 @@ class ACompletionStub:
 
 async def drain_until_non_interim(agen):
     interim_texts = []
+    st_last = None
     while True:
-        pkt = await anext(agen)
-        if isinstance(pkt, ReqInterimMessage):
+        pkt, st = await anext(agen)
+        st_last = st
+        if pkt.kind == "message":
             interim_texts.append(pkt.message.text)
             continue
-        if isinstance(pkt, ReqLogMessage):
-            continue
-        return interim_texts, pkt
+        return interim_texts, pkt, st_last
 
 
 @pytest.mark.asyncio
@@ -120,12 +120,13 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
         project.tools["weather"] = _DummyWeatherTool()
 
         execu = LLMExecutor(cfg, project)
-        agen = execu.run(messages=[Message(role="user", text="Weather?")])
+        state = None
+        agen = execu.run(ExecRunInput(messages=[Message(role="user", text="Weather?")], state=state))
 
         # Drain interim messages until tool call request
-        interim_msgs, pkt = await drain_until_non_interim(agen)
+        interim_msgs, pkt, state = await drain_until_non_interim(agen)
         assert interim_msgs == ["Hi ", "there. "]
-        assert isinstance(pkt, ReqToolCall)
+        assert pkt.kind == "tool_call"
         assert len(pkt.tool_calls) == 1
         tc = pkt.tool_calls[0]
         assert tc.name == "weather"
@@ -140,7 +141,7 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
         assert CHOOSE_OUTCOME_TOOL_NAME in tool_names
         assert stub.calls[0]["tool_choice"] == "auto"
 
-        # Send tool result back and capture immediate yield (may be an interim chunk)
+        # Send tool result back by starting a new cycle with the returned state
         tool_result = ToolCall(
             id="call_1",
             name="weather",
@@ -148,27 +149,14 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
             arguments={"city": "NYC"},
             result={"temp": 72},
         )
-        first_pkt = await agen.asend(RespToolCall(tool_calls=[tool_result]))
+        agen2 = execu.run(ExecRunInput(messages=[], state=state, response=RespToolCall(tool_calls=[tool_result])))
+        interim_msgs2, pkt2, state2 = await drain_until_non_interim(agen2)
 
-        interim_msgs2 = []
-        pkt2 = first_pkt
-        while True:
-            if isinstance(pkt2, ReqLogMessage):
-                pkt2 = await anext(agen)
-                continue
-            if isinstance(pkt2, ReqInterimMessage):
-                interim_msgs2.append(pkt2.message.text)
-                pkt2 = await anext(agen)
-                continue
-            break
         assert interim_msgs2 == ["It is ", "sunny."]
-        assert isinstance(pkt2, ReqFinalMessage)
+        assert pkt2.kind == "final_message"
         assert pkt2.message is not None
         assert pkt2.message.text == "It is sunny."
         assert pkt2.outcome_name == "accept"
-
-        # Finalize generator
-        await agen.aclose()
 
 
 @pytest.mark.asyncio
@@ -190,11 +178,11 @@ async def test_llm_executor_function_tokens_pct_applied(monkeypatch, tmp_path):
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
-        agen = LLMExecutor(cfg, project).run(messages=[Message(role="user", text="Q?")])
+        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Q?")], state=None))
 
         # Drain until final (no external tools to execute)
-        _, pkt = await drain_until_non_interim(agen)
-        assert isinstance(pkt, ReqFinalMessage)
+        _, pkt, _ = await drain_until_non_interim(agen)
+        assert pkt.kind == "final_message"
         assert pkt.message is not None
         assert pkt.message.text == "Short reply."
         assert pkt.outcome_name == "yes"
@@ -203,8 +191,6 @@ async def test_llm_executor_function_tokens_pct_applied(monkeypatch, tmp_path):
         call = stub.calls[0]
         assert call["tools"] is not None  # choose_outcome tool injected
         assert call["max_tokens"] == 200
-
-        await agen.aclose()
 
 
 @pytest.mark.asyncio
@@ -225,11 +211,11 @@ async def test_llm_executor_tag_strategy_streaming_and_strip(monkeypatch, tmp_pa
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
-        agen = LLMExecutor(cfg, project).run(messages=[Message(role="user", text="Question")])
+        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Question")], state=None))
 
-        interim, pkt = await drain_until_non_interim(agen)
+        interim, pkt, _ = await drain_until_non_interim(agen)
         assert interim == ["Answer body", "\nOUTCOME: reject"]
-        assert isinstance(pkt, ReqFinalMessage)
+        assert pkt.kind == "final_message"
         assert pkt.message is not None
         # Outcome line stripped from final text
         assert pkt.message.text == "Answer body"
@@ -241,8 +227,6 @@ async def test_llm_executor_tag_strategy_streaming_and_strip(monkeypatch, tmp_pa
         assert "OUTCOME:" in sent_msgs[0]["content"]
         # No tools provided for tag strategy with no external tools
         assert stub.calls[0]["tools"] is None
-
-        await agen.aclose()
 
 
 @pytest.mark.asyncio
@@ -258,16 +242,14 @@ async def test_llm_executor_tag_strategy_fallback_to_first_outcome(monkeypatch, 
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
-        agen = LLMExecutor(cfg, project).run(messages=[Message(role="user", text="Go")])
+        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Go")], state=None))
 
-        _, pkt = await drain_until_non_interim(agen)
-        assert isinstance(pkt, ReqFinalMessage)
+        _, pkt, _ = await drain_until_non_interim(agen)
+        assert pkt.kind == "final_message"
         assert pkt.message is not None
         assert pkt.message.text == "No explicit outcome provided."
         # Fallback to first outcome when tag missing
         assert pkt.outcome_name == "first"
-
-        await agen.aclose()
 
 
 @pytest.mark.asyncio
@@ -296,10 +278,10 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monke
         project.tools["weather"] = _DummyWeatherTool()
 
         history = [Message(role="user", text="Hi"), Message(role="agent", text="Prev assistant")]
-        agen = LLMExecutor(cfg, project).run(messages=history)
+        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=history, state=None))
 
-        _, pkt = await drain_until_non_interim(agen)
-        assert isinstance(pkt, ReqFinalMessage)
+        _, pkt, _ = await drain_until_non_interim(agen)
+        assert pkt.kind == "final_message"
         assert pkt.message is not None
         assert pkt.message.text == "Fin."
         # No explicit outcome expected for single outcome
@@ -316,5 +298,3 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monke
         assert sent_msgs[0] == {"role": "system", "content": "sys"}
         assert {"role": "user", "content": "Hi"} in sent_msgs
         assert {"role": "assistant", "content": "Prev assistant"} in sent_msgs
-
-        await agen.aclose()
