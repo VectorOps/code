@@ -1,8 +1,9 @@
-
-from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List, TYPE_CHECKING, Any
+ 
+from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List, TYPE_CHECKING, Any, Union
 
 import asyncio
 from pydantic import BaseModel
+from dataclasses import dataclass
 if TYPE_CHECKING:
     from vocode.project import Project
 from vocode.graph import Node
@@ -73,6 +74,16 @@ class Executor:
         raise NotImplementedError("Executor subclasses must implement 'run' as an async generator")
 
 
+@dataclass
+class HistoryStep:
+    node: str
+    activity: Activity
+    messages: List[Message]
+    state: Optional[Any]
+    req: ReqPacket          # will hold only ReqFinalMessage for now
+    response: Optional[RespPacket]
+
+
 class Runner:
     def __init__(self, workflow, project: "Project", initial_message: Optional[Message] = None):
         """Prepare the runner with a graph, initial message, status flags, and per-node executors."""
@@ -86,6 +97,10 @@ class Runner:
         }
         self._stop_requested: bool = False
         self._internal_cancel_requested: bool = False
+        # History for retriable final messages
+        self._history: List[HistoryStep] = []
+        # When rewinding, the last popped history step is kept here to be replayed on resume
+        self._resume_history_step: Optional[HistoryStep] = None
 
     def cancel(self) -> None:
         """Cancel the currently running executor step, if any."""
@@ -274,20 +289,98 @@ class Runner:
         if self.status in (RunnerStatus.running, RunnerStatus.waiting_input):
             raise RuntimeError(f"Cannot rewind while runner status is '{self.status}'")
 
-        # Reset executors so the rewound nodes are as if they never executed.
-
-        # Recreate fresh executor instances for all nodes to forget any prior state.
-        self._executors = {
-            node.name: Executor.create_for_node(node, project=self.project)
-            for node in self.workflow.graph.nodes
-        }
-
-        # Remove the last n steps (if fewer, remove all).
-        to_remove = min(n, len(task.steps))
+        # Go back n retriable history steps (finals)
+        to_remove = min(n, len(self._history))
+        last_popped: Optional[HistoryStep] = None
         for _ in range(to_remove):
-            task.steps.pop()
+            last_popped = self._history.pop()
+        # Align recorded steps (each final corresponds to one step)
+        for _ in range(min(n, len(task.steps))):
+            if task.steps:
+                task.steps.pop()
+        # Mark resume point at the last popped history step
+        self._resume_history_step = last_popped
+        # Reset internal flags
+        self._stop_requested = False
+        self._internal_cancel_requested = False
+        self._current_exec_task = None
+        self.status = RunnerStatus.stopped
 
-        # Reset internal flags and set a resumable state.
+    def _node_confirmation(self, node_name: str) -> Optional[Confirmation]:
+        rn = self._find_runtime_node_by_name(node_name)
+        return rn.model.confirmation if rn else None
+
+    def _find_last_retriable_history_index(self) -> Optional[int]:
+        """
+        Find the last history step whose node would request user input on its final
+        (confirmation=prompt/confirm). Returns the index in self._history or None.
+        """
+        for i in range(len(self._history) - 1, -1, -1):
+            h = self._history[i]
+            conf = self._node_confirmation(h.node)
+            if conf in (Confirmation.prompt, Confirmation.confirm):
+                return i
+        return None
+
+    def _find_last_user_input_step_index(self, task: Assignment) -> Optional[int]:
+        """
+        Find the most recent step that contains an actual user response (message.role == 'user').
+        This excludes carried messages from previous nodes (which are recorded as user-type activities
+        but have role != 'user').
+        """
+        for i in range(len(task.steps) - 1, -1, -1):
+            s = task.steps[i]
+            for a in s.executions:
+                if a.type == ActivityType.user and a.message is not None and a.message.role == "user":
+                    return i
+        return None
+
+    def replace_last_user_input(self, task: Assignment, response: Union[RespMessage, RespApproval]) -> None:
+        """
+        Prepare to replace the last user input:
+        - If the last replaceable boundary is a final that required input (prompt/confirm),
+          pop all later history/steps, set the stored response on that history step, and resume from it.
+        - Otherwise, target the last step that included a user message (ReqMessageRequest case):
+          pop history and steps including that step to force re-execution; UI should auto-reply with the new message.
+        Leaves runner in stopped state ready to restart.
+        """
+        if self.status in (RunnerStatus.running, RunnerStatus.waiting_input):
+            raise RuntimeError(f"Cannot replace input while runner status is '{self.status}'")
+
+        # Case 1: last retriable final (prompt/confirm)
+        hist_idx = self._find_last_retriable_history_index()
+        if hist_idx is not None:
+            # Pop history/steps after the target history index
+            to_pop = len(self._history) - (hist_idx + 1)
+            for _ in range(to_pop):
+                self._history.pop()
+            for _ in range(to_pop):
+                if task.steps:
+                    task.steps.pop()
+            # Set resume point at the target and store the replacement response
+            self._resume_history_step = self._history[hist_idx]
+            self._resume_history_step.response = response
+            # Reset internal flags
+            self._stop_requested = False
+            self._internal_cancel_requested = False
+            self._current_exec_task = None
+            self.status = RunnerStatus.stopped
+            return
+
+        # Case 2: replace last message_request input -> pop including that step to re-execute
+        step_idx = self._find_last_user_input_step_index(task)
+        if step_idx is None:
+            raise RuntimeError("No previous user input to replace")
+        # Pop history entries from that step onward (inclusive)
+        to_pop_hist = max(0, len(self._history) - step_idx)
+        for _ in range(to_pop_hist):
+            if self._history:
+                self._history.pop()
+        # Pop steps down to retain only steps before the target
+        while len(task.steps) > step_idx:
+            task.steps.pop()
+        # Force fresh execution (do not preload any saved final)
+        self._resume_history_step = None
         self._stop_requested = False
         self._internal_cancel_requested = False
         self._current_exec_task = None
@@ -318,6 +411,11 @@ class Runner:
 
         pending_input_messages: List[Message] = []
 
+        # Preloaded request/response/activity when resuming from a rewound final
+        preloaded_req: Optional[ReqPacket] = None
+        preloaded_final_act: Optional[Activity] = None
+        preloaded_resp_default: Optional[RespPacket] = None
+
         if resume_info is not None:
             next_rn, next_msgs, incoming_policy_override = resume_info
             if next_rn is None:
@@ -329,6 +427,12 @@ class Runner:
             current_runtime_node = graph.root
             pending_input_messages = [self.initial_message] if self.initial_message is not None else []
             incoming_policy_override: Optional[ResetPolicy] = None
+
+        # If we have a resume history step saved from rewind(), inject its request/activity/response
+        if self._resume_history_step is not None:
+            preloaded_req = self._resume_history_step.req
+            preloaded_final_act = self._resume_history_step.activity
+            preloaded_resp_default = self._resume_history_step.response
 
         # Main loop
         while True:
@@ -377,43 +481,53 @@ class Runner:
             placeholder_exec = Activity(type=ActivityType.executor)
 
             while True:
-                # Invoke executor for one cycle
-                agen = executor.run(ExecRunInput(messages=base_input_messages, state=current_state, response=resp))
-                resp = None  # response is one-shot for each cycle
-
-                # Stream interim messages; stop at first non-message packet
+                # Optionally bypass executor execution when replaying a saved final from history
+                replaying_history = False
                 req: Optional[ReqPacket] = None
-                try:
-                    while True:
-                        try:
-                            self._current_exec_task = asyncio.create_task(anext(agen))
-                            pkt, yielded_state = await self._current_exec_task
-                        finally:
-                            self._current_exec_task = None
+                yielded_state = None
 
-                        if pkt.kind in (PACKET_MESSAGE, PACKET_LOG):
-                            # Interim message/log: do not generate an Activity or populate message/state.
-                            self.status = RunnerStatus.running
-                            run_event = RunEvent(
-                                node=current_runtime_node.name,
-                                execution=placeholder_exec,
-                                event=pkt,
-                                input_requested=False,
-                            )
-                            _ = (yield run_event)
-                            continue
+                if preloaded_req is not None:
+                    # Replay the saved request/state without running the executor
+                    req = preloaded_req
+                    yielded_state = current_state
+                    replaying_history = True
+                else:
+                    # Invoke executor for one cycle
+                    agen = executor.run(ExecRunInput(messages=base_input_messages, state=current_state, response=resp))
+                    resp = None  # response is one-shot for each cycle
 
-                        # Non-message => end of this executor cycle
-                        req = pkt
+                    # Stream interim messages; stop at first non-message packet
+                    try:
+                        while True:
+                            try:
+                                self._current_exec_task = asyncio.create_task(anext(agen))
+                                pkt, yielded_state = await self._current_exec_task
+                            finally:
+                                self._current_exec_task = None
 
-                        # Capture updated state if provided
-                        if yielded_state is not None:
-                            current_state = yielded_state
+                            if pkt.kind in (PACKET_MESSAGE, PACKET_LOG):
+                                # Interim message/log: do not generate an Activity or populate message/state.
+                                self.status = RunnerStatus.running
+                                run_event = RunEvent(
+                                    node=current_runtime_node.name,
+                                    execution=placeholder_exec,
+                                    event=pkt,
+                                    input_requested=False,
+                                )
+                                _ = (yield run_event)
+                                continue
 
-                        break
-                except StopAsyncIteration:
-                    # Executor ended without emitting a completion packet; treat as done for this cycle
-                    req = None
+                            # Non-message => end of this executor cycle
+                            req = pkt
+
+                            # Capture updated state if provided
+                            if yielded_state is not None:
+                                current_state = yielded_state
+
+                            break
+                    except StopAsyncIteration:
+                        # Executor ended without emitting a completion packet; treat as done for this cycle
+                        req = None
 
                 # If nothing returned, mark step finished and transition
                 if req is None:
@@ -469,28 +583,60 @@ class Runner:
 
                 # PACKET_FINAL_MESSAGE: finalize (with confirm/prompt)
                 if req.kind == PACKET_FINAL_MESSAGE:
-                    final_act = Activity(
-                        type=ActivityType.executor,
-                        message=req.message,
-                        outcome_name=req.outcome_name,
-                        is_complete=True,
-                        state=current_state,
-                    )
+                    # Prefer a preloaded final activity when replaying history
+                    if preloaded_final_act is not None:
+                        final_act = preloaded_final_act
+                    else:
+                        final_act = Activity(
+                            type=ActivityType.executor,
+                            message=req.message,
+                            outcome_name=req.outcome_name,
+                            is_complete=True,
+                            state=current_state,
+                        )
+
+                    # Prepare or reuse history entry for this final
+                    if replaying_history and self._resume_history_step is not None:
+                        hist = self._resume_history_step
+                        # restore into history list (we popped it during rewind)
+                        if hist not in self._history:
+                            self._history.append(hist)
+                    else:
+                        hist = HistoryStep(
+                            node=current_runtime_node.name,
+                            activity=final_act,
+                            messages=list(base_input_messages),
+                            state=current_state,
+                            req=req,
+                            response=None,
+                        )
+                        self._history.append(hist)
 
                     node_conf = current_runtime_node.model.confirmation
+
+                    # If we have a preloaded default response for resume, apply it when appropriate
+                    if preloaded_resp_default is not None and resp_packet is None:
+                        resp_packet = preloaded_resp_default
 
                     # confirm: require explicit approval
                     if node_conf == Confirmation.confirm:
                         # Re-prompt until approval or stop on reject
                         while True:
                             if resp_packet is not None and resp_packet.kind == PACKET_APPROVAL:
+                                # Record final activity in step history (and mark response on hist)
+                                step.executions.append(final_act)
+                                hist.response = resp_packet
                                 if resp_packet.approved:
-                                    step.executions.append(final_act)
                                     break
                                 # Rejected: record final and stop runner
-                                step.executions.append(final_act)
                                 self.status = RunnerStatus.stopped
                                 step.status = StepStatus.stopped
+                                # consume resume marker
+                                if replaying_history:
+                                    self._resume_history_step = None
+                                    preloaded_req = None
+                                    preloaded_final_act = None
+                                    preloaded_resp_default = None
                                 return
                             # Ask again
                             self.status = RunnerStatus.waiting_input
@@ -506,9 +652,16 @@ class Runner:
                     # prompt: allow one more user message; if provided, run another cycle
                     elif node_conf == Confirmation.prompt:
                         if resp_packet is not None and resp_packet.kind == PACKET_MESSAGE:
-                            # Record this final, but continue same node with provided user message (not recorded)
+                            # Record this final, store the response on hist, but continue same node with provided user message (not recorded)
                             step.executions.append(final_act)
+                            hist.response = resp_packet
                             resp = resp_packet
+                            # clear resume marker if we were replaying
+                            if replaying_history:
+                                self._resume_history_step = None
+                                preloaded_req = None
+                                preloaded_final_act = None
+                                preloaded_resp_default = None
                             continue
                         # No extra message provided; accept final
                         step.executions.append(final_act)
@@ -520,6 +673,14 @@ class Runner:
                     # Final accepted: finish step and transition
                     step.status = StepStatus.finished
                     last_exec_activity = final_act
+                    # If we were replaying history, ensure any response on hist is already set (it may be None)
+                    # Clear resume marker since we've consumed it
+                    if replaying_history:
+                        self._resume_history_step = None
+                        preloaded_req = None
+                        preloaded_final_act = None
+                        preloaded_resp_default = None
+
                     next_runtime_node, next_input_messages, next_edge_policy = self._compute_node_transition(
                         current_runtime_node, last_exec_activity, step
                     )

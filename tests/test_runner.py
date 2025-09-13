@@ -137,6 +137,8 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
         it2 = runner.run(task)
         ev_b2 = await it2.__anext__()
         assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
+        # Ensure the executor was not re-executed on resume (replayed from history)
+        assert BExec.runs == 1  # resumed from history (no re-execution)
         with pytest.raises(StopAsyncIteration):
             await it2.asend(None)
         assert runner.status == RunnerStatus.finished

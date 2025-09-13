@@ -17,3 +17,4 @@ system: |
   - Keep changes minimal and consistent with the repo’s style.
   - Avoid speculative features; only implement what the plan requires.
   - Make sure to produce patches for all requested changes
+  - Produce minimal patches that follow patch format. Avoid excessive non-patch line when generating patches.

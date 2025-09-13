@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional, TYPE_CHECKING, List
+from typing import Optional, TYPE_CHECKING, List, Union
 import contextlib
 from vocode.settings import build_model_from_settings
 
@@ -219,6 +219,17 @@ class UIState:
             if self.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
                 raise RuntimeError("Cannot rewind while runner is running or waiting for input")
             await self.runner.rewind(self.assignment, n)
+
+    async def replace_last_user_input(self, resp: Union[RespMessage, RespApproval]) -> None:
+        """
+        Replace the last user input (final prompt/confirm or prior message_request) and prepare resume.
+        """
+        async with self._lock:
+            if self.runner is None or self.assignment is None:
+                raise RuntimeError("No runner/assignment available")
+            if self.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
+                raise RuntimeError("Cannot replace input while runner is running or waiting for input")
+            self.runner.replace_last_user_input(self.assignment, resp)
 
     # ------------------------
     # Internal driver

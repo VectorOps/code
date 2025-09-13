@@ -321,28 +321,32 @@ async def run_terminal(project: Project) -> None:
             # If stopped and no pending request, treat input as a replacement for the last input boundary.
             if pending_req is None and ui.status == RunnerStatus.stopped:
                 t = text.strip()
-                if t != "":
-                    # Build a queued response: approval for y/n, otherwise a user message.
-                    if t.lower() in ("y", "yes", "n", "no"):
-                        approved = t.lower() in ("y", "yes")
-                        queued_resp = RespApproval(approved=approved)
-                    else:
-                        queued_resp = RespMessage(message=Message(role="user", text=text))
+                # Build a queued response:
+                # - empty => implicit approval (continue)
+                # - y/n   => explicit approval
+                # - other => user message
+                if t == "":
+                    queued_resp = RespApproval(approved=True)
+                elif t.lower() in ("y", "yes", "n", "no"):
+                    approved = t.lower() in ("y", "yes")
+                    queued_resp = RespApproval(approved=approved)
+                else:
+                    queued_resp = RespMessage(message=Message(role="user", text=text))
 
-                    # Drop the last step and restart; first input boundary will receive the queued response.
-                    try:
-                        await ui.rewind(1)
-                    except Exception as e:
-                        out(f"Failed to rewind: {e}")
-                        queued_resp = None
-                        continue
+                # Rewind one retriable history step and restart; next input boundary auto-receives queued_resp.
+                try:
+                    await ui.replace_last_user_input(queued_resp)
+                except Exception as e:
+                    out(f"Failed to prepare replacement: {e}")
+                    queued_resp = None
+                    continue
 
-                    try:
-                        await ui.restart()
-                    except Exception as e:
-                        out(f"Failed to restart: {e}")
-                        queued_resp = None
-                    # Do not prompt further here; event_consumer will deliver the next request and auto-reply.
+                try:
+                    await ui.restart()
+                except Exception as e:
+                    out(f"Failed to restart: {e}")
+                    queued_resp = None
+                # Do not prompt further here; event_consumer will deliver the next request and auto-reply.
                 continue
 
             if pending_req is not None:
