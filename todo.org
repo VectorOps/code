@@ -1,16 +1,18 @@
 #+title: Code ToDo
 * [ ] Runner
-** [ ] Change executors to have explicit state
-** [ ] Stop/Resume should work off activities
-** [ ] Rewind should work off activities
+** [X] Change executors to have explicit state
+** [X] Stop/Resume should work off activities
+** [X] Rewind should work off activities
 ** [X] When looping on the same node - we need to append message to existing history. Update protocol to return user input back to executor without creating a new executor instance and losing a lot of function call context.
 ** [X] Add tool calling support
 ** [X] Allow edges to control history retainment value
 ** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
 ** [X] Investigate stopping and cancelation of existing runners
-** [ ] Figure out if we can store node reset semantics at the edge level? So failure might keep the state, but initial entry should not?
+** [X] Figure out if we can store node reset semantics at the edge level? So failure might keep the state, but initial entry should not?
 - Patch node failing and going back to coder should persist coder state and append patch error
-** [ ] Figure out why final messages can be duplicated sometimes
+** [X] Figure out why final messages can be duplicated sometimes
+* [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
+Concrete example: files that were read and already in context.
 * [ ] Error handling
 ** [ ] Tool calling timeouts and failures
 ** [ ] Add a way for human to unlock by retrying last operation
