@@ -24,6 +24,7 @@ from vocode.runner.models import (
     PACKET_MESSAGE_REQUEST,
     PACKET_TOOL_CALL,
     PACKET_MESSAGE,
+    PACKET_LOG,
     PACKET_FINAL_MESSAGE,
     PACKET_APPROVAL,
 )
@@ -373,6 +374,7 @@ class Runner:
             # Runner cycles: repeatedly invoke executor until it yields a final or request we handle externally
             resp: Optional[RespPacket] = None
             last_exec_activity: Optional[Activity] = None
+            placeholder_exec = Activity(type=ActivityType.executor)
 
             while True:
                 # Invoke executor for one cycle
@@ -381,7 +383,6 @@ class Runner:
 
                 # Stream interim messages; stop at first non-message packet
                 req: Optional[ReqPacket] = None
-                current_activity: Optional[Activity] = None
                 try:
                     while True:
                         try:
@@ -390,20 +391,12 @@ class Runner:
                         finally:
                             self._current_exec_task = None
 
-                        if pkt.kind == PACKET_MESSAGE:
-                            current_activity = Activity(
-                                type=ActivityType.executor,
-                                message=pkt.message,
-                                is_complete=False,
-                                state=yielded_state if yielded_state is not None else current_state,
-                            )
-                            # Do not record interim messages in step history
-
+                        if pkt.kind in (PACKET_MESSAGE, PACKET_LOG):
+                            # Interim message/log: do not generate an Activity or populate message/state.
                             self.status = RunnerStatus.running
-
                             run_event = RunEvent(
                                 node=current_runtime_node.name,
-                                execution=current_activity,
+                                execution=placeholder_exec,
                                 event=pkt,
                                 input_requested=False,
                             )
@@ -465,7 +458,6 @@ class Runner:
                     input_requested = False
 
                 # Prepare default activity placeholder for UI emission
-                placeholder_exec = current_activity or Activity(type=ActivityType.executor)
                 run_event = RunEvent(
                     node=current_runtime_node.name,
                     execution=placeholder_exec,

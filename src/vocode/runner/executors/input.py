@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import AsyncIterator, List
-import asyncio
+from typing import AsyncIterator, Optional, Any
 
 from vocode.runner.runner import Executor
 from vocode.graph.models import InputNode
@@ -11,8 +10,8 @@ from vocode.runner.models import (
     ReqMessageRequest,
     ReqInterimMessage,
     ReqFinalMessage,
-    RespPacket,
-    RespMessage,
+    ExecRunInput,
+    PACKET_MESSAGE,
 )
 
 
@@ -25,32 +24,15 @@ class InputExecutor(Executor):
         if not isinstance(config, InputNode):
             raise TypeError("InputExecutor requires config to be an InputNode")
 
-    async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
+    async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: InputNode = self.config  # type: ignore[assignment]
-
-        next_user_text: str | None = None
-
-        while True:
-            # 1) Send configured prompt message as an interim agent message
-            _ = yield ReqInterimMessage(message=Message(role="agent", text=cfg.message))
-
-            # 2) Request input from the user (unless we already have it from a previous final response)
-            if next_user_text is None:
-                resp: RespPacket = (yield ReqMessageRequest())
-                # Runner guarantees a RespMessage here
-                user_text = resp.message.text if isinstance(resp, RespMessage) else ""
-            else:
-                user_text = next_user_text
-                next_user_text = None
-
-            # 3) Send the user input back as the final agent message
+        # If runner already provided a user message, finalize immediately.
+        if inp.response is not None and inp.response.kind == PACKET_MESSAGE and inp.response.message is not None:
+            user_text = inp.response.message.text or ""
             final_msg = Message(role="agent", text=user_text)
-            post_final = (yield ReqFinalMessage(message=final_msg))
-
-            # If runner sent a message back (additional requirements), use it as the next user_text
-            if isinstance(post_final, RespMessage):
-                next_user_text = post_final.message.text
-                continue
-
-            # Otherwise, pause here on approval; remain suspended until the runner closes/recreates us.
-            await asyncio.Event().wait()
+            yield ReqFinalMessage(message=final_msg), inp.state
+            return
+        # Otherwise, prompt and request a user message.
+        if cfg.message:
+            yield ReqInterimMessage(message=Message(role="agent", text=cfg.message)), inp.state
+        yield ReqMessageRequest(), inp.state

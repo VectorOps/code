@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, Optional, Any
 import asyncio
 
 from vocode.runner.runner import Executor
 from vocode.graph.models import NoopNode
 from vocode.state import Message
-from vocode.runner.models import ReqPacket, ReqFinalMessage, RespMessage
+from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 
 class NoopExecutor(Executor):
     # Must match NoopNode.type
@@ -17,7 +17,7 @@ class NoopExecutor(Executor):
         if not isinstance(config, NoopNode):
             raise TypeError("NoopExecutor requires config to be a NoopNode")
 
-    async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
+    async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: NoopNode = self.config  # type: ignore[assignment]
         # Optional delay before emitting the final message
         delay = cfg.sleep_seconds
@@ -37,12 +37,6 @@ class NoopExecutor(Executor):
             if outcome_name is None:
                 outcome_name = outs[0].name
 
-        while True:
-            final = Message(role="agent", text="")
-            resp = (yield ReqFinalMessage(message=final, outcome_name=outcome_name))
-            # If runner sends a message back (additional requirements), just loop and immediately
-            # provide another final; otherwise executor remains paused on approval.
-            if isinstance(resp, RespMessage):
-                # ignore content, loop to yield another final
-                continue
-            await asyncio.Event().wait()
+        final = Message(role="agent", text="")
+        yield (ReqFinalMessage(message=final, outcome_name=outcome_name), None)
+        return

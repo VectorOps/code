@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import AsyncIterator, List
-import asyncio
+from typing import AsyncIterator, List, Optional, Any
 
 from vocode.runner.runner import Executor
 from vocode.state import Message
@@ -10,7 +9,7 @@ from vocode.runner.models import (
     ReqFinalMessage,
     ReqLogMessage,
     LogLevel,
-    RespMessage,
+    ExecRunInput,
 )
 
 
@@ -23,21 +22,16 @@ class DebugExecutor(Executor):
         # Intentionally do not enforce a specific Node subclass to keep this executor usable
         # without requiring a DebugNode model.
 
-    async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
+    async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         # Log all incoming messages at debug level
-        for m in messages:
+        for m in inp.messages:
             try:
                 text = f"{m.role}: {m.text}"
             except Exception:
                 text = str(m)
-            yield ReqLogMessage(level=LogLevel.debug, text=text)
+            yield (ReqLogMessage(level=LogLevel.debug, text=text), inp.state)
 
-        # Yield an empty final message and loop like noop: ignore user messages, otherwise pause.
-        while True:
-            final = Message(role="agent", text="")
-            resp = (yield ReqFinalMessage(message=final))
-            if isinstance(resp, RespMessage):
-                # Ignore content, loop to yield another final
-                continue
-            # Pause indefinitely until stopped/canceled
-            await asyncio.Event().wait()
+        # Yield an empty final message for this cycle
+        final = Message(role="agent", text="")
+        yield (ReqFinalMessage(message=final), inp.state)
+        return

@@ -8,6 +8,7 @@ from vocode.runner.models import (
     ReqMessageRequest,
     ReqToolCall,
     ReqInterimMessage,
+    ReqLogMessage,
     ReqFinalMessage,
     RespMessage,
     RespApproval,
@@ -64,9 +65,8 @@ async def test_message_request_reprompt_and_finish(tmp_path: Path):
         ev3 = await it.asend(RunInput(response=RespMessage(message=user_msg)))
         assert ev3.event.kind == "message"
         assert ev3.input_requested is False
-        # Execution output should reflect interim message
-        assert ev3.execution.message is not None
-        assert ev3.execution.message.text == "got it"
+        assert ev3.event.message is not None
+        assert ev3.event.message.text == "got it"
 
         # Final message
         ev4 = await it.__anext__()
@@ -672,6 +672,49 @@ async def test_edge_reset_policy_override_short_syntax(tmp_path: Path):
         # Approve -> finish
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
+
+@pytest.mark.asyncio
+async def test_log_stream_then_final(tmp_path: Path):
+    nodes = [{"name": "Log", "type": "logg", "outcomes": []}]
+    g = Graph.build(nodes=nodes, edges=[])
+    workflow = Workflow(name="workflow", graph=g)
+
+    class LogExec(Executor):
+        type = "logg"
+        async def run(self, inp):
+            # Emit a log, then a final message in the same cycle
+            yield (ReqLogMessage(text="hello"), None)
+            yield (ReqFinalMessage(message=msg("agent", "done")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        # First event is a log; should not request input and should not finish the step
+        ev1 = await it.__anext__()
+        assert ev1.node == "Log"
+        assert ev1.event.kind == "log"
+        assert ev1.input_requested is False
+
+        # Next event is the final message for this node
+        ev2 = await it.__anext__()
+        assert ev2.node == "Log"
+        assert ev2.event.kind == "final_message"
+
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(None)
+
+        # Verify only the final executor message is recorded (logs are not recorded)
+        assert runner.status.name == "finished"
+        assert len(task.steps) == 1
+        step = task.steps[0]
+        assert step.node == "Log"
+        assert len(step.executions) == 1
+        assert step.executions[0].type.value == "executor"
+        assert step.executions[0].is_complete is True
+        assert step.executions[0].message is not None
+        assert step.executions[0].message.text == "done"
 
 
 @pytest.mark.asyncio

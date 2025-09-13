@@ -1,10 +1,9 @@
-from typing import AsyncIterator, List
-import asyncio
+from typing import AsyncIterator, List, Optional, Any
 
 from vocode.runner.runner import Executor
 from vocode.graph.models import MessageNode
 from vocode.state import Message
-from vocode.runner.models import ReqPacket, ReqFinalMessage, RespMessage
+from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 
 class MessageExecutor(Executor):
     # Must match MessageNode.type
@@ -15,14 +14,7 @@ class MessageExecutor(Executor):
         if not isinstance(config, MessageNode):
             raise TypeError("MessageExecutor requires config to be a MessageNode")
 
-    async def run(self, messages: List[Message]) -> AsyncIterator[ReqPacket]:
+    async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: MessageNode = self.config  # type: ignore[assignment]
-        while True:
-            # Emit configured text as the final message and then behave like noop:
-            # - if the runner sends a user message back, ignore and yield another final
-            # - otherwise pause indefinitely (until stopped/canceled)
-            final = Message(role="agent", text=cfg.message)
-            resp = (yield ReqFinalMessage(message=final))
-            if isinstance(resp, RespMessage):
-                continue
-            await asyncio.Event().wait()
+        final = Message(role="agent", text=cfg.message)
+        yield ReqFinalMessage(message=final), None
