@@ -275,6 +275,104 @@ class Runner:
                 return next_rn, msgs, edge_policy
         return None
 
+    def _build_base_input_messages(
+        self,
+        policy: ResetPolicy,
+        task: Assignment,
+        node_name: str,
+        step: Step,
+        initial_user_inputs: List[Message],
+    ) -> List[Message]:
+        base_input_messages: List[Message] = []
+        if policy == ResetPolicy.keep_results:
+            base_input_messages.extend(
+                self._get_previous_node_messages(task, node_name, exclude_step=step)
+            )
+        base_input_messages.extend(initial_user_inputs)
+        return base_input_messages
+
+    def _initial_state_for_policy(
+        self,
+        policy: ResetPolicy,
+        task: Assignment,
+        node_name: str,
+        step: Step,
+    ) -> Optional[object]:
+        if policy == ResetPolicy.keep_state:
+            return self._get_previous_node_state(task, node_name, exclude_step=step)
+        return None
+
+    def _get_executor_for_policy(
+        self,
+        policy: ResetPolicy,
+        node_name: str,
+        node_model: Node,
+    ) -> "Executor":
+        if policy == ResetPolicy.always_reset:
+            self._executors[node_name] = Executor.create_for_node(node_model, project=self.project)
+        return self._executors[node_name]
+
+    def _is_input_requested(self, req: ReqPacket, node_conf: Confirmation) -> bool:
+        if req.kind in (PACKET_MESSAGE_REQUEST, PACKET_TOOL_CALL):
+            return True
+        if req.kind == PACKET_FINAL_MESSAGE:
+            return node_conf in (Confirmation.prompt, Confirmation.confirm)
+        return False
+
+    async def _run_tools(
+        self,
+        req: ReqToolCall,
+        resp_packet: Optional[RespPacket],
+    ) -> RespToolCall:
+        # Default approval unless provided explicitly
+        approved = True
+        if resp_packet is not None and resp_packet.kind == PACKET_APPROVAL:
+            approved = resp_packet.approved
+
+        updated_tool_calls = []
+        for tc in req.tool_calls:
+            if not approved:
+                tc.status = ToolCallStatus.rejected
+                tc.result = {"error": "Tool call rejected by user"}
+                updated_tool_calls.append(tc.model_copy(deep=True))
+                continue
+
+            tool = self.project.tools.get(tc.name)
+            if tool is None:
+                tc.status = ToolCallStatus.rejected
+                tc.result = {"error": f"Unknown tool '{tc.name}'"}
+                updated_tool_calls.append(tc.model_copy(deep=True))
+                continue
+
+            try:
+                args_model = tool.input_model.model_validate(tc.arguments)
+            except Exception as e:
+                tc.status = ToolCallStatus.rejected
+                tc.result = {"error": f"Invalid arguments for tool '{tc.name}': {str(e)}"}
+                updated_tool_calls.append(tc.model_copy(deep=True))
+                continue
+
+            try:
+                result_obj = await tool.run(self.project, args_model)
+                if isinstance(result_obj, BaseModel):
+                    result_payload = result_obj.model_dump()
+                elif isinstance(result_obj, list):
+                    result_payload = [
+                        (item.model_dump() if isinstance(item, BaseModel) else item)
+                        for item in result_obj
+                    ]
+                else:
+                    result_payload = result_obj
+                tc.status = ToolCallStatus.completed
+                tc.result = result_payload
+            except Exception as e:
+                tc.status = ToolCallStatus.rejected
+                tc.result = {"error": f"Tool '{tc.name}' failed: {str(e)}"}
+
+            updated_tool_calls.append(tc.model_copy(deep=True))
+
+        return RespToolCall(tool_calls=updated_tool_calls)
+
 
     async def rewind(self, task: Assignment, n: int = 1) -> None:
         """
@@ -426,13 +524,19 @@ class Runner:
         else:
             current_runtime_node = graph.root
             pending_input_messages = [self.initial_message] if self.initial_message is not None else []
-            incoming_policy_override: Optional[ResetPolicy] = None
 
         # If we have a resume history step saved from rewind(), inject its request/activity/response
         if self._resume_history_step is not None:
             preloaded_req = self._resume_history_step.req
             preloaded_final_act = self._resume_history_step.activity
             preloaded_resp_default = self._resume_history_step.response
+
+        def _clear_resume_markers():
+            nonlocal preloaded_req, preloaded_final_act, preloaded_resp_default
+            self._resume_history_step = None
+            preloaded_req = None
+            preloaded_final_act = None
+            preloaded_resp_default = None
 
         # Main loop
         while True:
@@ -456,24 +560,26 @@ class Runner:
                 if a.message is not None and a.type == ActivityType.user
             ]
 
-            # Build base input messages for this node execution (first cycle only)
-            base_input_messages: List[Message] = []
-            if policy == ResetPolicy.keep_results:
-                base_input_messages.extend(
-                    self._get_previous_node_messages(task, node_name, exclude_step=step)
-                )
-            base_input_messages.extend(initial_user_inputs)
+            base_input_messages = self._build_base_input_messages(
+                policy=policy,
+                task=task,
+                node_name=node_name,
+                step=step,
+                initial_user_inputs=initial_user_inputs,
+            )
 
-            # Compute initial state based on reset policy
-            if policy == ResetPolicy.keep_state:
-                current_state = self._get_previous_node_state(task, node_name, exclude_step=step)
-            else:
-                current_state = None
+            current_state = self._initial_state_for_policy(
+                policy=policy,
+                task=task,
+                node_name=node_name,
+                step=step,
+            )
 
-            # For always_reset, also replace the executor instance to reset internal state
-            if policy == ResetPolicy.always_reset:
-                self._executors[node_name] = Executor.create_for_node(node_model, project=self.project)
-            executor = self._executors[node_name]
+            executor = self._get_executor_for_policy(
+                policy=policy,
+                node_name=node_name,
+                node_model=node_model,
+            )
 
             # Runner cycles: repeatedly invoke executor until it yields a final or request we handle externally
             resp: Optional[RespPacket] = None
@@ -563,13 +669,9 @@ class Runner:
 
                 # Handle completion packet kinds
                 # Figure out if input is requested from UI
-                if req.kind in (PACKET_MESSAGE_REQUEST, PACKET_TOOL_CALL):
-                    input_requested = True
-                elif req.kind == PACKET_FINAL_MESSAGE:
-                    node_conf = current_runtime_node.model.confirmation
-                    input_requested = node_conf in (Confirmation.prompt, Confirmation.confirm)
-                else:
-                    input_requested = False
+                input_requested = self._is_input_requested(
+                    req=req, node_conf=current_runtime_node.model.confirmation
+                )
 
                 # Prepare default activity placeholder for UI emission
                 run_event = RunEvent(
@@ -633,10 +735,7 @@ class Runner:
                                 step.status = StepStatus.stopped
                                 # consume resume marker
                                 if replaying_history:
-                                    self._resume_history_step = None
-                                    preloaded_req = None
-                                    preloaded_final_act = None
-                                    preloaded_resp_default = None
+                                    _clear_resume_markers()
                                 return
                             # Ask again
                             self.status = RunnerStatus.waiting_input
@@ -658,10 +757,7 @@ class Runner:
                             resp = resp_packet
                             # clear resume marker if we were replaying
                             if replaying_history:
-                                self._resume_history_step = None
-                                preloaded_req = None
-                                preloaded_final_act = None
-                                preloaded_resp_default = None
+                                _clear_resume_markers()
                             continue
                         # No extra message provided; accept final
                         step.executions.append(final_act)
@@ -676,10 +772,7 @@ class Runner:
                     # If we were replaying history, ensure any response on hist is already set (it may be None)
                     # Clear resume marker since we've consumed it
                     if replaying_history:
-                        self._resume_history_step = None
-                        preloaded_req = None
-                        preloaded_final_act = None
-                        preloaded_resp_default = None
+                        _clear_resume_markers()
 
                     next_runtime_node, next_input_messages, next_edge_policy = self._compute_node_transition(
                         current_runtime_node, last_exec_activity, step
@@ -694,56 +787,7 @@ class Runner:
 
                 # PACKET_TOOL_CALL: execute tools and re-run executor with results
                 if req.kind == PACKET_TOOL_CALL:
-                    # Default to approved unless explicitly rejected by a response
-                    approved = True
-                    if resp_packet is not None and resp_packet.kind == PACKET_APPROVAL:
-                        approved = resp_packet.approved
-
-                    updated_tool_calls = []
-                    for tc in req.tool_calls:
-                        if not approved:
-                            tc.status = ToolCallStatus.rejected
-                            tc.result = {"error": "Tool call rejected by user"}
-                            updated_tool_calls.append(tc.model_copy(deep=True))
-                            continue
-
-                        tool = self.project.tools.get(tc.name)
-                        if tool is None:
-                            tc.status = ToolCallStatus.rejected
-                            tc.result = {"error": f"Unknown tool '{tc.name}'"}
-                            updated_tool_calls.append(tc.model_copy(deep=True))
-                            continue
-
-                        try:
-                            args_model = tool.input_model.model_validate(tc.arguments)
-                        except Exception as e:
-                            tc.status = ToolCallStatus.rejected
-                            tc.result = {"error": f"Invalid arguments for tool '{tc.name}': {str(e)}"}
-                            updated_tool_calls.append(tc.model_copy(deep=True))
-                            continue
-
-                        try:
-                            result_obj = await tool.run(self.project, args_model)
-                            if isinstance(result_obj, BaseModel):
-                                result_payload = result_obj.model_dump()
-                            elif isinstance(result_obj, list):
-                                result_payload = [
-                                    (item.model_dump() if isinstance(item, BaseModel) else item)
-                                    for item in result_obj
-                                ]
-                            else:
-                                result_payload = result_obj
-                            tc.status = ToolCallStatus.completed
-                            tc.result = result_payload
-                        except Exception as e:
-                            tc.status = ToolCallStatus.rejected
-                            tc.result = {"error": f"Tool '{tc.name}' failed: {str(e)}"}
-
-                        updated_tool_calls.append(tc.model_copy(deep=True))
-
-                    # Prepare response for next cycle
-                    resp = RespToolCall(tool_calls=updated_tool_calls)
-                    # Continue outer loop to re-run executor with tool results
+                    resp = await self._run_tools(req, resp_packet)
                     continue
 
                 # PACKET_MESSAGE_REQUEST: ask for user message then re-run executor with it
