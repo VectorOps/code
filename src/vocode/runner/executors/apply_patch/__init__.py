@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pathlib
-from typing import AsyncIterator, List, Optional, Tuple, Any
+from typing import AsyncIterator, List, Optional, Any
 
 from vocode.runner.runner import Executor
 from vocode.graph.models import ApplyPatchNode, ResetPolicy
@@ -27,9 +27,6 @@ class ApplyPatchExecutor(Executor):
             raise TypeError("ApplyPatchExecutor requires config to be an ApplyPatchNode")
         if config.reset_policy != ResetPolicy.always_reset:
             raise ValueError("ApplyPatchExecutor supports only ResetPolicy.always_reset")
-        # Buffers for dummy FS helpers (dry-run writes/removes)
-        self._writes: List[Tuple[str, str]] = []
-        self._removes: List[str] = []
 
     def _resolve_safe_path(self, rel: str) -> pathlib.Path:
         if rel.startswith("/") or rel.startswith("~"):
@@ -50,12 +47,20 @@ class ApplyPatchExecutor(Executor):
             raise DiffError(f"File not found: {rel}") from e
 
     def _write_file(self, rel: str, content: str) -> None:
-        # Dummy write: record only, do not touch disk
-        self._writes.append((rel, content))
+        path = self._resolve_safe_path(rel)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("wt", encoding="utf-8") as fh:
+                fh.write(content)
+        except OSError as e:
+            raise DiffError(f"Failed to write file: {rel}: {e}") from e
 
     def _remove_file(self, rel: str) -> None:
-        # Dummy remove: record only, do not touch disk
-        self._removes.append(rel)
+        path = self._resolve_safe_path(rel)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as e:
+            raise DiffError(f"Failed to remove file: {rel}: {e}") from e
 
     def _extract_patch_text(self, messages: List[Message]) -> Optional[str]:
         # Find the last message containing a V4A patch block
@@ -91,9 +96,6 @@ class ApplyPatchExecutor(Executor):
                 yield (ReqMessageRequest(), inp.state)
                 return
 
-        # Reset dummy FS buffers for this attempt
-        self._writes.clear()
-        self._removes.clear()
 
         outcome = "success"
         try:

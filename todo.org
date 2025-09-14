@@ -11,6 +11,7 @@
 ** [X] Figure out if we can store node reset semantics at the edge level? So failure might keep the state, but initial entry should not?
 - Patch node failing and going back to coder should persist coder state and append patch error
 ** [X] Figure out why final messages can be duplicated sometimes
+** [ ] Move replace last message logic to UIState
 * [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 Concrete example: files that were read and already in context.
 * [ ] Error handling
@@ -34,8 +35,8 @@ Concrete example: files that were read and already in context.
 - If workflow is selected, first message sent should start the workflow
 - If workflow is stopped after finishing, then sending a new message should resume same workflow from the beginning
 - If workflow is canceled, then workflow should start new workflow
-** [ ] ctrl+c when runner is active does nothing - should stop the runner (verify, might not be the case)
-** [ ] Add file context management once corresponding node is created
+** [X] ctrl+c when runner is active does nothing - should stop the runner (verify, might not be the case)
+** [X] Add file context management once corresponding node is created
 ** [ ] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
 ** [ ] Add approximate cost calculator and output
 ** [ ] Add toolbar that shows current cost and mode of operation
