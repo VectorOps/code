@@ -585,6 +585,7 @@ class Runner:
             resp: Optional[RespPacket] = None
             last_exec_activity: Optional[Activity] = None
             placeholder_exec = Activity(type=ActivityType.executor)
+            pass_messages = True  # Only pass base_input_messages on the first cycle for this node
 
             while True:
                 # Optionally bypass executor execution when replaying a saved final from history
@@ -597,10 +598,15 @@ class Runner:
                     req = preloaded_req
                     yielded_state = current_state
                     replaying_history = True
+                    # Treat the initial messages as already consumed for this node
+                    pass_messages = False
                 else:
                     # Invoke executor for one cycle
-                    agen = executor.run(ExecRunInput(messages=base_input_messages, state=current_state, response=resp))
+                    msgs_for_cycle = base_input_messages if pass_messages else []
+                    agen = executor.run(ExecRunInput(messages=msgs_for_cycle, state=current_state, response=resp))
                     resp = None  # response is one-shot for each cycle
+                    # After first invocation, do not pass messages again for this node
+                    pass_messages = False
 
                     # Stream interim messages; stop at first non-message packet
                     try:

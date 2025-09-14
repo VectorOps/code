@@ -173,12 +173,19 @@ class LLMExecutor(Executor):
         cfg: LLMNode = self.config  # type: ignore[assignment]
 
         # Restore or initialize state
-        if isinstance(inp.state, LLMState):
+        if inp.state is not None:
             state: LLMState = inp.state
         else:
             # Build conversation from node system + provided history messages
             base_conv = self._build_base_messages(cfg, inp.messages or [])
             state = LLMState(conv=base_conv)
+
+        # If messages are provided together with existing state, treat them as additional inputs
+        # (typical when re-entering node with keep_state).
+        if inp.state is not None and inp.messages:
+            for m in inp.messages:
+                state.conv.append({"role": self._map_role(m.role), "content": m.text})
+            state.expect = LLMExpect.none
 
         # Integrate incoming response into conversation
         if inp.response is not None and inp.response.kind == "tool_call":

@@ -298,3 +298,41 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monke
         assert sent_msgs[0] == {"role": "system", "content": "sys"}
         assert {"role": "user", "content": "Hi"} in sent_msgs
         assert {"role": "assistant", "content": "Prev assistant"} in sent_msgs
+
+@pytest.mark.asyncio
+async def test_llm_executor_additional_messages_with_existing_state(monkeypatch, tmp_path):
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        outcomes=[OutcomeSlot(name="done")],
+        outcome_strategy=OutcomeStrategy.function_call,
+    )
+    seq1 = [chunk_content("First.")]
+    seq2 = [chunk_content("Second.")]
+    stub = ACompletionStub([seq1, seq2])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        execu = LLMExecutor(cfg, project)
+
+        # First run with initial user history (no state yet)
+        agen1 = execu.run(ExecRunInput(messages=[Message(role="user", text="Hi")], state=None))
+        _, pkt1, state1 = await drain_until_non_interim(agen1)
+        assert pkt1.kind == "final_message"
+        assert pkt1.message is not None and pkt1.message.text == "First."
+
+        # Second run: existing state plus additional input messages should be appended to state
+        agen2 = execu.run(ExecRunInput(messages=[Message(role="user", text="More")], state=state1))
+        _, pkt2, _ = await drain_until_non_interim(agen2)
+        assert pkt2.kind == "final_message"
+        assert pkt2.message is not None and pkt2.message.text == "Second."
+
+        # Verify that the second call included the previous assistant text and the new user message
+        sent_msgs_2 = stub.calls[1]["messages"]
+        assert {"role": "assistant", "content": "First."} in sent_msgs_2
+        # The executor appends the assistant reply after the call, so the last item is the assistant ("Second.").
+        # Ensure the new user message is present and precedes the final assistant reply.
+        assert {"role": "user", "content": "More"} in sent_msgs_2
+        assert sent_msgs_2[-1] == {"role": "assistant", "content": "Second."}
+        user_idx = next(i for i, m in enumerate(sent_msgs_2) if m == {"role": "user", "content": "More"})
+        assert user_idx < len(sent_msgs_2) - 1
