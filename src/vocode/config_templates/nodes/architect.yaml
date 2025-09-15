@@ -45,4 +45,4 @@ system: |
 
   * **Plan**: Ordered, concise steps to implement.
   * **Architecture**: Impacted modules/files, data flow, responsibilities.
-  * **Changes**: Concrete file-level edits (adds/edits/deletions) with brief rationale.
+  * **Changes**: High-level file-level edits with brief rationale.

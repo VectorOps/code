@@ -12,6 +12,10 @@
 - Patch node failing and going back to coder should persist coder state and append patch error
 ** [X] Figure out why final messages can be duplicated sometimes
 ** [ ] Move replace last message logic to UIState
+** [ ] Add VIM mode
+** [ ] Add multi-line input
+* [ ] Configuration
+** [ ] Redo include file syntax to include section with default variable values
 * [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 Concrete example: files that were read and already in context.
 * [ ] Error handling

@@ -558,3 +558,212 @@ workflows:
     # Deep override and preservation of other keys
     assert cfg["alpha"]["beta"] == 10
     assert cfg["alpha"]["gamma"] == 2
+
+
+def test_include_imports_variables_and_parent_overrides(tmp_path: Path):
+    base = _w(
+        tmp_path,
+        "base.yml",
+        """
+variables:
+  MODEL: gpt-4o-mini
+workflows:
+  w:
+    nodes:
+      - name: "Use ${MODEL}"
+        type: llm
+        model: ${MODEL}
+        outcomes: []
+    edges: []
+""",
+    )
+    root = _w(
+        tmp_path,
+        "root.yml",
+        f"""
+$include: {base.name}
+variables:
+  MODEL: gpt-4o-pro
+""",
+    )
+    settings = load_settings(str(root))
+    n = settings.workflows["w"].nodes[0]
+    assert n.name == "Use gpt-4o-pro"
+    assert isinstance(n, LLMNode)
+    assert getattr(n, "model", None) == "gpt-4o-pro"
+
+
+def test_include_inline_vars_override(tmp_path: Path):
+    base = _w(
+        tmp_path,
+        "base.yml",
+        """
+variables:
+  MODEL: gpt-4o-mini
+workflows:
+  w:
+    nodes:
+      - name: "Model ${MODEL}"
+        type: llm
+        model: ${MODEL}
+        outcomes: []
+    edges: []
+""",
+    )
+    root = _w(
+        tmp_path,
+        "root.yml",
+        f"""
+$include:
+  local: {base.name}
+  vars:
+    MODEL: gpt-4o-pro
+""",
+    )
+    settings = load_settings(str(root))
+    n = settings.workflows["w"].nodes[0]
+    assert n.name == "Model gpt-4o-pro"
+    assert isinstance(n, LLMNode)
+    assert getattr(n, "model", None) == "gpt-4o-pro"
+
+
+def test_include_import_vars_false_disables_defaults(tmp_path: Path):
+    base = _w(
+        tmp_path,
+        "base.yml",
+        """
+variables:
+  MODEL: gpt-4o-mini
+workflows:
+  w:
+    nodes:
+      - name: "Model ${MODEL}"
+        type: llm
+        model: ${MODEL}
+        outcomes: []
+    edges: []
+""",
+    )
+    root = _w(
+        tmp_path,
+        "root.yml",
+        f"""
+$include:
+  local: {base.name}
+  import_vars: false
+""",
+    )
+    settings = load_settings(str(root))
+    n = settings.workflows["w"].nodes[0]
+    # Defaults from included file are not imported, so placeholders remain
+    assert n.name == "Model ${MODEL}"
+    assert isinstance(n, LLMNode)
+    assert getattr(n, "model", None) == "${MODEL}"
+
+
+def test_include_var_prefix_and_inline_vars(tmp_path: Path):
+    inc_vars = _w(
+        tmp_path,
+        "vars.yml",
+        """
+variables:
+  MODEL: mini
+""",
+    )
+    root = _w(
+        tmp_path,
+        "root.yml",
+        f"""
+$include:
+  local: {inc_vars.name}
+  var_prefix: base_
+  vars:
+    MODEL: pro
+variables:
+  base_MODEL: ultra
+workflows:
+  t:
+    nodes:
+      - name: "N ${{base_MODEL}}"
+        type: a
+        outcomes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(root))
+    n = settings.workflows["t"].nodes[0]
+    # Precedence: included defaults (base_MODEL=mini) -> inline include vars (base_MODEL=pro) -> root vars (base_MODEL=ultra)
+    assert n.name == "N ultra"
+
+
+def test_include_order_precedence_last_wins(tmp_path: Path):
+    a = _w(
+        tmp_path,
+        "a.yml",
+        """
+variables:
+  FOO: A
+""",
+    )
+    b = _w(
+        tmp_path,
+        "b.yml",
+        """
+variables:
+  FOO: B
+""",
+    )
+    root = _w(
+        tmp_path,
+        "root.yml",
+        f"""
+$include:
+  - local: {a.name}
+  - local: {b.name}
+workflows:
+  t:
+    nodes:
+      - name: "${{FOO}}"
+        type: a
+        outcomes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(root))
+    n = settings.workflows["t"].nodes[0]
+    # Later include overrides earlier include
+    assert n.name == "B"
+
+
+def test_nested_includes_export_variables(tmp_path: Path):
+    varpack = _w(
+        tmp_path,
+        "varpack.yml",
+        """
+variables:
+  X: 123
+""",
+    )
+    primary = _w(
+        tmp_path,
+        "primary.yml",
+        f"""
+$include: {varpack.name}
+""",
+    )
+    root = _w(
+        tmp_path,
+        "root.yml",
+        f"""
+$include: {primary.name}
+workflows:
+  t:
+    config:
+      val: ${{X}}
+    nodes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(root))
+    wf = settings.workflows["t"]
+    assert wf.config["val"] == 123

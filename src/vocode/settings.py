@@ -102,6 +102,11 @@ def _collect_variables(doc: Dict[str, Any]) -> Dict[str, Any]:
                             out[k] = v
     return out
 
+def _apply_var_prefix_to_map(vars_map: Dict[str, Any], prefix: Optional[str]) -> Dict[str, Any]:
+    if not prefix:
+        return dict(vars_map)
+    return {f"{prefix}{k}": v for k, v in vars_map.items()}
+
 def _interpolate_string(s: str, vars_map: Dict[str, Any]) -> str:
     def repl(m: re.Match) -> str:
         name = m.group(1)
@@ -164,13 +169,33 @@ def _expand_include_patterns(base: Path, pattern: str) -> List[Path]:
     return matches
 
 
-def _collect_include_paths(spec: Any, base_dir: Path) -> List[Path]:
+def _collect_include_paths(spec: Any, base_dir: Path) -> List[tuple[Path, Dict[str, Any]]]:
     if spec is None:
         return []
-    def norm_one(item: Any) -> List[Path]:
+
+    def parse_opts(item: Dict[str, Any]) -> Dict[str, Any]:
+        opts: Dict[str, Any] = {
+            "import_vars": item.get("import_vars", True),
+            "vars": item.get("vars", {}) or {},
+            "var_prefix": item.get("var_prefix"),
+        }
+        if not isinstance(opts["import_vars"], bool):
+            raise TypeError("import_vars must be a boolean")
+        if not isinstance(opts["vars"], dict):
+            raise TypeError("vars must be a mapping/object")
+        if opts["var_prefix"] is not None and not isinstance(opts["var_prefix"], str):
+            raise TypeError("var_prefix must be a string")
+        return opts
+
+    def make_entries(paths: List[Path], base_opts: Dict[str, Any]) -> List[tuple[Path, Dict[str, Any]]]:
+        return [(p, dict(base_opts)) for p in paths]
+
+    def norm_one(item: Any) -> List[tuple[Path, Dict[str, Any]]]:
         if isinstance(item, str):
-            return _expand_include_patterns(base_dir, item)
+            return make_entries(_expand_include_patterns(base_dir, item), {"import_vars": True, "vars": {}, "var_prefix": None})
         if isinstance(item, dict):
+            opts = parse_opts(item)
+
             paths: List[Path] = []
             if "local" in item:
                 loc = item["local"]
@@ -180,7 +205,6 @@ def _collect_include_paths(spec: Any, base_dir: Path) -> List[Path]:
                 else:
                     paths.extend(_expand_include_patterns(base_dir, loc))
             elif any(k in item for k in TEMPLATE_INCLUDE_KEYS):
-                # Resolve relative to the packaged vocode/config_templates directory
                 key = next(k for k in TEMPLATE_INCLUDE_KEYS if k in item)
                 loc = item[key]
                 if isinstance(loc, list):
@@ -199,14 +223,16 @@ def _collect_include_paths(spec: Any, base_dir: Path) -> List[Path]:
                 for p in item["files"]:
                     paths.extend(_expand_include_patterns(base_dir, p))
             else:
-                raise ValueError(f"Unsupported include dict keys: {list(item.keys())}")
-            return paths
+                raise ValueError(f"Unsupported include dict keys for location: {list(item.keys())}")
+
+            return make_entries(paths, opts)
         if isinstance(item, list):
-            acc: List[Path] = []
+            acc: List[tuple[Path, Dict[str, Any]]] = []
             for sub in item:
                 acc.extend(norm_one(sub))
             return acc
         raise TypeError(f"Unsupported include item type: {type(item).__name__}")
+
     return norm_one(spec)
 
 def _combine_included_values(values: List[Any]) -> Any:
@@ -224,58 +250,124 @@ def _combine_included_values(values: List[Any]) -> Any:
         return acc_list
     raise ValueError("All included files must produce the same type (all dicts or all lists)")
 
-def _preprocess_includes(node: Any, base_dir: Path, seen: Set[Path]) -> Any:
+def _preprocess_includes(node: Any, base_dir: Path, seen: Set[Path]) -> tuple[Any, Dict[str, Any]]:
     if isinstance(node, dict):
         # If this dict contains a $include, expand it and merge/replace as appropriate
         if INCLUDE_KEY in node:
             include_spec = node[INCLUDE_KEY]
-            # Resolve include paths relative to this file's base_dir (or templates base)
-            paths = _collect_include_paths(include_spec, base_dir)
-            included: List[Any] = []
-            for inc in paths:
-                inc = inc.resolve()
-                if inc in seen:
-                    raise ValueError(f"Detected include cycle at {inc}")
-                seen.add(inc)
-                inc_data = _load_raw_file(inc)
-                inc_proc = _preprocess_includes(inc_data, inc.parent, seen)
-                seen.remove(inc)
-                included.append(inc_proc)
+            # Resolve include entries relative to this file's base_dir (or templates base)
+            entries = _collect_include_paths(include_spec, base_dir)
+            included_payloads: List[Any] = []
+            acc_vars: Dict[str, Any] = {}
 
-            # New semantics:
+            for inc_path, opts in entries:
+                inc_path = inc_path.resolve()
+                if inc_path in seen:
+                    raise ValueError(f"Detected include cycle at {inc_path}")
+                seen.add(inc_path)
+                try:
+                    inc_data = _load_raw_file(inc_path)
+                    # Extract top-level variables from the included file
+                    inc_top_vars: Dict[str, Any] = {}
+                    if isinstance(inc_data, dict):
+                        inc_top_vars = _collect_variables(inc_data)
+                        inc_data = dict(inc_data)
+                        inc_data.pop("variables", None)
+
+                    inc_proc, inc_vars_nested = _preprocess_includes(inc_data, inc_path.parent, seen)
+
+                    # Merge nested include variables then the included file's own top-level variables
+                    inc_all_vars = dict(inc_vars_nested)
+                    inc_all_vars.update(inc_top_vars)
+
+                    # Apply optional prefix
+                    var_prefix = opts.get("var_prefix")
+                    if var_prefix:
+                        inc_all_vars = _apply_var_prefix_to_map(inc_all_vars, var_prefix)
+
+                    # Import included variables unless disabled
+                    if opts.get("import_vars", True):
+                        # Include order: later entries override earlier ones
+                        acc_vars.update(inc_all_vars)
+
+                    # Inline include-specific overrides applied after imported defaults
+                    inline_vars = opts.get("vars") or {}
+                    if var_prefix and inline_vars:
+                        inline_vars = _apply_var_prefix_to_map(inline_vars, var_prefix)
+                    acc_vars.update(inline_vars)
+
+                    included_payloads.append(inc_proc)
+                finally:
+                    seen.remove(inc_path)
+
+            # New semantics from previous code:
             # - every included file must resolve to a dict (mapping)
-            # - if exactly one path matched, return that dict
-            # - if multiple matched, return a list of dicts
-            for i_val, i_path in zip(included, paths):
+            for i_val, (i_path, _) in zip(included_payloads, entries):
                 if not isinstance(i_val, dict):
                     raise ValueError(f"Included file must be a mapping/object: {i_path}")
 
-            combined: Any = included[0] if len(included) == 1 else included
-
             # Process the rest of this dict (other keys beside $include)
             rest = {k: v for k, v in node.items() if k != INCLUDE_KEY}
-            if rest:
-                rest_proc = _preprocess_includes(rest, base_dir, seen)
-                if isinstance(combined, dict) and isinstance(rest_proc, dict):
-                    return _deep_merge_dicts(combined, rest_proc, concat_lists=False)
-                if isinstance(combined, list):
-                    raise ValueError("$include produced a list but additional keys are present to merge")
-                return rest_proc
-            # Only include present -> return combined payload directly
-            return combined
-        # No include at this level; recurse into values
-        return {k: _preprocess_includes(v, base_dir, seen) for k, v in node.items()}
-    if isinstance(node, list):
-        return [_preprocess_includes(v, base_dir, seen) for v in node]
-    return node
 
-def _load_and_preprocess(path: Union[str, Path], seen: Optional[Set[Path]] = None) -> Any:
+            # If multiple includes and additional keys are present, merge included dicts
+            if len(included_payloads) == 1:
+                combined: Any = included_payloads[0]
+            else:
+                if rest:
+                    merged: Dict[str, Any] = {}
+                    for v in included_payloads:
+                        merged = _deep_merge_dicts(merged, v, concat_lists=False)
+                    combined = merged
+                else:
+                    combined = included_payloads
+
+            if rest:
+                rest_proc, rest_vars = _preprocess_includes(rest, base_dir, seen)
+                # Merge variables discovered in the rest of this node (e.g., from nested includes)
+                acc_vars.update(rest_vars)
+
+                if isinstance(combined, dict) and isinstance(rest_proc, dict):
+                    return _deep_merge_dicts(combined, rest_proc, concat_lists=False), acc_vars
+                # If combined were a list, we would have merged above when 'rest' is present
+                return rest_proc, acc_vars
+
+            # Only include present -> return combined payload directly
+            return combined, acc_vars
+
+        # No include at this level; recurse into values
+        out: Dict[str, Any] = {}
+        acc_vars: Dict[str, Any] = {}
+        for k, v in node.items():
+            child_proc, child_vars = _preprocess_includes(v, base_dir, seen)
+            out[k] = child_proc
+            acc_vars.update(child_vars)
+        return out, acc_vars
+
+    if isinstance(node, list):
+        out_list: List[Any] = []
+        acc_vars: Dict[str, Any] = {}
+        for v in node:
+            child_proc, child_vars = _preprocess_includes(v, base_dir, seen)
+            out_list.append(child_proc)
+            acc_vars.update(child_vars)
+        return out_list, acc_vars
+
+    return node, {}
+
+def _load_and_preprocess(path: Union[str, Path], seen: Optional[Set[Path]] = None) -> tuple[Any, Dict[str, Any], Dict[str, Any]]:
     p = Path(path).resolve()
     if seen is None:
         seen = set()
     data = _load_raw_file(p)
-    processed = _preprocess_includes(data, p.parent, seen)
-    return processed
+
+    root_vars: Dict[str, Any] = {}
+    if isinstance(data, dict):
+        root_vars = _collect_variables(data)
+        data = dict(data)
+        data.pop("variables", None)
+
+    processed, included_vars = _preprocess_includes(data, p.parent, seen)
+    return processed, included_vars, root_vars
 
 
 def _load_raw_file(path: Path) -> Any:
@@ -297,14 +389,17 @@ def _load_raw_file(path: Path) -> Any:
 
 
 def load_settings(path: str) -> Settings:
-    data_any = _load_and_preprocess(path)
+    data_any, included_vars, root_vars = _load_and_preprocess(path)
     if not isinstance(data_any, dict):
         raise ValueError("Root configuration must be a mapping/object")
-    data = data_any
-    # Collect variables and interpolate
-    vars_map = _collect_variables(data)
-    data.pop("variables", None)
-    data = _apply_variables(data, vars_map)
+
+    # Build final variable map: included defaults first, then root-level overrides
+    vars_map: Dict[str, Any] = {}
+    vars_map.update(included_vars)
+    vars_map.update(root_vars)
+
+    # Interpolate and build models
+    data = _apply_variables(data_any, vars_map)
     return Settings.model_validate(data)
 
 def build_model_from_settings(data: Optional[Dict[str, Any]], model_cls: Type[BaseModel]) -> BaseModel:
