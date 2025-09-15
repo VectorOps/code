@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Any, Union, Set, Final, Type
+from typing import List, Dict, Optional, Any, Union, Set, Final, Type, Literal
 import re
 from pathlib import Path
 from os import PathLike
@@ -46,10 +46,17 @@ class ToolSettings(BaseModel):
     name: str
     enabled: bool = True
 
+class UISettings(BaseModel):
+    # When true, PromptSession accepts multi-line input (Enter can insert newlines)
+    multiline: bool = True
+    # Optional editing mode override. None => use prompt_toolkit default (Emacs)
+    edit_mode: Optional[Literal["emacs", "vim"]] = None
+
 class Settings(BaseModel):
     workflows: Dict[str, Workflow] = Field(default_factory=dict)
     tools: List[ToolSettings] = Field(default_factory=list)
     know: Optional[KnowProjectSettings] = Field(default=None)
+    ui: Optional[UISettings] = Field(default=None)
 
     @model_validator(mode="after")
     def _sync_workflow_names(self) -> "Settings":

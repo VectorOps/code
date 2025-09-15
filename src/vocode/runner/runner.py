@@ -22,10 +22,10 @@ from vocode.runner.models import (
     RespMessage,
     RespApproval,
     ExecRunInput,
+    INTERIM_PACKETS,
     PACKET_MESSAGE_REQUEST,
     PACKET_TOOL_CALL,
     PACKET_MESSAGE,
-    PACKET_LOG,
     PACKET_FINAL_MESSAGE,
     PACKET_APPROVAL,
 )
@@ -617,7 +617,7 @@ class Runner:
                             finally:
                                 self._current_exec_task = None
 
-                            if pkt.kind in (PACKET_MESSAGE, PACKET_LOG):
+                            if pkt.kind in INTERIM_PACKETS:
                                 # Interim message/log: do not generate an Activity or populate message/state.
                                 self.status = RunnerStatus.running
                                 run_event = RunEvent(

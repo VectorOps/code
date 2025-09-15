@@ -24,6 +24,7 @@ from vocode.runner.models import (
     ReqToolCall,
     ReqFinalMessage,
     ReqInterimMessage,
+    ReqTokenUsage,
     RespToolCall,
     RespMessage,
     ExecRunInput,
@@ -422,6 +423,15 @@ class LLMExecutor(Executor):
                         else:
                             outcome_name = outcomes[0]
 
+            # Report token usage/cost before finalizing
+            _ = yield (
+                ReqTokenUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    acc_cost_dollars=state.acc_cost_dollars,
+                ),
+                state,
+            )
             # Finalize: prepare final message and persist state. Allow post-final user reply on next cycle.
             final_msg = Message(role="agent", text=assistant_text)
             selected_outcome = outcome_name

@@ -15,6 +15,7 @@ from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.formatted_text import to_formatted_text
 from prompt_toolkit.formatted_text.utils import split_lines, fragment_list_width
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.enums import EditingMode
 from vocode.ui.terminal import colors
 
 from vocode.project import Project
@@ -35,6 +36,7 @@ from vocode.runner.models import (
     PACKET_LOG,
 )
 from vocode.state import Message, RunnerStatus
+from vocode.ui.terminal.toolbar import build_prompt, build_toolbar, _current_node_confirmation
 from vocode.graph.models import Confirmation
 from vocode.ui.terminal.commands import CommandContext, run as run_command
 
@@ -45,11 +47,6 @@ ANSI_CARRIAGE_RETURN_AND_CLEAR_TO_EOL = "\r\x1b[K"
 # ANSI escape sequence for moving the cursor up one line.
 ANSI_CURSOR_UP = "\x1b[1A"
 
-def _prompt_text(ui: UIState) -> HTML:
-    wf = ui.selected_workflow_name or "-"
-    node = ui.current_node_name or "-"
-    status = getattr(ui.status, "value", str(ui.status))
-    return HTML(f"<b>{wf}</b>@<ansicyan>{node}</ansicyan> [{status}]> ")
 
 
 def out(*args, **kwargs):
@@ -115,14 +112,31 @@ def out_fmt_stream(ft):
 
 async def run_terminal(project: Project) -> None:
     ui = UIState(project)
+
+    ui_cfg = project.settings.ui if getattr(project, "settings", None) else None
+    multiline = True if ui_cfg is None else bool(ui_cfg.multiline)
+    editing_mode = None
+    if ui_cfg and ui_cfg.edit_mode:
+        mode = str(ui_cfg.edit_mode).lower()
+        if mode in ("vi", "vim"):
+            editing_mode = EditingMode.VI
+        elif mode == "emacs":
+            editing_mode = EditingMode.EMACS
+
     try:
         hist_dir = Path(getattr(project, "base_path", ".")) / ".vocode"
         hist_dir.mkdir(parents=True, exist_ok=True)
         hist_path = hist_dir / "data" / "terminal_history"
-        session = PromptSession(history=FileHistory(str(hist_path)))
+        kwargs = {"history": FileHistory(str(hist_path)), "multiline": multiline}
+        if editing_mode is not None:
+            kwargs["editing_mode"] = editing_mode
+        session = PromptSession(**kwargs)
     except Exception:
         # Fall back to in-memory history if anything goes wrong
-        session = PromptSession()
+        kwargs = {"multiline": multiline}
+        if editing_mode is not None:
+            kwargs["editing_mode"] = editing_mode
+        session = PromptSession(**kwargs)
     kb = KeyBindings()
     should_exit = False
 
@@ -181,35 +195,7 @@ async def run_terminal(project: Project) -> None:
             out("")  # Newline to finish the streamed line
             stream_buffer = None
 
-    def _toolbar():
-        nonlocal pending_req
-        hint = ""
-        if pending_req is not None and pending_req.event.input_requested:
-            ev = pending_req.event.event
-            if ev.kind == PACKET_MESSAGE_REQUEST:
-                hint = "(your message)"
-            elif ev.kind == PACKET_TOOL_CALL:
-                hint = "(approve? [Y/n])"
-            elif ev.kind == PACKET_FINAL_MESSAGE:
-                conf = _current_node_confirmation()
-                if conf == Confirmation.confirm:
-                    hint = "(approve? [Y/N])"
-                else:
-                    hint = "(Enter to continue, or type a reply)"
-        return HTML(hint) if hint else None
 
-    def _current_node_confirmation() -> Optional[Confirmation]:
-        try:
-            name = ui.current_node_name
-            wf = ui.workflow
-            if not name or wf is None:
-                return None
-            for n in wf.graph.nodes:
-                if n.name == name:
-                    return getattr(n, "confirmation", None)
-            return None
-        except Exception:
-            return None
 
     async def handle_run_event(req: UIReqRunEvent) -> None:
         nonlocal pending_req, stream_buffer, queued_resp
@@ -303,10 +289,10 @@ async def run_terminal(project: Project) -> None:
                 change_event.clear()
 
             line = await session.prompt_async(
-                lambda: _prompt_text(ui),
+                lambda: build_prompt(ui, pending_req),
                 key_bindings=kb,
                 default="",
-                bottom_toolbar=_toolbar,
+                bottom_toolbar=lambda: build_toolbar(ui, pending_req),
             )
             text = line.rstrip("\n")
 
@@ -370,7 +356,7 @@ async def run_terminal(project: Project) -> None:
                     continue
 
                 if ev.kind == PACKET_FINAL_MESSAGE:
-                    conf = _current_node_confirmation()
+                    conf = _current_node_confirmation(ui)
                     if conf == Confirmation.confirm:
                         ans = text.strip().lower()
                         if ans in ("y", "yes"):
@@ -392,7 +378,7 @@ async def run_terminal(project: Project) -> None:
                     pending_req = None
                     continue
 
-            # No pending request here: runner is active, so hide prompt until a new input request or status/event arrives.
+            # No pending request here: runner is active; ignore input and re-prompt.
             continue
 
     except (EOFError, KeyboardInterrupt):

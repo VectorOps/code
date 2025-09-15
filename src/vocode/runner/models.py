@@ -10,6 +10,10 @@ PACKET_MESSAGE = "message"
 PACKET_FINAL_MESSAGE = "final_message"
 PACKET_LOG = "log"
 PACKET_APPROVAL = "approval"
+PACKET_TOKEN_USAGE = "token_usage"
+
+# Packet kinds that are considered "interim" (do not end an executor cycle)
+INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_LOG, PACKET_TOKEN_USAGE)
 
 class LogLevel(str, Enum):
     debug = "debug"
@@ -47,6 +51,17 @@ class ReqFinalMessage(BaseModel):
     outcome_name: Optional[str] = None
 
 
+class ReqTokenUsage(BaseModel):
+    """
+    Token usage/cost report for this executor round.
+    Sent as an interim packet prior to final response.
+    """
+    kind: Literal["token_usage"] = PACKET_TOKEN_USAGE
+    prompt_tokens: int
+    completion_tokens: int
+    acc_cost_dollars: float
+
+
 class ReqLogMessage(BaseModel):
     """
     Debug/log message emitted by an executor. Never requests input.
@@ -62,6 +77,7 @@ ReqPacket = Annotated[
         ReqToolCall,
         ReqInterimMessage,
         ReqFinalMessage,
+        ReqTokenUsage,
         ReqLogMessage,
     ],
     Field(discriminator="kind"),

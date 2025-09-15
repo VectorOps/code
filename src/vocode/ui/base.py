@@ -11,6 +11,7 @@ from vocode.runner.models import (
     RespPacket,
     RespMessage,
     RespApproval,
+    PACKET_TOKEN_USAGE,
 )
 from vocode.state import Assignment, Message, RunnerStatus
 from vocode.graph import Graph, Workflow
@@ -49,6 +50,10 @@ class UIState:
         self._current_node_name: Optional[str] = None
         self._lock = asyncio.Lock()
         self._stop_signal: asyncio.Event = asyncio.Event()
+        # Accumulated usage/cost across the current runner session
+        self._acc_prompt_tokens: int = 0
+        self._acc_completion_tokens: int = 0
+        self._acc_cost_dollars: float = 0.0
 
     # ------------------------
     # Public protocol endpoints
@@ -98,6 +103,9 @@ class UIState:
             self._req_counter = 0
             self._last_status = None
             self._stop_signal.clear()
+            self._acc_prompt_tokens = 0
+            self._acc_completion_tokens = 0
+            self._acc_cost_dollars = 0.0
             self._drive_task = asyncio.create_task(self._drive_runner())
 
     async def stop(self) -> None:
@@ -143,6 +151,9 @@ class UIState:
             self._req_counter = 0
             self._last_status = None
             self._stop_signal.clear()
+            self._acc_prompt_tokens = 0
+            self._acc_completion_tokens = 0
+            self._acc_cost_dollars = 0.0
             self._drive_task = asyncio.create_task(self._drive_runner())
 
     # ------------------------
@@ -209,6 +220,18 @@ class UIState:
     def selected_workflow_name(self) -> Optional[str]:
         return self._selected_workflow_name
 
+    @property
+    def acc_prompt_tokens(self) -> int:
+        return self._acc_prompt_tokens
+
+    @property
+    def acc_completion_tokens(self) -> int:
+        return self._acc_completion_tokens
+
+    @property
+    def acc_cost_dollars(self) -> float:
+        return self._acc_cost_dollars
+
     async def rewind(self, n: int = 1) -> None:
         """
         Rewind the last n steps. Allowed only when the runner is not running or waiting for input.
@@ -271,6 +294,12 @@ class UIState:
 
                 # Notify status transition, if any
                 await self._emit_status_if_changed()
+
+                # Accumulate token/cost usage packets for later display
+                if req.event.kind == PACKET_TOKEN_USAGE:
+                    self._acc_prompt_tokens += req.event.prompt_tokens
+                    self._acc_completion_tokens += req.event.completion_tokens
+                    self._acc_cost_dollars += req.event.acc_cost_dollars
 
                 # Forward the run event to the UI client with a correlation id
                 self._req_counter += 1
