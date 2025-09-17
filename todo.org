@@ -14,6 +14,7 @@
 ** [ ] Move replace last message logic to UIState
 ** [ ] Add VIM mode
 ** [ ] Add multi-line input
+** [ ] Add a flag to not show node output in the UI. Useful for input node, etc
 * [ ] Configuration
 ** [ ] Redo include file syntax to include section with default variable values
 * [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
