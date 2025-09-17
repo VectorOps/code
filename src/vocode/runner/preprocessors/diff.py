@@ -42,6 +42,10 @@ For instructions on [context_before] and [context_after]:
 
 Note, then, that we do not use line numbers in this diff format, as the context is enough to uniquely identify code.
 
+When generating diff, NEVER escape special sequences or line breaks. This is invalid patch due to escaped line breaks:
+
+*** Begin Patch\\n***Update File: pygorithm/searching/binary_search.py\\n...
+
 An example of a message that you might pass in order to apply a patch, is shown below.
 
 *** Begin Patch

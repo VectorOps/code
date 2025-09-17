@@ -44,6 +44,7 @@ Concrete example: files that were read and already in context.
 ** [ ] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
 ** [ ] Add approximate cost calculator and output
 ** [ ] Add toolbar that shows current cost and mode of operation
+** [ ] Highlighting does not work if ``` opener is not in the beginning of the line
 * [ ] Tools
 ** [X] Integrate Know
 *** [X] Needs a separate execution thread and simple async API wrapper RPC, as it is synchronous
@@ -53,7 +54,8 @@ Concrete example: files that were read and already in context.
 * [ ] Block parsers
 ** [X] Code parsers
 ** [ ] Diff parsers
-*** [X] GPT V4A diff format
+*** [ ] GPT V4A diff format
+**** [ ] Better error reporting and verify apply patch cycle
 *** [ ] Fenced diff format
 *** [ ] Full file diff format
 * [X] Settings

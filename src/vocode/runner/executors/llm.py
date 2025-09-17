@@ -220,13 +220,16 @@ class LLMExecutor(Executor):
 
         # Get tool specs from node config
         external_tools: List[Dict[str, Any]] = []
-        for tool_name in cfg.tools:
+        # Map tool name -> auto_approve flag
+        tool_auto_approve: Dict[str, bool] = {}
+        for spec in (cfg.tools or []):
+            tool_name = spec.name
+            tool_auto_approve[tool_name] = bool(getattr(spec, "auto_approve", False))
             tool = self.project.tools.get(tool_name)
             if tool:
-                external_tools.append({
-                    "type": "function",
-                    "function": tool.openapi_spec(),
-                })
+                external_tools.append(
+                    {"type": "function", "function": tool.openapi_spec()}
+                )
 
         tools: Optional[List[Dict[str, Any]]] = None
         if len(outcomes) > 1 and outcome_strategy == OutcomeStrategy.function_call:
@@ -382,7 +385,13 @@ class LLMExecutor(Executor):
                 except Exception:
                     args_obj = {}
                 external_calls.append(
-                    ToolCall(id=call_id, name=name, arguments=args_obj, type="function")
+                    ToolCall(
+                        id=call_id,
+                        name=name,
+                        arguments=args_obj,
+                        type="function",
+                        auto_approve=bool(tool_auto_approve.get(name, False)),
+                    )
                 )
 
             if external_calls:

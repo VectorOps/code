@@ -1,6 +1,8 @@
+variables:
+  LLM_ARCHITECT_MODEL: gpt-5
 name: architect
 type: llm
-model: gpt-5
+model: ${LLM_ARCHITECT_MODEL}
 tools:
   - vectorops_summarize_files
   - vectorops_read_files

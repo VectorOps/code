@@ -221,8 +221,9 @@ class LLMNode(Node):
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     outcome_strategy: OutcomeStrategy = Field(default=OutcomeStrategy.tag)
-    tools: List[str] = Field(
-        default_factory=list, description="List of enabled tool names for this node."
+    # Structured tool specs with short-hand coercion from strings
+    tools: List["LLMToolSpec"] = Field(
+        default_factory=list, description="Enabled tools (supports string or object spec)"
     )
     extra: Dict[str, Any] = Field(default_factory=dict)
     preprocessors: List[PreprocessorSpec] = Field(
@@ -239,6 +240,26 @@ class LLMNode(Node):
             "Requires extra['model_max_tokens'] to be set."
         ),
     )
+
+class LLMToolSpec(BaseModel):
+    name: str
+    auto_approve: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce(cls, v: Any) -> Any:
+        # Accept either:
+        # - "tool_name"
+        # - {"name": "tool_name", "auto_approve": bool}
+        if isinstance(v, str):
+            return {"name": v, "auto_approve": False}
+        if isinstance(v, dict):
+            name = v.get("name")
+            if not isinstance(name, str) or not name:
+                raise ValueError("Tool spec must include non-empty 'name'")
+            auto = bool(v.get("auto_approve", False))
+            return {"name": name, "auto_approve": auto}
+        raise TypeError("Tool spec must be a string or mapping with 'name' and optional 'auto_approve'")
 
 class InputNode(Node):
     type: str = "input"

@@ -313,11 +313,20 @@ class Runner:
         return self._executors[node_name]
 
     def _is_input_requested(self, req: ReqPacket, node_conf: Confirmation) -> bool:
-        if req.kind in (PACKET_MESSAGE_REQUEST, PACKET_TOOL_CALL):
+        if req.kind == PACKET_MESSAGE_REQUEST:
             return True
+        if req.kind == PACKET_TOOL_CALL:
+            # Request input only if any tool call requires manual approval
+            return any(not getattr(tc, "auto_approve", False) for tc in req.tool_calls)
         if req.kind == PACKET_FINAL_MESSAGE:
             return node_conf in (Confirmation.prompt, Confirmation.confirm)
         return False
+
+    def _split_tool_calls(self, req: ReqToolCall):
+        """Split tool calls into (auto_approved, manual) based on tc.auto_approve flag."""
+        auto_calls = [tc for tc in req.tool_calls if getattr(tc, "auto_approve", False)]
+        manual_calls = [tc for tc in req.tool_calls if not getattr(tc, "auto_approve", False)]
+        return auto_calls, manual_calls
 
     async def _run_tools(
         self,

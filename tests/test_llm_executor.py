@@ -7,7 +7,7 @@ from vocode.testing import ProjectSandbox
 
 from vocode.runner.executors import llm as llm_mod
 from vocode.runner.executors.llm import LLMExecutor, CHOOSE_OUTCOME_TOOL_NAME
-from vocode.graph.models import LLMNode, OutcomeStrategy, OutcomeSlot
+from vocode.graph.models import LLMNode, OutcomeStrategy, OutcomeSlot, LLMToolSpec
 from vocode.state import Message, ToolCall
 from vocode.runner.models import (
     ReqInterimMessage,
@@ -339,3 +339,42 @@ async def test_llm_executor_additional_messages_with_existing_state(monkeypatch,
         assert sent_msgs_2[-1] == {"role": "assistant", "content": "Second."}
         user_idx = next(i for i, m in enumerate(sent_msgs_2) if m == {"role": "user", "content": "More"})
         assert user_idx < len(sent_msgs_2) - 1
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_tool_call_auto_approve_passthrough(monkeypatch, tmp_path):
+    # Configure a tool with auto_approve=True and verify it is passed through on emitted tool call.
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        outcomes=[OutcomeSlot(name="done")],
+        outcome_strategy=OutcomeStrategy.function_call,
+        tools=[LLMToolSpec(name="weather", auto_approve=True)],
+    )
+
+    # Stream emits a single external tool call
+    seq = [
+        chunk_content("Fetching "),
+        chunk_tool_call(0, "call_1", "weather", '{"city":"NYC"}'),
+    ]
+    stub = ACompletionStub([seq])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        class _DummyWeatherTool:
+            def openapi_spec(self):
+                return {
+                    "name": "weather",
+                    "description": "Get weather",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+
+        project.tools["weather"] = _DummyWeatherTool()
+
+        execu = LLMExecutor(cfg, project)
+        agen = execu.run(ExecRunInput(messages=[Message(role="user", text="Weather?")], state=None))
+
+        _, pkt, _ = await drain_until_non_interim(agen)
+        assert pkt.kind == "tool_call"
+        assert len(pkt.tool_calls) == 1
+        assert pkt.tool_calls[0].auto_approve is True

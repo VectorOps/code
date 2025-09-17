@@ -14,6 +14,7 @@ workflows:
       - $include:
           template: nodes/architect.yaml
           function_tokens_pct: 25
+          reset_policy: keep_state
       - $include:
           template: nodes/coder.yaml
       - $include:
