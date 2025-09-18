@@ -12,6 +12,7 @@ from vocode.runner.models import (
     RespMessage,
     RespApproval,
     PACKET_TOKEN_USAGE,
+    PACKET_FINAL_MESSAGE,
 )
 from vocode.state import Assignment, Message, RunnerStatus
 from vocode.graph import Graph, Workflow
@@ -301,14 +302,36 @@ class UIState:
                     self._acc_completion_tokens += req.event.completion_tokens
                     self._acc_cost_dollars = req.event.acc_cost_dollars
 
-                # Forward the run event to the UI client with a correlation id
-                self._req_counter += 1
-                req_id = self._req_counter
-                self._current_node_name = req.node
-                await self._outgoing.put(UIReqRunEvent(req_id=req_id, event=req))
+                # Decide if this event should be forwarded to the UI client.
+                # Suppress node finals when hide_final_output is True and no input is requested.
+                suppress_event = False
+                if (
+                    req.event.kind == PACKET_FINAL_MESSAGE
+                    and not req.input_requested
+                    and self.workflow is not None
+                ):
+                    try:
+                        graph = getattr(self.workflow, "graph", None)
+                        if graph is not None:
+                            rn = graph.get_runtime_node_by_name(req.node)
+                            if rn is not None and getattr(rn.model, "hide_final_output", False):
+                                suppress_event = True
+                    except Exception:
+                        # Be conservative: if we cannot resolve the node, do not suppress.
+                        suppress_event = False
+
+                if not suppress_event:
+                    # Forward the run event to the UI client with a correlation id
+                    self._req_counter += 1
+                    req_id = self._req_counter
+                    self._current_node_name = req.node
+                    await self._outgoing.put(UIReqRunEvent(req_id=req_id, event=req))
+                else:
+                    # Do not forward or wait for input. Leave to_send as None.
+                    req_id = None
 
                 # Await UI response only if required
-                if req.input_requested:
+                if req.input_requested and not suppress_event:
                     # Wait for a matching response or a stop signal.
                     while True:
                         resp_task = asyncio.create_task(self._incoming.get())

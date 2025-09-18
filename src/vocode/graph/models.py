@@ -69,6 +69,14 @@ class Node(BaseModel):
         default=Confirmation.prompt,
         description="How to handle node final confirmation ('prompt' or 'auto')",
     )
+    hide_final_output: bool = Field(
+        default=False,
+        description=(
+            "If true, the UI layer will suppress display of the node's final output when no input is requested "
+            "(i.e., after auto-confirmation or no confirmation). This flag is ignored when input is required "
+            "(prompt/confirm) — the final message is always shown in that case."
+        ),
+    )
     reset_policy: ResetPolicy = Field(
         default=ResetPolicy.always_reset,
         description=(

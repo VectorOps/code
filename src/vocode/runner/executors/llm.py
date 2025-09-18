@@ -57,8 +57,14 @@ class LLMExecutor(Executor):
             raise TypeError("LLMExecutor requires config to be an LLMNode")
 
     def _map_role(self, role: str) -> str:
-        # Normalize internal "agent" to OpenAI "assistant"
-        return "assistant" if role == "agent" else role
+        # Use standard roles only; default unknown roles to "user".
+        # Normalize internal "agent" to OpenAI "assistant".
+        if role == "agent":
+            return "assistant"
+        if role in ("system", "user", "assistant", "tool"):
+            return role
+        # For any non-standard role coming from the app, treat as user input.
+        return "user"
 
     def _build_base_messages(self, cfg: LLMNode, history: List[Message]) -> List[Dict[str, Any]]:
         msgs: List[Dict[str, Any]] = []
@@ -186,7 +192,9 @@ class LLMExecutor(Executor):
         # (typical when re-entering node with keep_state).
         if inp.state is not None and inp.messages:
             for m in inp.messages:
-                state.conv.append({"role": self._map_role(m.role), "content": m.text})
+                # Additional app-originated messages (e.g., errors from previous node)
+                # should always be presented to the LLM as user inputs.
+                state.conv.append({"role": "user", "content": m.text})
             state.expect = LLMExpect.none
 
         # Integrate incoming response into conversation
@@ -205,8 +213,9 @@ class LLMExecutor(Executor):
             # Count only rounds that include external tool calls
             state.tool_rounds = max(0, state.tool_rounds)
         elif inp.response is not None and inp.response.kind == "message":
-            # Append user reply to conversation (post-final continuation)
-            state.conv.append({"role": self._map_role(inp.response.message.role), "content": inp.response.message.text})
+            # Append user reply to conversation (post-final continuation).
+            # Always treat a follow-up message as a user message.
+            state.conv.append({"role": "user", "content": inp.response.message.text})
             state.expect = LLMExpect.none
 
         conv: List[Dict[str, Any]] = state.conv

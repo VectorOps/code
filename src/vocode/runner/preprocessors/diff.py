@@ -5,67 +5,66 @@ from typing import List, Dict, Any, Optional
 from vocode.runner.preprocessors.base import register_preprocessor
 
 
-DIFF_V4A_SYSTEM_INSTRUCTION = """In addition, for the purposes of this task, you can output patches in the special diff format. The format of the diff specification is unique to this task, so pay careful attention to these instructions. To apply file patches, you should return a message of the following structure:
+# Alternative V4A prompt as original adds random escapes
+DIFF_V4A_SYSTEM_INSTRUCTION = """You must output exactly one fenced code block containing a raw V4A patch. No prose before or after. Do not wrap the patch in JSON/YAML/strings. Do not emit backslash-escapes (`\n`, `\t`, `\"`) unless those characters exist literally in the original file contents.
 
-IMPORTANT: Each file MUST appear only once in the patch. Consolidate all edits for a given file into single `*** [ACTION] File:` block.
-
+Required envelope:
+```patch
 *** Begin Patch
 [YOUR_PATCH]
 *** End Patch
+V4A format inside the envelope:
 
-Where [YOUR_PATCH] is the actual content of your patch, specified in the following V4A diff format.
+Each file appears exactly once as one of:
+*** Add File: <relative/path>
+*** Update File: <relative/path>
+*** Delete File: <relative/path>
 
-*** [ACTION] File: [path/to/file] -> ACTION can be one of Add, Update, or Delete.
-For each snippet of code that needs to be changed, repeat the following:
-[context_before] -> See below for further instructions on context.
-- [old_code] -> Precede the old code with a minus sign. Code must *exactly* match existing code and should NOT be additionally escaped.
-+ [new_code] -> Precede the new, replacement code with a plus sign. New code should NOT be additionally escaped.
-[context_after] -> See below for further instructions on context.
-
-For instructions on [context_before] and [context_after]:
-- By default, show 3 lines of code immediately above and 3 lines of code immediately below each change. If a change is within 3 lines of a previous change, do NOT duplicate the first change's [context_after] lines in the second change's [context_before] lines. Code must *exactly* match existing code and should NOT be additionally escaped.
-- If 3 lines of context is insufficient to uniquely identify the snippet of code within the file, use the @@ operator to indicate the class or function to which the snippet belongs. For instance, we might have:
-@@ class BaseClass
+For Update/Add files, changes are expressed with optional context blocks:
 [3 lines of pre-context]
-- [old_code]
-+ [new_code]
+- <old line> # exact match, prefixed with single minus
++ <new line> # replacement, prefixed with single plus
 [3 lines of post-context]
 
-- If a code block is repeated so many times in a class or function such that even a single @@ statement and 3 lines of context cannot uniquely identify the snippet of code, you can use multiple `@@` statements to jump to the right context. For instance:
+Context rules:
 
-@@ class BaseClass
-@@ \tdef method():
-[3 lines of pre-context]
-- [old_code]
-+ [new_code]
-[3 lines of post-context]
+* Show 3 lines of context above and below each change by default.
+* If insufficient to disambiguate, add an @@ anchor naming the class or function:
+  @@ class BaseClass
+  @@ def method_name(...):
 
-Note, then, that we do not use line numbers in this diff format, as the context is enough to uniquely identify code.
+* If two changes’ contexts would overlap, do not duplicate overlapping lines.
 
-It's very important that changes are not additionally JSON escaped and provided in human-readable form.
+Absolute paths are forbidden; use relative paths only.
 
-An example of a message that you might pass in order to apply a patch, is shown below.
+Validation checklist (you must pass all before emitting):
+1. Output is exactly one fenced code block labeled patch.
+2. Contains one *** Begin Patch and one *** End Patch.
+3. No JSON, no quotes around the patch, no extra text outside the fence.
+4. No backslash-escapes unless they exist in the source file.
+5. Each changed file appears exactly once.
 
+Minimal example (fenced, raw):
+
+```patch
 *** Begin Patch
 *** Update File: pygorithm/searching/binary_search.py
 @@ class BaseClass
-@@     def search():
+@@     def search(self):
 -        pass
 +        raise NotImplementedError()
-
 @@ class Subclass
-@@     def search():
+@@     def search(self):
 -        pass
 +        raise NotImplementedError()
 *** Update File: pygorithm/searching/binary_search_test.py
 @@ class TestSubclass
-@@     def test_search():
--          pass
-+          raise NotImplementedError.
+@@     def test_search(self):
+-        pass
++        raise NotImplementedError()
 *** Delete File: pygorithm/searching/dummy.py
 *** End Patch
-
-File references can only be relative, NEVER ABSOLUTE.
+```
 """
 
 
