@@ -14,15 +14,18 @@
 ** [ ] Move replace_last_message logic to UIState from runner
 ** [X] Add VIM mode
 ** [X] Add multi-line input
-** [ ] Add a flag to not show node output in the UI. Useful for input node, etc
+** [X] Add a flag to not show node output in the UI. Useful for input node, etc
 ** [ ] Add a way to restrict number of loops when cycling
 * [ ] Configuration
-** [ ] Redo include file syntax to include section with default variable values
+** [X] Redo include file syntax to include section with default variable values
+** [ ] Update templates and parametrize them via variables
+** [ ] Figure out why confirmation override for discovery did not work
+** [ ] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
 * [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 Concrete example: files that were read and already in context.
 * [ ] Error handling
 ** [ ] Tool calling timeouts and failures
-** [ ] Add a way for human to unlock by retrying last operation
+** [ ] Add a way for human to unblock failures by retrying last operation
 * [ ] Cleanup all dependencies
 - Move graph models out of graph, move runtime graph generation out of Graph class
 - Move executor/models.py out to root
@@ -30,7 +33,7 @@ Concrete example: files that were read and already in context.
 * [X] UI protocol
 ** [X] In-memory bidirectional stream implementation for TUI
 * [ ] Terminal UI
-** [ ] Add way to show log messages (inline? out of process?)
+** [X] Add way to show log messages (inline? out of process?)
 ** [X] Fix line breaks - if line is naturally too long, then moving caret to the beginning of the line does not work, we need to go one line up.
 ** [X] Fix intermediate response streaming
 ** [X] Remove (or disable) prompt when input is not requested
@@ -42,6 +45,7 @@ Concrete example: files that were read and already in context.
 - If workflow is stopped after finishing, then sending a new message should resume same workflow from the beginning
 - If workflow is canceled, then workflow should start new workflow
 ** [X] ctrl+c when runner is active does nothing - should stop the runner (verify, might not be the case)
+** [ ] We might have deadlock somewhere that does not break with ctrl+c
 ** [X] Add file context management once corresponding node is created
 ** [ ] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
 ** [ ] Add approximate cost calculator and output
@@ -101,6 +105,8 @@ Concrete example: files that were read and already in context.
 - Maybe offer a tool?
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?
+* [ ] Tools
+** [ ] MCP tool support
 * [ ] Nested workflows support
 ** [ ] Create API to start a new workflow
 - Should start a runner

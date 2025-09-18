@@ -1,6 +1,15 @@
 # Default Vocode configuration
 ui:
   log_level: debug
+tools:
+  - name: vectorops_read_files
+    auto_approve: true
+  - name: vectorops_summarize_files
+    auto_approve: true
+  - name: vectorops_list_files
+    auto_approve: true
+  - name: vectorops_search
+    auto_approve: true
 workflows:
   architect:
     nodes:
@@ -8,11 +17,13 @@ workflows:
         type: input
         message: Enter your request
         confirmation: auto
+        hide_final_output: true
         outcomes:
           - name: done
       - $include:
           template: nodes/discovery.yaml
           function_tokens_pct: 25
+          confirmation: auto
       - $include:
           template: nodes/architect.yaml
           function_tokens_pct: 25
