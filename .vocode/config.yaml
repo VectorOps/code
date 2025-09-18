@@ -22,12 +22,12 @@ workflows:
           - name: done
       - $include:
           template: nodes/discovery.yaml
-          function_tokens_pct: 25
-          confirmation: auto
+        function_tokens_pct: 25
+        confirmation: auto
       - $include:
           template: nodes/architect.yaml
-          function_tokens_pct: 25
-          reset_policy: keep_state
+        function_tokens_pct: 25
+        reset_policy: keep_state
       - $include:
           template: nodes/coder.yaml
       - $include:
