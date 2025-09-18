@@ -40,9 +40,6 @@ class LLMExpect(str, Enum):
 class LLMState(BaseModel):
     conv: List[Dict[str, Any]] = Field(default_factory=list)
     expect: LLMExpect = LLMExpect.none
-    acc_prompt_tokens: int = 0
-    acc_completion_tokens: int = 0
-    acc_cost_dollars: float = 0
     pending_outcome_name: Optional[str] = None
     tool_rounds: int = 0
 
@@ -56,16 +53,6 @@ class LLMExecutor(Executor):
             # Allow base Node but prefer LLMNode
             raise TypeError("LLMExecutor requires config to be an LLMNode")
 
-    def _map_role(self, role: str) -> str:
-        # Use standard roles only; default unknown roles to "user".
-        # Normalize internal "agent" to OpenAI "assistant".
-        if role == "agent":
-            return "assistant"
-        if role in ("system", "user", "assistant", "tool"):
-            return role
-        # For any non-standard role coming from the app, treat as user input.
-        return "user"
-
     def _build_base_messages(self, cfg: LLMNode, history: List[Message]) -> List[Dict[str, Any]]:
         msgs: List[Dict[str, Any]] = []
         if cfg.system:
@@ -77,7 +64,7 @@ class LLMExecutor(Executor):
                 sys_text = apply_preprocessors(preproc_names, sys_text)
             msgs.append({"role": "system", "content": sys_text})
         for m in history:
-            msgs.append({"role": self._map_role(m.role), "content": m.text})
+            msgs.append({"role": "user", "content": m.text})
         return msgs
 
     def _parse_outcome_from_text(self, text: str, valid_outcomes: List[str]) -> Optional[str]:
@@ -220,7 +207,6 @@ class LLMExecutor(Executor):
 
         conv: List[Dict[str, Any]] = state.conv
 
-
         # Outcome handling strategy
         outcomes: List[str] = self._get_outcome_names(cfg)
         outcome_desc_bullets: str = self._get_outcome_desc_bullets(cfg)
@@ -353,10 +339,10 @@ class LLMExecutor(Executor):
             in_rate = self._get_input_cost_per_1k(cfg)
             out_rate = self._get_output_cost_per_1k(cfg)
             round_cost = (prompt_tokens / 1000.0) * in_rate + (completion_tokens / 1000.0) * out_rate
-            state.acc_prompt_tokens += prompt_tokens
-            state.acc_completion_tokens += completion_tokens
-            state.acc_cost_dollars += round_cost
 
+            self.project.add_llm_usage(
+                prompt_delta=prompt_tokens, completion_delta=completion_tokens, cost_delta=round_cost
+            )
 
             # Build final assistant message dict and append to conversation
             streamed_tool_calls = []
@@ -454,9 +440,10 @@ class LLMExecutor(Executor):
             # Report token usage/cost before finalizing
             _ = yield (
                 ReqTokenUsage(
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    acc_cost_dollars=state.acc_cost_dollars,
+                    acc_prompt_tokens=self.project.llm_usage.prompt_tokens,
+                    acc_completion_tokens=self.project.llm_usage.completion_tokens,
+                    acc_cost_dollars=self.project.llm_usage.cost_dollars,
+                    local=True,
                 ),
                 state,
             )

@@ -51,10 +51,7 @@ class UIState:
         self._current_node_name: Optional[str] = None
         self._lock = asyncio.Lock()
         self._stop_signal: asyncio.Event = asyncio.Event()
-        # Accumulated usage/cost across the current runner session
-        self._acc_prompt_tokens: int = 0
-        self._acc_completion_tokens: int = 0
-        self._acc_cost_dollars: float = 0.0
+        # LLM usage totals are stored on Project.llm_usage and proxied via properties.
 
     # ------------------------
     # Public protocol endpoints
@@ -104,9 +101,6 @@ class UIState:
             self._req_counter = 0
             self._last_status = None
             self._stop_signal.clear()
-            self._acc_prompt_tokens = 0
-            self._acc_completion_tokens = 0
-            self._acc_cost_dollars = 0.0
             self._drive_task = asyncio.create_task(self._drive_runner())
 
     async def stop(self) -> None:
@@ -152,9 +146,6 @@ class UIState:
             self._req_counter = 0
             self._last_status = None
             self._stop_signal.clear()
-            self._acc_prompt_tokens = 0
-            self._acc_completion_tokens = 0
-            self._acc_cost_dollars = 0.0
             self._drive_task = asyncio.create_task(self._drive_runner())
 
     # ------------------------
@@ -223,15 +214,15 @@ class UIState:
 
     @property
     def acc_prompt_tokens(self) -> int:
-        return self._acc_prompt_tokens
+        return self.project.llm_usage.prompt_tokens
 
     @property
     def acc_completion_tokens(self) -> int:
-        return self._acc_completion_tokens
+        return self.project.llm_usage.completion_tokens
 
     @property
     def acc_cost_dollars(self) -> float:
-        return self._acc_cost_dollars
+        return self.project.llm_usage.cost_dollars
 
     async def rewind(self, n: int = 1) -> None:
         """
@@ -296,11 +287,7 @@ class UIState:
                 # Notify status transition, if any
                 await self._emit_status_if_changed()
 
-                # Accumulate token/cost usage packets for later display
-                if req.event.kind == PACKET_TOKEN_USAGE:
-                    self._acc_prompt_tokens += req.event.prompt_tokens
-                    self._acc_completion_tokens += req.event.completion_tokens
-                    self._acc_cost_dollars = req.event.acc_cost_dollars
+                # Token usage packets are emitted but Project totals are updated by LLMExecutor directly.
 
                 # Decide if this event should be forwarded to the UI client.
                 # Suppress node finals when hide_final_output is True and no input is requested.

@@ -16,6 +16,14 @@ PACKET_TOKEN_USAGE = "token_usage"
 INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_LOG, PACKET_TOKEN_USAGE)
 
 # Executor -> Runner events (discriminated by 'kind')
+class TokenUsageTotals(BaseModel):
+    """
+    Aggregate LLM usage totals within the current process.
+    """
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost_dollars: float = 0.0
+
 class ReqMessageRequest(BaseModel):
     """
     Request a message from a user.
@@ -47,13 +55,15 @@ class ReqFinalMessage(BaseModel):
 
 class ReqTokenUsage(BaseModel):
     """
-    Token usage/cost report for this executor round.
+    Accumulated token usage/cost report for the project.
     Sent as an interim packet prior to final response.
     """
     kind: Literal["token_usage"] = PACKET_TOKEN_USAGE
-    prompt_tokens: int
-    completion_tokens: int
+    acc_prompt_tokens: int
+    acc_completion_tokens: int
     acc_cost_dollars: float
+    # Indicates usage was generated in this process (hint for UIs)
+    local: Optional[bool] = True
 
 
 class ReqLogMessage(BaseModel):
