@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 import yaml
 import json5  # type: ignore
 from .graph.models import Node, Edge
+from .state import LogLevel
 
 from know.settings import ProjectSettings as KnowProjectSettings
 
@@ -51,6 +52,8 @@ class UISettings(BaseModel):
     multiline: bool = True
     # Optional editing mode override. None => use prompt_toolkit default (Emacs)
     edit_mode: Optional[Literal["emacs", "vim"]] = None
+    # Minimum log level to display in the terminal.
+    log_level: LogLevel = LogLevel.info
 
 class Settings(BaseModel):
     workflows: Dict[str, Workflow] = Field(default_factory=dict)

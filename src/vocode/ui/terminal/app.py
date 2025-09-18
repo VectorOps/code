@@ -35,7 +35,7 @@ from vocode.runner.models import (
     PACKET_FINAL_MESSAGE,
     PACKET_LOG,
 )
-from vocode.state import Message, RunnerStatus
+from vocode.state import Message, RunnerStatus, LogLevel
 from vocode.ui.terminal.toolbar import build_prompt, build_toolbar, _current_node_confirmation
 from vocode.graph.models import Confirmation
 from vocode.ui.terminal.commands import CommandContext, run as run_command
@@ -46,6 +46,14 @@ ANSI_CARRIAGE_RETURN_AND_CLEAR_TO_EOL = "\r\x1b[K"
 
 # ANSI escape sequence for moving the cursor up one line.
 ANSI_CURSOR_UP = "\x1b[1A"
+
+
+LOG_LEVEL_ORDER = {
+    LogLevel.debug: 0,
+    LogLevel.info: 1,
+    LogLevel.warning: 2,
+    LogLevel.error: 3,
+}
 
 
 
@@ -204,11 +212,20 @@ async def run_terminal(project: Project) -> None:
         # Debug/log messages from executors: print immediately without requesting input
         if ev.kind == PACKET_LOG:
             _finish_stream()
-            level = getattr(ev, "level", None)
-            # If it's an Enum (LogLevel), use its string value; otherwise use as-is.
-            if level is not None and hasattr(level, "value"):
-                level = level.value
-            prefix = f"[{level}] " if level else "[log] "
+            # Determine configured log level
+            cfg_log_level = LogLevel.info
+            if ui.project.settings and ui.project.settings.ui:
+                cfg_log_level = ui.project.settings.ui.log_level
+
+            # Determine message log level, default to info
+            msg_level = getattr(ev, "level", None) or LogLevel.info
+
+            # Filter messages below configured level
+            if LOG_LEVEL_ORDER[msg_level] < LOG_LEVEL_ORDER[cfg_log_level]:
+                return
+
+            level_str = msg_level.value
+            prefix = f"[{level_str}] "
             out(prefix + getattr(ev, "text", ""))
             return
 

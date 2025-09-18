@@ -18,12 +18,12 @@ Where [YOUR_PATCH] is the actual content of your patch, specified in the followi
 *** [ACTION] File: [path/to/file] -> ACTION can be one of Add, Update, or Delete.
 For each snippet of code that needs to be changed, repeat the following:
 [context_before] -> See below for further instructions on context.
-- [old_code] -> Precede the old code with a minus sign.
-+ [new_code] -> Precede the new, replacement code with a plus sign.
+- [old_code] -> Precede the old code with a minus sign. Code must *exactly* match existing code and should NOT be additionally escaped.
++ [new_code] -> Precede the new, replacement code with a plus sign. New code should NOT be additionally escaped.
 [context_after] -> See below for further instructions on context.
 
 For instructions on [context_before] and [context_after]:
-- By default, show 3 lines of code immediately above and 3 lines of code immediately below each change. If a change is within 3 lines of a previous change, do NOT duplicate the first change's [context_after] lines in the second change's [context_before] lines.
+- By default, show 3 lines of code immediately above and 3 lines of code immediately below each change. If a change is within 3 lines of a previous change, do NOT duplicate the first change's [context_after] lines in the second change's [context_before] lines. Code must *exactly* match existing code and should NOT be additionally escaped.
 - If 3 lines of context is insufficient to uniquely identify the snippet of code within the file, use the @@ operator to indicate the class or function to which the snippet belongs. For instance, we might have:
 @@ class BaseClass
 [3 lines of pre-context]
@@ -42,9 +42,7 @@ For instructions on [context_before] and [context_after]:
 
 Note, then, that we do not use line numbers in this diff format, as the context is enough to uniquely identify code.
 
-When generating diff, NEVER escape special sequences or line breaks. This is invalid patch due to escaped line breaks:
-
-*** Begin Patch\\n***Update File: pygorithm/searching/binary_search.py\\n...
+It's very important that changes are not additionally JSON escaped and provided in human-readable form.
 
 An example of a message that you might pass in order to apply a patch, is shown below.
 

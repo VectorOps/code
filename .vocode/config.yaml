@@ -1,4 +1,6 @@
 # Default Vocode configuration
+ui:
+  log_level: debug
 workflows:
   architect:
     nodes:
@@ -39,7 +41,7 @@ workflows:
           - name: done
       - $include:
           template: nodes/architect.yaml
-        model: gpt-4.1
+        model: gpt-5-mini
       - name: finish
         type: noop
     edges:

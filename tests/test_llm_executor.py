@@ -77,8 +77,8 @@ async def drain_until_non_interim(agen):
         if pkt.kind == "message":
             interim_texts.append(pkt.message.text)
             continue
-        # Skip over interim token usage packets
-        if pkt.kind == "token_usage":
+        # Skip over interim token usage and log packets
+        if pkt.kind in ("token_usage", "log"):
             continue
         return interim_texts, pkt, st_last
 

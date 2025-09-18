@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from vocode.runner.runner import Executor
 from vocode.graph.models import LLMNode, OutcomeStrategy
-from vocode.state import Message, ToolCall
+from vocode.state import Message, ToolCall, LogLevel
 from vocode.runner.models import (
     ReqPacket,
     ReqToolCall,
@@ -28,6 +28,7 @@ from vocode.runner.models import (
     RespToolCall,
     RespMessage,
     ExecRunInput,
+    ReqLogMessage,
 )
 
 
@@ -274,6 +275,15 @@ class LLMExecutor(Executor):
 
             # Estimate prompt tokens for this call
             prompt_tokens = self._estimate_messages_tokens(conv, cfg.model)
+
+            # Log the full prompt at debug level before sending
+            _ = yield (
+                ReqLogMessage(
+                    level=LogLevel.debug,
+                    text=f"LLM request:\n{json.dumps(conv, indent=2)}",
+                ),
+                None,
+            )
 
             # Start streaming
             stream = await acompletion(

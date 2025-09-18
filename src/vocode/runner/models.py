@@ -2,7 +2,7 @@ from typing import Annotated, Optional, Union, List, Literal, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 
-from vocode.state import Message, ToolCall, Activity
+from vocode.state import Message, ToolCall, Activity, LogLevel
 
 PACKET_MESSAGE_REQUEST = "message_request"
 PACKET_TOOL_CALL = "tool_call"
@@ -14,12 +14,6 @@ PACKET_TOKEN_USAGE = "token_usage"
 
 # Packet kinds that are considered "interim" (do not end an executor cycle)
 INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_LOG, PACKET_TOKEN_USAGE)
-
-class LogLevel(str, Enum):
-    debug = "debug"
-    info = "info"
-    warning = "warning"
-    error = "error"
 
 # Executor -> Runner events (discriminated by 'kind')
 class ReqMessageRequest(BaseModel):

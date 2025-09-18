@@ -55,8 +55,8 @@ Concrete example: files that were read and already in context.
 * [ ] Block parsers
 ** [X] Code parsers
 ** [ ] Diff parsers
-*** [ ] GPT V4A diff format
-**** [ ] Better error reporting and verify apply patch cycle
+*** [X] GPT V4A diff format
+**** [X] Better error reporting and verify apply patch cycle
 *** [ ] Fenced diff format
 *** [ ] Full file diff format
 * [X] Settings
@@ -86,6 +86,7 @@ Concrete example: files that were read and already in context.
 *** [X] Do not add empty message to output
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled
+*** [ ] For some reason tokens are not accumulated for tool calls
 ** [ ] Diff apply node
 *** [X] Base parser
 *** [ ] Add a way to write file changes after confirmation

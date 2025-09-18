@@ -31,6 +31,14 @@ class ActivityType(str, Enum):
     failed = "failed"
     rejected = "rejected"
 
+
+class LogLevel(str, Enum):
+    debug = "debug"
+    info = "info"
+    warning = "warning"
+    error = "error"
+
+
 class ToolCallStatus(str, Enum):
     created = "created"
     completed = "completed"

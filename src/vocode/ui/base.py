@@ -299,7 +299,7 @@ class UIState:
                 if req.event.kind == PACKET_TOKEN_USAGE:
                     self._acc_prompt_tokens += req.event.prompt_tokens
                     self._acc_completion_tokens += req.event.completion_tokens
-                    self._acc_cost_dollars += req.event.acc_cost_dollars
+                    self._acc_cost_dollars = req.event.acc_cost_dollars
 
                 # Forward the run event to the UI client with a correlation id
                 self._req_counter += 1
