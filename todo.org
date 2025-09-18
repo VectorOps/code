@@ -11,10 +11,11 @@
 ** [X] Figure out if we can store node reset semantics at the edge level? So failure might keep the state, but initial entry should not?
 - Patch node failing and going back to coder should persist coder state and append patch error
 ** [X] Figure out why final messages can be duplicated sometimes
-** [ ] Move replace last message logic to UIState
+** [ ] Move replace_last_message logic to UIState from runner
 ** [X] Add VIM mode
 ** [X] Add multi-line input
 ** [ ] Add a flag to not show node output in the UI. Useful for input node, etc
+** [ ] Add a way to restrict number of loops when cycling
 * [ ] Configuration
 ** [ ] Redo include file syntax to include section with default variable values
 * [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type

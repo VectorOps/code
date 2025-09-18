@@ -16,6 +16,7 @@ from vocode.runner.models import (
     RespToolCall,
     ExecRunInput,
 )
+from vocode.settings import ToolSettings
 
 
 def chunk_content(text: str):
@@ -378,3 +379,88 @@ async def test_llm_executor_tool_call_auto_approve_passthrough(monkeypatch, tmp_
         assert pkt.kind == "tool_call"
         assert len(pkt.tool_calls) == 1
         assert pkt.tool_calls[0].auto_approve is True
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_tool_call_auto_approve_global_overrides_node(monkeypatch, tmp_path):
+    # Node sets False, global sets True -> effective True
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        outcomes=[OutcomeSlot(name="done")],
+        outcome_strategy=OutcomeStrategy.function_call,
+        tools=[LLMToolSpec(name="weather", auto_approve=False)],
+    )
+    seq = [chunk_tool_call(0, "call_1", "weather", '{"city":"NYC"}')]
+    stub = ACompletionStub([seq])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        class _DummyWeatherTool:
+            def openapi_spec(self):
+                return {"name": "weather", "description": "", "parameters": {"type": "object", "properties": {}}}
+        project.tools["weather"] = _DummyWeatherTool()
+        # Set global auto_approve=True
+        project.settings.tools = [ToolSettings(name="weather", enabled=True, auto_approve=True)]
+
+        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Q")], state=None))
+        _, pkt, _ = await drain_until_non_interim(agen)
+        assert pkt.kind == "tool_call"
+        assert pkt.tool_calls[0].name == "weather"
+        assert pkt.tool_calls[0].auto_approve is True
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_tool_call_auto_approve_node_used_when_global_missing(monkeypatch, tmp_path):
+    # No global, node sets True -> effective True
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        outcomes=[OutcomeSlot(name="done")],
+        outcome_strategy=OutcomeStrategy.function_call,
+        tools=[LLMToolSpec(name="weather", auto_approve=True)],
+    )
+    seq = [chunk_tool_call(0, "call_1", "weather", '{"city":"NYC"}')]
+    stub = ACompletionStub([seq])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        class _DummyWeatherTool:
+            def openapi_spec(self):
+                return {"name": "weather", "description": "", "parameters": {"type": "object", "properties": {}}}
+        project.tools["weather"] = _DummyWeatherTool()
+        # No global setting for weather
+        project.settings.tools = []
+
+        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Q")], state=None))
+        _, pkt, _ = await drain_until_non_interim(agen)
+        assert pkt.kind == "tool_call"
+        assert pkt.tool_calls[0].auto_approve is True
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_tool_call_auto_approve_none_when_unset(monkeypatch, tmp_path):
+    # Neither global nor node set -> None
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        outcomes=[OutcomeSlot(name="done")],
+        outcome_strategy=OutcomeStrategy.function_call,
+        tools=[LLMToolSpec(name="weather")],  # auto_approve omitted => None
+    )
+    seq = [chunk_tool_call(0, "call_1", "weather", '{"city":"NYC"}')]
+    stub = ACompletionStub([seq])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        class _DummyWeatherTool:
+            def openapi_spec(self):
+                return {"name": "weather", "description": "", "parameters": {"type": "object", "properties": {}}}
+        project.tools["weather"] = _DummyWeatherTool()
+        # No global setting for weather
+        project.settings.tools = []
+
+        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Q")], state=None))
+        _, pkt, _ = await drain_until_non_interim(agen)
+        assert pkt.kind == "tool_call"
+        assert pkt.tool_calls[0].auto_approve is None

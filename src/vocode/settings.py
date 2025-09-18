@@ -46,6 +46,7 @@ class Workflow(BaseModel):
 class ToolSettings(BaseModel):
     name: str
     enabled: bool = True
+    auto_approve: Optional[bool] = None
 
 class UISettings(BaseModel):
     # When true, PromptSession accepts multi-line input (Enter can insert newlines)

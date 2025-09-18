@@ -251,21 +251,23 @@ class LLMNode(Node):
 
 class LLMToolSpec(BaseModel):
     name: str
-    auto_approve: bool = False
+    auto_approve: Optional[bool] = None
 
     @model_validator(mode="before")
     @classmethod
     def _coerce(cls, v: Any) -> Any:
         # Accept either:
         # - "tool_name"
-        # - {"name": "tool_name", "auto_approve": bool}
+        # - {"name": "tool_name", "auto_approve": bool|None}
         if isinstance(v, str):
-            return {"name": v, "auto_approve": False}
+            return {"name": v, "auto_approve": None}
         if isinstance(v, dict):
             name = v.get("name")
             if not isinstance(name, str) or not name:
                 raise ValueError("Tool spec must include non-empty 'name'")
-            auto = bool(v.get("auto_approve", False))
+            auto = v.get("auto_approve", None)
+            if auto is not None and not isinstance(auto, bool):
+                raise TypeError("LLMToolSpec.auto_approve must be a boolean if provided")
             return {"name": name, "auto_approve": auto}
         raise TypeError("Tool spec must be a string or mapping with 'name' and optional 'auto_approve'")
 

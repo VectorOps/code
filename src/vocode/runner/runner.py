@@ -316,8 +316,10 @@ class Runner:
         if req.kind == PACKET_MESSAGE_REQUEST:
             return True
         if req.kind == PACKET_TOOL_CALL:
-            # Request input only if any tool call requires manual approval
-            return any(not getattr(tc, "auto_approve", False) for tc in req.tool_calls)
+            # Request input if any tool call is not explicitly auto-approved (None or False)
+            def _needs_approval(v: Any) -> bool:
+                return not (v is True)
+            return any(_needs_approval(getattr(tc, "auto_approve", None)) for tc in req.tool_calls)
         if req.kind == PACKET_FINAL_MESSAGE:
             return node_conf in (Confirmation.prompt, Confirmation.confirm)
         return False

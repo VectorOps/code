@@ -20,6 +20,33 @@ from vocode.state import Message, ToolCall, ToolCallStatus, Assignment, RunnerSt
 def msg(role: str, text: str) -> Message:
     return Message(role=role, text=text)
 
+@pytest.mark.asyncio
+async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
+    # Executor emits a tool call with auto_approve=True; runner should not prompt
+    nodes = [{"name": "Tool", "type": "tool_auto", "outcomes": []}]
+    g = Graph.build(nodes=nodes, edges=[])
+    workflow = Workflow(name="workflow", graph=g)
+
+    class ToolAutoExec(Executor):
+        type = "tool_auto"
+        async def run(self, inp):
+            if inp.response is None:
+                tc = ToolCall(name="nonexistent", arguments={}, auto_approve=True)
+                yield (ReqToolCall(tool_calls=[tc]), None)
+                return
+            # After tool response, finish
+            yield (ReqFinalMessage(message=msg("agent", "done")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        ev1 = await it.__anext__()
+        assert ev1.event.kind == "tool_call"
+        assert ev1.input_requested is False  # auto-approved => no prompt
+        ev2 = await it.asend(RunInput(response=None))  # no approval needed
+        assert ev2.event.kind == "final_message"
 
 @pytest.mark.asyncio
 async def test_message_request_reprompt_and_finish(tmp_path: Path):

@@ -57,9 +57,11 @@ class ToolCall(BaseModel):
     arguments: Dict[str, Any] = Field(
         ..., description="Decoded JSON arguments passed to the function"
     )
-    auto_approve: bool = Field(
-        default=False,
-        description="If true, this tool call may be auto-approved without user input"
+    auto_approve: Optional[bool] = Field(
+        default=None,
+        description=(
+            "When true, this tool call may be auto-approved without user input; None means not specified."
+        ),
     )
     result: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = Field(
         default=None,

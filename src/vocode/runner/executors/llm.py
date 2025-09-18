@@ -11,7 +11,7 @@ OUTCOME_TAG_RE = re.compile(r"^\s*OUTCOME\s*:\s*([A-Za-z0-9_\-]+)\s*$")
 OUTCOME_LINE_PREFIX_RE = re.compile(r"^\s*OUTCOME\s*:\s*")
 MAX_ROUNDS = 32
 
-from litellm import acompletion
+from litellm import acompletion, completion_cost
 
 from enum import Enum
 from pydantic import BaseModel, Field
@@ -30,6 +30,8 @@ from vocode.runner.models import (
     ExecRunInput,
     ReqLogMessage,
 )
+
+from vocode.settings import ToolSettings  # type: ignore
 
 
 class LLMExpect(str, Enum):
@@ -164,6 +166,32 @@ class LLMExecutor(Executor):
         extra = cfg.extra or {}
         return float(extra.get("output_cost_per_1k") or extra.get("completion_cost_per_1k") or 0.0)
 
+    def _get_round_cost(self, stream: Any) -> float:
+        """Get cost from litellm completion response."""
+        round_cost = 0.0
+        try:
+            # Primary method: use litellm.completion_cost()
+            cost = completion_cost(completion_response=stream)
+            if cost is not None:
+                round_cost = float(cost)
+        except Exception:
+            pass  # Fallback to other methods
+
+        if round_cost == 0.0:
+            # Fallback to hidden params for some models/older litellm versions
+            try:
+                if (
+                    hasattr(stream, "_hidden_params")
+                    and stream._hidden_params
+                    and "response_cost" in stream._hidden_params
+                ):
+                    cost = stream._hidden_params["response_cost"]
+                    if cost is not None:
+                        round_cost = float(cost)
+            except Exception:
+                pass  # Cost will be 0.0 if all methods fail
+        return round_cost
+
     async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: LLMNode = self.config  # type: ignore[assignment]
 
@@ -213,14 +241,28 @@ class LLMExecutor(Executor):
         outcome_choice_desc: str = self._get_outcome_choice_desc(cfg, outcome_desc_bullets)
         outcome_strategy: OutcomeStrategy = cfg.outcome_strategy
         outcome_name: Optional[str] = state.pending_outcome_name or None
+        # Build global tool auto-approve map (name -> Optional[bool])
+        global_auto: Dict[str, Optional[bool]] = {}
+        try:
+            settings_tools = (self.project.settings.tools or []) if self.project and self.project.settings else []
+            for ts in settings_tools:
+                # ts is ToolSettings; may not include auto_approve when omitted
+                global_auto[ts.name] = getattr(ts, "auto_approve", None)
+        except Exception:
+            global_auto = {}
 
-        # Get tool specs from node config
+        # Get tool specs from node config and compute effective auto-approve per tool:
+        # precedence: global setting (if provided) -> node-level -> None
         external_tools: List[Dict[str, Any]] = []
-        # Map tool name -> auto_approve flag
-        tool_auto_approve: Dict[str, bool] = {}
+        # Map tool name -> Optional[bool]
+        tool_auto_approve: Dict[str, Optional[bool]] = {}
         for spec in (cfg.tools or []):
             tool_name = spec.name
-            tool_auto_approve[tool_name] = bool(getattr(spec, "auto_approve", False))
+            node_auto = getattr(spec, "auto_approve", None)
+            eff_auto: Optional[bool] = global_auto.get(tool_name, None)
+            if eff_auto is None:
+                eff_auto = node_auto if isinstance(node_auto, bool) else None
+            tool_auto_approve[tool_name] = eff_auto
             tool = self.project.tools.get(tool_name)
             if tool:
                 external_tools.append(
@@ -268,8 +310,6 @@ class LLMExecutor(Executor):
                     pct = cfg.function_tokens_pct
                     effective_max_tokens = max(1, int(model_limit * pct / 100))
 
-            # Estimate prompt tokens for this call
-            prompt_tokens = self._estimate_messages_tokens(conv, cfg.model)
 
             # Log the full prompt at debug level before sending
             _ = yield (
@@ -334,11 +374,23 @@ class LLMExecutor(Executor):
 
             assistant_text = "".join(assistant_text_parts)
 
-            # Compute completion tokens and update accumulators/cost
-            completion_tokens = self._estimate_text_tokens(assistant_text, cfg.model)
-            in_rate = self._get_input_cost_per_1k(cfg)
-            out_rate = self._get_output_cost_per_1k(cfg)
-            round_cost = (prompt_tokens / 1000.0) * in_rate + (completion_tokens / 1000.0) * out_rate
+            # Get token usage from response, with fallback to estimation
+            prompt_tokens = 0
+            completion_tokens = 0
+            try:
+                # After stream is exhausted, litellm provides usage.
+                if hasattr(stream, "usage") and stream.usage:
+                    prompt_tokens = stream.usage.prompt_tokens or 0
+                    completion_tokens = stream.usage.completion_tokens or 0
+            except Exception:
+                pass  # Fallback logic below will handle it
+
+            # Fallback to estimation if litellm data is missing
+            if prompt_tokens == 0 and completion_tokens == 0:
+                prompt_tokens = self._estimate_messages_tokens(conv, cfg.model)
+                completion_tokens = self._estimate_text_tokens(assistant_text, cfg.model)
+
+            round_cost = self._get_round_cost(stream)
 
             self.project.add_llm_usage(
                 prompt_delta=prompt_tokens, completion_delta=completion_tokens, cost_delta=round_cost
@@ -395,7 +447,7 @@ class LLMExecutor(Executor):
                         name=name,
                         arguments=args_obj,
                         type="function",
-                        auto_approve=bool(tool_auto_approve.get(name, False)),
+                        auto_approve=tool_auto_approve.get(name, None),
                     )
                 )
 
@@ -408,6 +460,16 @@ class LLMExecutor(Executor):
                     raise RuntimeError(
                         f"LLMExecutor exceeded maximum function-call rounds ({MAX_ROUNDS}); possible tool loop"
                     )
+                # Report token usage for this tool-using round before requesting tool execution
+                _ = yield (
+                    ReqTokenUsage(
+                        acc_prompt_tokens=self.project.llm_usage.prompt_tokens,
+                        acc_completion_tokens=self.project.llm_usage.completion_tokens,
+                        acc_cost_dollars=self.project.llm_usage.cost_dollars,
+                        local=True,
+                    ),
+                    state,
+                )
                 yield (ReqToolCall(tool_calls=external_calls), state)
                 return
 
