@@ -49,13 +49,14 @@ Concrete example: files that were read and already in context.
 ** [X] Add file context management once corresponding node is created
 ** [ ] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
 ** [ ] Add approximate cost calculator and output
-** [ ] Add toolbar that shows current cost and mode of operation
+** [X] Add toolbar that shows current cost and mode of operation
+** [ ] Fix estimated cost calculation
 ** [ ] Highlighting does not work if ``` opener is not in the beginning of the line
 * [ ] Tools
 ** [X] Integrate Know
 *** [X] Needs a separate execution thread and simple async API wrapper RPC, as it is synchronous
 - Take callable function as a parameter, run it in Know thread, return results back
-** [ ] Add a way to auto-approve tool calls
+** [X] Add a way to auto-approve tool calls
 ** [ ] Add pattern matching rules to auto-approve rule calls
 * [ ] Block parsers
 ** [X] Code parsers
@@ -93,7 +94,7 @@ Concrete example: files that were read and already in context.
 *** [ ] For some reason tokens are not accumulated for tool calls
 ** [ ] Diff apply node
 *** [X] Base parser
-*** [ ] Add a way to write file changes after confirmation
+*** [X] Add a way to write file changes after confirmation
 *** [ ] Tell Know that files were updated and project needs to be updated
 *** [ ] Handle all kind of errors - mismatched chunks, etc
 ** [ ] Create RepoMap node - call into Know with provided prompt
@@ -107,6 +108,7 @@ Concrete example: files that were read and already in context.
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?
 * [ ] Tools
 ** [ ] MCP tool support
+** [ ] Add a way to reject tool calling automatically if tools with same parameters were already called
 * [ ] Nested workflows support
 ** [ ] Create API to start a new workflow
 - Should start a runner

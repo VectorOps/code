@@ -21,10 +21,10 @@ Each file appears exactly once as one of:
 *** Delete File: <relative/path>
 
 For Update/Add files, changes are expressed with optional context blocks:
-[3 lines of pre-context]
+[3 lines of pre-context EXACTLY matching file contents]
 - <old line> # exact match, prefixed with single minus
 + <new line> # replacement, prefixed with single plus
-[3 lines of post-context]
+[3 lines of post-context EXACTLY matching file contents]
 
 Context rules:
 
@@ -43,6 +43,7 @@ Validation checklist (you must pass all before emitting):
 3. No JSON, no quotes around the patch, no extra text outside the fence.
 4. No backslash-escapes unless they exist in the source file.
 5. Each changed file appears exactly once.
+6. When creating the patch, ensure the number of blank lines in the context sections exactly matches the source file, as any mismatch will cause the patch to fail.
 
 Minimal example (fenced, raw):
 

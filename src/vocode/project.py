@@ -1,7 +1,10 @@
 from pathlib import Path
-from typing import Optional, Union, Dict, Any, TYPE_CHECKING
+from typing import Optional, Union, Dict, Any, TYPE_CHECKING, List
+from enum import Enum
+from pydantic import BaseModel
 if TYPE_CHECKING:
     from .tools import BaseTool
+    from know.models import Repo
 
 from .know import KnowProject
 from .know.tools import register_know_tools
@@ -9,6 +12,17 @@ from .tools import get_all_tools
 from .settings import KnowProjectSettings, Settings, load_settings
 from .templates import write_default_config
 from vocode.runner.models import TokenUsageTotals
+
+class FileChangeType(str, Enum):
+    CREATED = "created"
+    UPDATED = "updated"
+    DELETED = "deleted"
+
+
+class FileChangeModel(BaseModel):
+    type: FileChangeType
+    # Relative filename within the project root
+    relative_filename: str
 
 
 class Project:
@@ -39,6 +53,12 @@ class Project:
     async def shutdown(self) -> None:
         """Gracefully shut down project components."""
         await self.know.shutdown()
+
+    async def refresh(self, repo: Optional["Repo"] = None) -> None:
+        """
+        Asynchronously refresh the underlying 'know' project (optionally for a specific Repo).
+        """
+        await self.know.refresh(repo)
 
     # ---------------
     # LLM usage totals

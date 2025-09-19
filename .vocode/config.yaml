@@ -24,15 +24,16 @@ workflows:
           template: nodes/discovery.yaml
         function_tokens_pct: 25
         confirmation: auto
+        reset_policy: keep_results
       - $include:
           template: nodes/architect.yaml
         function_tokens_pct: 25
-        reset_policy: keep_state
+        reset_policy: keep_results
       - $include:
           template: nodes/coder.yaml
       - $include:
           template: nodes/apply_patch.yaml
-          confirmation: auto
+        confirmation: auto
       - name: finish
         type: noop
     edges:

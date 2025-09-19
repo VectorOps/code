@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import pathlib
-from typing import AsyncIterator, List, Optional, Any
+from typing import AsyncIterator, List, Optional, Any, Dict
+import asyncio
 
 from vocode.runner.runner import Executor
 from vocode.graph.models import ApplyPatchNode, ResetPolicy
@@ -99,12 +100,51 @@ class ApplyPatchExecutor(Executor):
 
         outcome = "success"
         try:
+            # Lazy import to avoid potential import cycles
+            from vocode.project import FileChangeModel, FileChangeType
+
+            # Track file changes with precedence: DELETED > UPDATED > CREATED
+            changes_map: Dict[str, FileChangeType] = {}
+
+            def _record(rel: str, new_type: FileChangeType) -> None:
+                prev = changes_map.get(rel)
+                if prev is None:
+                    changes_map[rel] = new_type
+                    return
+                # precedence: deleted overrides anything; updated overrides created unless created is present; created does not override
+                if new_type == FileChangeType.DELETED:
+                    changes_map[rel] = new_type
+                elif new_type == FileChangeType.UPDATED:
+                    if prev != FileChangeType.CREATED and prev != FileChangeType.DELETED:
+                        changes_map[rel] = new_type
+
+            def tracking_write(rel: str, content: str) -> None:
+                # classify as CREATED vs UPDATED based on pre-existence
+                try:
+                    existed = self._resolve_safe_path(rel).exists()
+                except DiffError:
+                    # If resolution fails, default to assuming it existed so we mark UPDATED; underlying write will raise
+                    existed = True
+                self._write_file(rel, content)
+                _record(rel, FileChangeType.UPDATED if existed else FileChangeType.CREATED)
+
+            def tracking_remove(rel: str) -> None:
+                self._remove_file(rel)
+                _record(rel, FileChangeType.DELETED)
+
             _ = process_patch(
                 patch_text,
                 open_fn=self._open_file,
-                write_fn=self._write_file,
-                remove_fn=self._remove_file,
+                write_fn=tracking_write,
+                remove_fn=tracking_remove,
             )
+            # Build the accumulated list for refresh
+            changed_files = [
+                FileChangeModel(type=chg_type, relative_filename=rel)
+                for rel, chg_type in changes_map.items()
+            ]
+            # Schedule a non-blocking project refresh in the background (do not await).
+            asyncio.create_task(self.project.refresh(files=changed_files))  # type: ignore[attr-defined]
             final = Message(role="agent", text="Done!")
         except DiffError as e:
             final = Message(role="agent", text=f"Error applying patch: {e}")

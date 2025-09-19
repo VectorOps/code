@@ -77,7 +77,7 @@ def _detect_literal_escapes(text: str) -> List[str]:
     was pasted as an escaped string (e.g., '\\n' instead of real newlines).
     """
     found: List[str] = []
-    tokens = ["\\r\\n", "\\n", "\\r", "\\t"]
+    tokens = ["\\r\\n", "\\n", "\\r", "\\t", "\\\""]
     for tok in tokens:
         if tok in text:
             found.append(tok)
@@ -343,7 +343,7 @@ class Parser:
                     hints=[
                         "The patch context doesn't match the current file content.",
                         "Regenerate the patch against the latest version of the file.",
-                        "Avoid editing the file manually between generating and applying the patch.",
+                        "Make sure that the code in the patch is not additionally escaped."
                     ],
                 )
             self.fuzz += fuzz

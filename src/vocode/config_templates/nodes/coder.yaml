@@ -7,7 +7,6 @@ preprocessors:
   - name: diff
     options:
       format: v4a
-confirmation: confirm
 outcomes:
   - name: done
 system: |
