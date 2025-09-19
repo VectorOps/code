@@ -166,12 +166,14 @@ class LLMExecutor(Executor):
         extra = cfg.extra or {}
         return float(extra.get("output_cost_per_1k") or extra.get("completion_cost_per_1k") or 0.0)
 
-    def _get_round_cost(self, stream: Any) -> float:
-        """Get cost from litellm completion response."""
+    def _get_round_cost(self, stream: Any, model: str) -> float:
+        """Get cost from litellm completion response. Pass model to help pricing map."""
+
         round_cost = 0.0
         try:
             # Primary method: use litellm.completion_cost()
-            cost = completion_cost(completion_response=stream)
+            # Explicitly pass model to help LiteLLM price when response lacks model metadata
+            cost = completion_cost(completion_response=stream, model=model)
             if cost is not None:
                 round_cost = float(cost)
         except Exception:
@@ -390,7 +392,7 @@ class LLMExecutor(Executor):
                 prompt_tokens = self._estimate_messages_tokens(conv, cfg.model)
                 completion_tokens = self._estimate_text_tokens(assistant_text, cfg.model)
 
-            round_cost = self._get_round_cost(stream)
+            round_cost = self._get_round_cost(stream, cfg.model)
 
             self.project.add_llm_usage(
                 prompt_delta=prompt_tokens, completion_delta=completion_tokens, cost_delta=round_cost

@@ -54,9 +54,11 @@ class Project:
         """Gracefully shut down project components."""
         await self.know.shutdown()
 
-    async def refresh(self, repo: Optional["Repo"] = None) -> None:
+    async def refresh(self, repo: Optional["Repo"] = None, files: Optional[List[FileChangeModel]] = None) -> None:
         """
         Asynchronously refresh the underlying 'know' project (optionally for a specific Repo).
+        Note: The 'files' parameter is currently ignored since the 'know' backend
+        does not support partial refresh yet.
         """
         await self.know.refresh(repo)
 
