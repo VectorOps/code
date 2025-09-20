@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from know.models import Repo
 
 from .know import KnowProject
+from .scm.git import GitSCM
 from .know.tools import register_know_tools
 from .tools import get_all_tools
 from .settings import KnowProjectSettings, Settings, load_settings
@@ -44,11 +45,22 @@ class Project:
 
     @property
     def config_path(self) -> Path:
-        return (self.base_path / self.config_relpath).resolve()
+        # Do not resolve symlinks; return the composed path as-is
+        return self.base_path / self.config_relpath
 
     @classmethod
-    def from_base_path(cls, base_path: Union[str, Path]) -> "Project":
-        return init_project(base_path)
+    def from_base_path(
+        cls,
+        base_path: Union[str, Path],
+        *,
+        search_ancestors: bool = True,
+        use_scm: bool = True,
+    ) -> "Project":
+        return init_project(
+            base_path,
+            search_ancestors=search_ancestors,
+            use_scm=use_scm,
+        )
 
     async def shutdown(self) -> None:
         """Gracefully shut down project components."""
@@ -72,18 +84,71 @@ class Project:
         self.llm_usage.cost_dollars += float(cost_delta or 0.0)
 
 
-def init_project(base_path: Union[str, Path], config_relpath: Union[str, Path] = ".vocode/config.yaml") -> Project:
+def _find_project_root_with_config(start: Path, rel_config: Path) -> Optional[Path]:
     """
-    Initialize a Project: ensure config exists (write default if missing) and load settings.
+    Walk upwards from 'start' to filesystem root looking for rel_config (e.g., '.vocode/config.yaml').
+    Returns the directory that contains rel_config if found; otherwise None.
+    Note: Ignore '.vocode' dirs that don't contain the config file.
     """
-    base = Path(base_path).resolve()
+    current = start
+    while True:
+        candidate = current / rel_config
+        if candidate.is_file():
+            return current
+        if current.parent == current:
+            # Reached filesystem root
+            return None
+        current = current.parent
+
+
+def init_project(
+    base_path: Union[str, Path],
+    config_relpath: Union[str, Path] = ".vocode/config.yaml",
+    *,
+    search_ancestors: bool = True,
+    use_scm: bool = True,
+) -> Project:
+    """
+    Initialize a Project by:
+    1) Searching upwards for an existing .vocode/config.yaml (nearest ancestor) if search_ancestors is True.
+    2) Otherwise, if use_scm is True, detecting a Git repository root and using it as the base; create .vocode/config.yaml there if missing.
+    3) Otherwise, creating .vocode/config.yaml at the provided start directory.
+    Note: Do not resolve symlinks during traversal; use absolute() only.
+    """
+    start_path = Path(base_path)
+    # If a file path is provided, start from its parent; otherwise the directory itself.
+    start_dir = start_path if start_path.is_dir() else start_path.parent
+    # Prefer absolute paths without resolving symlinks
+    start_dir = start_dir.absolute()
+
     rel = Path(config_relpath)
-    config_path = (base / rel).resolve()
-    # Ensure .vocode directory exists
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    # If missing, write template config (and sample files)
-    if not config_path.exists():
-        write_default_config(config_path)
+    base = None
+    config_path = None
+
+    # 1) Search upwards for an existing config file (nearest ancestor)
+    found_base = _find_project_root_with_config(start_dir, rel) if search_ancestors else None
+    if found_base is not None:
+        base = found_base
+        config_path = base / rel
+    else:
+        # 2) Try SCM (git) if enabled
+        if use_scm:
+            repo_root = GitSCM().find_repo(start_dir)
+            if repo_root is not None:
+                base = Path(repo_root)
+                config_path = base / rel
+                if not config_path.exists():
+                    config_path.parent.mkdir(parents=True, exist_ok=True)
+                    write_default_config(config_path)
+
+        # 3) Fall back to the start directory
+        if base is None:
+            base = start_dir
+            config_path = base / rel
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            if not config_path.exists():
+                write_default_config(config_path)
+
     # Load merged settings (supports include + YAML/JSON5)
     settings = load_settings(str(config_path))
 

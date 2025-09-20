@@ -28,7 +28,7 @@ For Update/Add files, changes are expressed with optional context blocks:
 
 Context rules:
 
-* Show 3 lines of context above and below each change by default.
+* Show no more than 3 lines of context above and below each change by default.
 * If insufficient to disambiguate, add an @@ anchor naming the class or function:
   @@ class BaseClass
   @@ def method_name(...):
