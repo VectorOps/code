@@ -66,6 +66,7 @@ Concrete example: files that were read and already in context.
 *** [X] GPT V4A diff format
 **** [X] Better error reporting and verify apply patch cycle
 *** [ ] Fenced diff format
+*** [ ] Unified Diff format
 * [X] Settings
 ** [X] Settings loader
 * [ ] Chat state
@@ -97,8 +98,8 @@ Concrete example: files that were read and already in context.
 ** [ ] Diff apply node
 *** [X] Base parser
 *** [X] Add a way to write file changes after confirmation
-*** [ ] Tell Know that files were updated and project needs to be updated
-*** [ ] Handle all kind of errors - mismatched chunks, etc
+*** [X] Tell Know that files were updated and project needs to be updated
+*** [X] Handle all kind of errors - mismatched chunks, etc
 ** [ ] Create RepoMap node - call into Know with provided prompt
 ** [ ] Create documentation node - read AGENT.md files for all paths that are mentioned in previous messages.
 - Have configuration for static message text

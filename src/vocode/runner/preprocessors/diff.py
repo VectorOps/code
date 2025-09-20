@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 
 from vocode.runner.preprocessors.base import register_preprocessor
 
-
+# TODO: Move out
 # Alternative V4A prompt as original adds random escapes
 DIFF_V4A_SYSTEM_INSTRUCTION = """You must output exactly one fenced code block containing a raw V4A patch. No prose before or after. Do not wrap the patch in JSON/YAML/strings. Do not emit backslash-escapes (`\n`, `\t`, `\"`) unless those characters exist in the original file contents.
 
