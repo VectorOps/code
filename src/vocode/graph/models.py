@@ -21,6 +21,7 @@ class ResetPolicy(str, Enum):
     always_reset = "always_reset"
     keep_results = "keep_results"
     keep_state = "keep_state"
+    keep_final = "keep_final"
 
 class MessageMode(str, Enum):
     final_response = "final_response"
@@ -82,7 +83,8 @@ class Node(BaseModel):
         description=(
             "Defines how executor state is handled.\n"
             "- 'always_reset' (default): create a new executor each run; only current inputs are passed.\n"
-            "- 'keep_results': create a new executor each run, but include the previous final message of this node as an input in addition to current inputs.\n"
+            "- 'keep_results': create a new executor each run, but include all previous messages for this node from prior runs except interim executor chunks (includes user inputs and final messages).\n"
+            "- 'keep_final': create a new executor each run, and include only the immediately previous final accepted response from this node when looping (no user/interim messages from earlier runs).\n"
             "- 'keep_state': reuse the same long-lived executor and resume it by sending new input messages; executor internal state is preserved."
         ),
     )
@@ -197,7 +199,11 @@ class Edge(BaseModel):
     target_node: str = Field(..., description="Name of the target node")
     reset_policy: Optional[ResetPolicy] = Field(
         default=None,
-        description="Optional reset policy override applied when traversing this edge.",
+        description=(
+            "Optional reset policy override applied when traversing this edge. "
+            "When set to 'keep_final', a re-run of the same node will include only the previous final accepted response "
+            "from that node as context (not interim messages or previous user inputs)."
+        ),
     )
 
     @model_validator(mode="before")

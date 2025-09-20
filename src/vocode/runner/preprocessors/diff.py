@@ -6,7 +6,7 @@ from vocode.runner.preprocessors.base import register_preprocessor
 
 
 # Alternative V4A prompt as original adds random escapes
-DIFF_V4A_SYSTEM_INSTRUCTION = """You must output exactly one fenced code block containing a raw V4A patch. No prose before or after. Do not wrap the patch in JSON/YAML/strings. Do not emit backslash-escapes (`\n`, `\t`, `\"`) unless those characters exist literally in the original file contents.
+DIFF_V4A_SYSTEM_INSTRUCTION = """You must output exactly one fenced code block containing a raw V4A patch. No prose before or after. Do not wrap the patch in JSON/YAML/strings. Do not emit backslash-escapes (`\n`, `\t`, `\"`) unless those characters exist in the original file contents.
 
 Required envelope:
 ```patch
@@ -20,10 +20,11 @@ Each file appears exactly once as one of:
 *** Update File: <relative/path>
 *** Delete File: <relative/path>
 
-For Update/Add files, changes are expressed with optional context blocks:
+For Update/Add files, changes are expressed with context blocks:
+
 [3 lines of pre-context EXACTLY matching file contents]
-- <old line> # exact match, prefixed with single minus
-+ <new line> # replacement, prefixed with single plus
+- <old line>
++ <new line>
 [3 lines of post-context EXACTLY matching file contents]
 
 Context rules:
@@ -33,7 +34,7 @@ Context rules:
   @@ class BaseClass
   @@ def method_name(...):
 
-* If two changes’ contexts would overlap, do not duplicate overlapping lines.
+* If two changes contexts would overlap, do not duplicate overlapping lines.
 
 Absolute paths are forbidden; use relative paths only.
 
@@ -41,7 +42,7 @@ Validation checklist (you must pass all before emitting):
 1. Output is exactly one fenced code block labeled patch.
 2. Contains one *** Begin Patch and one *** End Patch.
 3. No JSON, no quotes around the patch, no extra text outside the fence.
-4. No backslash-escapes unless they exist in the source file.
+4. *No* backslash-escapes unless they exist in the source file.
 5. Each changed file appears exactly once.
 6. When creating the patch, ensure the number of blank lines in the context sections exactly matches the source file, as any mismatch will cause the patch to fail.
 

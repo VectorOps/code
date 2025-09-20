@@ -251,6 +251,26 @@ class Runner:
                     return a.state
         return None
 
+    def _get_last_final_message_for_node(
+        self,
+        task: Assignment,
+        node_name: str,
+        exclude_step: Optional[Step] = None,
+    ) -> Optional[Message]:
+        """
+        Find the most recent executor final (is_complete=True) message for the given node
+        from earlier steps (excluding the provided in-flight step). Returns None if none found.
+        """
+        for s in reversed(task.steps):
+            if s is exclude_step:
+                continue
+            if s.node != node_name:
+                continue
+            for a in reversed(s.executions):
+                if a.type == ActivityType.executor and a.is_complete:
+                    return a.message
+        return None
+
     def _prepare_resume(self, task: Assignment):
         """
         Find the last successfully finished step, compute the transition to the next node,
@@ -285,9 +305,18 @@ class Runner:
     ) -> List[Message]:
         base_input_messages: List[Message] = []
         if policy == ResetPolicy.keep_results:
+            # Include prior user + final messages (no interim)
             base_input_messages.extend(
                 self._get_previous_node_messages(task, node_name, exclude_step=step)
             )
+        elif policy == ResetPolicy.keep_final:
+            # Include only the immediately previous final accepted response for this node
+            last_final = self._get_last_final_message_for_node(task, node_name, exclude_step=step)
+            if last_final is not None:
+                # Avoid duplication if the transition already provided it as an input
+                if not any(m is last_final for m in initial_user_inputs):
+                    base_input_messages.append(last_final)
+        # Always include the inputs provided by the transition into this step
         base_input_messages.extend(initial_user_inputs)
         return base_input_messages
 

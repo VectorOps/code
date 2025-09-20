@@ -152,24 +152,159 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
         assert ev_b.node == "B" and ev_b.event.kind == "final_message"
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
-        assert runner.status == RunnerStatus.finished
-        assert [s.node for s in task.steps] == ["A", "B"]
 
-        # Rewind last step (B)
+
+@pytest.mark.asyncio
+async def test_reset_policy_keep_final_self_loop_only_final_carried(tmp_path: Path):
+    # Graph: K (keep_final, self-loop once) -> End
+    nodes = [
+        {"name": "K", "type": "kf", "outcomes": [OutcomeSlot(name="again"), OutcomeSlot(name="done")], "reset_policy": "keep_final", "confirmation": "auto"},
+        {"name": "End", "type": "kend", "outcomes": []},
+    ]
+    edges = [
+        Edge(source_node="K", source_outcome="again", target_node="K"),
+        Edge(source_node="K", source_outcome="done", target_node="End"),
+    ]
+    g = Graph.build(nodes=nodes, edges=edges)
+    workflow = Workflow(name="workflow", graph=g)
+
+    class KeepFinalExec(Executor):
+        type = "kf"
+        runs = 0
+        async def run(self, inp):
+            type(self).runs += 1
+            if type(self).runs == 1:
+                # First run: should receive only initial user message
+                assert [m.text for m in inp.messages] == ["start"]
+                # Emit an interim, which must NOT persist, then final to loop
+                yield (ReqInterimMessage(message=msg("agent", "INT1")), None)
+                yield (ReqFinalMessage(message=msg("agent", "F1"), outcome_name="again"), None)
+            else:
+                # Second run: keep_final should only pass the previous final "F1"
+                assert [m.text for m in inp.messages] == ["F1"]
+                yield (ReqFinalMessage(message=msg("agent", "F2"), outcome_name="done"), None)
+
+    class EndExec(Executor):
+        type = "kend"
+        async def run(self, inp):
+            yield (ReqFinalMessage(message=msg("agent", "END")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project, initial_message=msg("user", "start"))
+        task = Assignment()
+        it = runner.run(task)
+        # K first run: interim, then final (auto) -> transitions to K again
+        ev_k_int1 = await it.__anext__()
+        assert ev_k_int1.node == "K"
+        assert ev_k_int1.event.kind == "message"
+        assert ev_k_int1.event.message.text == "INT1"
+
+        ev_k1 = await it.__anext__()
+        assert ev_k1.node == "K" and ev_k1.event.kind == "final_message" and ev_k1.event.message.text == "F1"
+
+        ev_k2 = await it.asend(None)
+        assert ev_k2.node == "K" and ev_k2.event.kind == "final_message" and ev_k2.event.message.text == "F2"
+        # End
+        ev_end = await it.asend(None)
+        assert ev_end.node == "End" and ev_end.event.kind == "final_message"
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(None)
+
+
+@pytest.mark.asyncio
+async def test_keep_results_excludes_interim_messages(tmp_path: Path):
+    # Graph: A(keep_results, all_messages) -> B(auto) -> A -> C
+    nodes = [
+        {
+            "name": "A",
+            "type": "a_int",
+            "outcomes": [OutcomeSlot(name="toB"), OutcomeSlot(name="toC")],
+            "reset_policy": "keep_results",
+            "message_mode": "all_messages",  # pass inputs + final to B
+        },
+        {"name": "B", "type": "b_int", "outcomes": [OutcomeSlot(name="toA")], "confirmation": "auto"},
+        {"name": "C", "type": "c_int", "outcomes": []},
+    ]
+    edges = [
+        Edge(source_node="A", source_outcome="toB", target_node="B"),
+        Edge(source_node="B", source_outcome="toA", target_node="A"),
+        Edge(source_node="A", source_outcome="toC", target_node="C"),
+    ]
+    g = Graph.build(nodes=nodes, edges=edges)
+    workflow = Workflow(name="workflow", graph=g)
+
+    class AExec(Executor):
+        type = "a_int"
+        runs = 0
+        async def run(self, inp):
+            type(self).runs += 1
+            if type(self).runs == 1:
+                # First run: initial message only
+                assert [m.text for m in inp.messages] == ["start"]
+                # Emit interim (should not persist), then final to B
+                yield (ReqInterimMessage(message=msg("agent", "INT_A1")), None)
+                yield (ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB"), None)
+            else:
+                # Second run via keep_results: should include prior A user+final plus B's final; no interim
+                texts = [m.text for m in inp.messages]
+                assert texts == ["start", "A1", "B1"], f"unexpected carried messages: {texts}"
+                yield (ReqFinalMessage(message=msg("agent", "A2"), outcome_name="toC"), None)
+
+    class BExec(Executor):
+        type = "b_int"
+        runs = 0
+        async def run(self, inp):
+            type(self).runs += 1
+            # Receives initial + A1 due to all_messages
+            assert [m.text for m in inp.messages] == ["start", "A1"]
+            yield (ReqFinalMessage(message=msg("agent", "B1")), None)
+
+    class CExec(Executor):
+        type = "c_int"
+        runs = 0
+        async def run(self, inp):
+            type(self).runs += 1
+            yield (ReqFinalMessage(message=msg("agent", "C1")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project, initial_message=msg("user", "start"))
+        task = Assignment()
+        it = runner.run(task)
+        # A1 -> B1(auto) -> A2 -> C
+        ev_a1_int = await it.__anext__()
+        assert ev_a1_int.node == "A" and ev_a1_int.event.kind == "message" and ev_a1_int.event.message.text == "INT_A1"
+
+        ev_a1 = await it.__anext__()
+        assert ev_a1.node == "A" and ev_a1.event.kind == "final_message"
+        ev_b1 = await it.asend(None)
+        assert ev_b1.node == "B" and ev_b1.event.kind == "final_message"
+        ev_a2 = await it.asend(None)
+        assert ev_a2.node == "A" and ev_a2.event.kind == "final_message"
+        ev_c1 = await it.asend(None)
+        assert ev_c1.node == "C" and ev_c1.event.kind == "final_message"
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(None)
+        assert runner.status == RunnerStatus.finished
+        assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
+
+        # Rewind last step (C)
         await runner.rewind(task, 1)
         assert runner.status == RunnerStatus.stopped
-        assert [s.node for s in task.steps] == ["A"]
+        assert [s.node for s in task.steps] == ["A", "B", "A"]
 
-        # Resume -> should start at B again, fresh
+        # Resume -> should start at C again, replaying from history
         it2 = runner.run(task)
-        ev_b2 = await it2.__anext__()
-        assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
-        # Ensure the executor was not re-executed on resume (replayed from history)
-        assert BExec.runs == 1  # resumed from history (no re-execution)
+        ev_c2 = await it2.__anext__()
+        assert ev_c2.node == "C" and ev_c2.event.kind == "final_message"
+        # Ensure executors were not re-executed on resume (replayed from history)
+        assert AExec.runs == 2
+        assert BExec.runs == 1
+        assert CExec.runs == 1
+
         with pytest.raises(StopAsyncIteration):
             await it2.asend(None)
         assert runner.status == RunnerStatus.finished
-        assert [s.node for s in task.steps] == ["A", "B"]
+        assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
 
 
 @pytest.mark.asyncio

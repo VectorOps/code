@@ -337,13 +337,12 @@ class Parser:
             )
             new_index, fuzz = find_context(lines, next_ctx, index, eof)
             if new_index == -1:
-                ctx_txt = "\n".join(next_ctx)
+                error_detail = _format_context_error(lines, next_ctx, index)
                 raise self._make_err(
-                    f"Invalid {'EOF ' if eof else ''}context at {index}: {ctx_txt}",
+                    f"Invalid context: Patch context does not match file content.\n{error_detail}",
                     hints=[
-                        "The patch context doesn't match the current file content.",
                         "Regenerate the patch against the latest version of the file.",
-                        "Make sure that the code in the patch is not additionally escaped."
+                        "Make sure that the code in the patch is not additionally escaped.",
                     ],
                 )
             self.fuzz += fuzz
@@ -375,15 +374,75 @@ class Parser:
 # --------------------------------------------------------------------------- #
 #  Helper functions
 # --------------------------------------------------------------------------- #
+def _format_context_error(
+    file_lines: List[str], patch_context: List[str], start_index: int
+) -> str:
+    """Generates a detailed error message for a context mismatch."""
+    if not patch_context:
+        return "Context from patch is empty."
+
+    best_match_len = -1
+    best_match_start_idx = -1
+
+    # Find the longest prefix of patch_context that matches a slice of file_lines
+    for i in range(start_index, len(file_lines)):
+        match_len = 0
+        for j in range(len(patch_context)):
+            if i + j >= len(file_lines):
+                break
+            # Using rstrip for some fuzziness. A full implementation would check
+            # exact, then rstrip, then strip, like find_context_core. This is
+            # simpler for better error reporting.
+            if file_lines[i + j].rstrip() == patch_context[j].rstrip():
+                match_len += 1
+            else:
+                break
+
+        if match_len > best_match_len:
+            best_match_len = match_len
+            best_match_start_idx = i
+
+    patch_ctx_str = "\n".join(f"  {line!r}" for line in patch_context)
+
+    if best_match_len <= 0:
+        return f"Could not find context in file.\nExpected patch context:\n{patch_ctx_str}"
+
+    msg_parts = [
+        f"Found best partial match of {best_match_len}/{len(patch_context)} lines at file line {best_match_start_idx + 1}.",
+        "Expected patch context:",
+        patch_ctx_str,
+    ]
+    if best_match_len > 0:
+        msg_parts.append("Matched lines from file:")
+        for k in range(best_match_len):
+            msg_parts.append(f"  {file_lines[best_match_start_idx + k]!r}")
+
+    if best_match_len < len(patch_context):
+        msg_parts.append("First mismatch:")
+        expected = patch_context[best_match_len]
+        if best_match_start_idx + best_match_len < len(file_lines):
+            found = file_lines[best_match_start_idx + best_match_len]
+            msg_parts.append(f"  - Expected from patch: {expected!r}")
+            msg_parts.append(f"  - Found in file:       {found!r}")
+        else:
+            msg_parts.append(f"  - Expected from patch: {expected!r}")
+            msg_parts.append("  - Found in file:       <end of file>")
+
+    return "\n".join(msg_parts)
+
+
 def find_context_core(
     lines: List[str], context: List[str], start: int
 ) -> Tuple[int, int]:
     if not context:
         return start, 0
 
+    # First, try an exact match on the original context.
     for i in range(start, len(lines)):
         if lines[i : i + len(context)] == context:
             return i, 0
+
+    # If exact match fails, try fuzzy matching.
     for i in range(start, len(lines)):
         if [s.rstrip() for s in lines[i : i + len(context)]] == [
             s.rstrip() for s in context
