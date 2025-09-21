@@ -6,7 +6,7 @@ from vocode.runner.preprocessors.base import register_preprocessor
 
 # TODO: Move out
 # Alternative V4A prompt as original adds random escapes
-DIFF_V4A_SYSTEM_INSTRUCTION = """You must output exactly one fenced code block containing a raw V4A patch. No prose before or after. Do not wrap the patch in JSON/YAML/strings. Do not emit backslash-escapes (`\n`, `\t`, `\"`) unless those characters exist in the original file contents.
+DIFF_V4A_SYSTEM_INSTRUCTION = r"""You must output exactly one fenced code block containing a raw V4A patch. No prose before or after. Do not wrap the patch in JSON/YAML/strings. Do not emit backslash-escapes (`\n`, `\t`, `\"`) unless those characters exist in the original file contents. Never double-escape characters in string literals: if the source has \n, output exactly \n (a single backslash), not \\n.
 
 Required envelope:
 ```patch
@@ -40,6 +40,24 @@ Context rules:
 
 Absolute paths are forbidden; use relative paths only.
 
+Backslash and string-literal policy:
+
+- Inside the fenced patch, write raw file text. Do not add escaping for Markdown/JSON.
+- Never double-escape backslashes in code strings. The number of backslashes in your output must exactly match the file.
+- Example (Python):
+
+    Source line:
+
+        assert chg.new_content == "header1\n\n new\nfooter1\n"
+
+    Correct patch line (exactly as in the file):
+
+        assert chg.new_content == "header1\n\n new\nfooter1\n"
+
+    Incorrect (double-escaped) — do NOT output:
+
+        assert chg.new_content == "header1\\n\\n new\\nfooter1\\n"
+
 Validation checklist (you must pass all before emitting):
 1. Output is exactly one fenced code block labeled patch.
 2. Contains one *** Begin Patch and one *** End Patch.
@@ -47,6 +65,7 @@ Validation checklist (you must pass all before emitting):
 4. *No* backslash-escapes unless they exist in the source file.
 5. Each changed file appears exactly once.
 6. When creating the patch, ensure the number of blank lines in the context sections exactly matches the source file, as any mismatch will cause the patch to fail.
+7. Backslash audit: For any modified lines inside quotes, the number of backslashes is unchanged relative to the source. If the file has \n, it must remain \n (not \\n); similarly for \t and \".
 
 Minimal example:
 
@@ -95,5 +114,5 @@ def _diff_preprocessor(text: str, options: Optional[Dict[str, Any]] = None, **_:
 register_preprocessor(
     name="diff",
     func=_diff_preprocessor,
-    description="Injects system instructions for V4A diff patch format. Options: {'format': 'v4a'}",
+    description="Injects system instructions for V4A diff patch format with strict no-double-escape guidance. Options: {'format': 'v4a'}",
 )
