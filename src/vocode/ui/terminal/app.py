@@ -170,6 +170,10 @@ async def run_terminal(project: Project) -> None:
     try:
         old_sigint = signal.getsignal(signal.SIGINT)
         def _sigint_handler(signum, frame):
+            import asyncio, traceback
+            for t in asyncio.all_tasks():
+                print(t, t.get_coro(), "".join(traceback.format_stack(sys._current_frames()[t.get_loop()._thread_id])))
+
             try:
                 loop = asyncio.get_running_loop()
                 loop.call_soon_threadsafe(lambda: asyncio.create_task(stop_toggle()))
@@ -417,4 +421,8 @@ def main(project_path: str) -> None:
     asyncio.run(run_terminal(project))
 
 if __name__ == "__main__":
+    import faulthandler, signal, sys
+    faulthandler.enable(sys.stderr)  # or just faulthandler.enable()
+    faulthandler.register(signal.SIGUSR1)
+
     main()

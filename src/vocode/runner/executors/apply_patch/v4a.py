@@ -311,18 +311,16 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
                     filename=current_path,
                 )
                 finish_chunk_if_any()
+
             start_chunk_if_needed()
-            # Normalize removal of the prefix sign and at most one following space
+
+            # Normalize removal of the prefix sign
             if raw_line.startswith("-"):
                 content_line = raw_line[1:]
-                if content_line.startswith(" "):
-                    content_line = content_line[1:]
                 current_chunk.deletions.append(content_line)
                 chunk_has_mods = True
             else:
                 content_line = raw_line[1:]
-                if content_line.startswith(" "):
-                    content_line = content_line[1:]
                 current_chunk.additions.append(content_line)
                 chunk_has_mods = True
             continue
@@ -337,11 +335,17 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
             # Start a chunk implicitly to hold context leading into the first +/-.
             start_chunk_if_needed()
 
-        # Append as pre- or post-context depending on whether we've seen any modifications
+        # Append as pre- or post-context depending on whether we've seen any modifications.
+        # Context normalization: remove a single leading space; blank lines are allowed and stored as "".
+        ctx_line = raw_line
+        if ctx_line.strip() == "":
+            ctx_line = ""
+        elif ctx_line.startswith(" "):
+            ctx_line = ctx_line[1:]
         if not chunk_has_mods:
-            current_chunk.prefix.append(raw_line)
+            current_chunk.prefix.append(ctx_line)
         else:
-            current_chunk.suffix.append(raw_line)
+            current_chunk.suffix.append(ctx_line)
 
     # End of content: close out any open chunk
     finish_chunk_if_any()

@@ -62,15 +62,15 @@ More footer noise that must be ignored, too.
     # The parser strips the '@@ ' prefix, but preserves text; here we just assert counts
     assert len(c0.anchors) == 2
     assert c0.prefix == ["ctx1", "ctx2", "ctx3"]
-    assert c0.deletions == ["old_line"]
-    assert c0.additions == ["new_line"]
+    assert c0.deletions == [" old_line"]
+    assert c0.additions == [" new_line"]
     assert c0.suffix == ["ctxA", "ctxB", "ctxC"]
 
     c1 = upd.chunks[1]
     assert c1.anchors == [""]  # '@@' without label is allowed
     assert c1.prefix == ["p1", "p2", "p3"]
-    assert c1.deletions == ["remove_this"]
-    assert c1.additions == ["add_that"]
+    assert c1.deletions == [" remove_this"]
+    assert c1.additions == [" add_that"]
     assert c1.suffix == ["s1", "s2", "s3"]
 
     # Add file assertions
@@ -79,7 +79,7 @@ More footer noise that must be ignored, too.
     assert len(add.chunks) == 1
     c = add.chunks[0]
     assert len(c.prefix) == 0 and len(c.suffix) == 0
-    assert c.additions == ["newly added line 1", "newly added line 2"]
+    assert c.additions == [" newly added line 1", " newly added line 2"]
     assert c.deletions == []
 
     # Delete file assertions
@@ -181,7 +181,7 @@ def test_process_patch_only_parses_for_now():
     opened: list[str] = []
     statuses, errs = process_patch(
         text,
-        open_fn=lambda p: opened.append(p) or "a\n",
+        open_fn=lambda p: opened.append(p) or " a\n",
         write_fn=lambda p, c: None,
         delete_fn=lambda p: None,
     )
@@ -207,7 +207,7 @@ def test_add_file_rejects_context_no_anchor():
     # Still parsed as an Add action with the modifications captured
     assert "src/new_module.py" in patch.actions
     assert patch.actions["src/new_module.py"].type == ActionType.ADD
-    assert patch.actions["src/new_module.py"].chunks[0].additions == ["line1", "line2"]
+    assert patch.actions["src/new_module.py"].chunks[0].additions == [" line1", " line2"]
     assert patch.actions["src/new_module.py"].chunks[0].prefix == ["# pre1", "# pre2", "# pre3"]
     assert patch.actions["src/new_module.py"].chunks[0].suffix == ["# post1", "# post2", "# post3"]
 
@@ -228,7 +228,7 @@ def test_add_file_only_additions_ok():
     assert ch.prefix == []
     assert ch.suffix == []
     assert ch.deletions == []
-    assert ch.additions == ["line1", "line2", "line3"]
+    assert ch.additions == [" line1", " line2", " line3"]
 
 
 def test_add_file_absolute_path_is_error_without_anchor():
@@ -257,7 +257,7 @@ def test_process_patch_reads_update_only_and_ignores_delete():
     def open_fn(path: str) -> str:
         opened.append(path)
         if path == "exists.txt":
-            return "old\n"
+            return " old\n"
         if path == "missing.txt":
             raise FileNotFoundError("No such file")
         # 'added.txt' should not be opened; if it is, make it obvious
@@ -301,7 +301,7 @@ post
     def open_fn(p: str) -> str:
         opened.append(p)
         assert p == "f.txt"
-        return "pre\nold\npost\n"
+        return "pre\n old\npost\n"
 
     def write_fn(p: str, c: str) -> None:
         writes[p] = c
@@ -314,8 +314,8 @@ post
     # Only update file should be opened
     assert opened == ["f.txt"]
     # Writes: update and add
-    assert writes["f.txt"] == "pre\nnew\npost\n"
-    assert writes["new.txt"] == "hello"
+    assert writes["f.txt"] == "pre\n new\npost\n"
+    assert writes["new.txt"] == " hello"
     # Delete called for gone.txt
     assert deletes == ["gone.txt"]
     assert statuses == {
@@ -338,7 +338,7 @@ post
 *** End Patch"""
 
     def open_fn(p: str) -> str:
-        return "pre\nold\npost\n"
+        return "pre\n old\npost\n"
 
     writes: dict[str, str] = {}
     deletes: list[str] = []
@@ -369,7 +369,7 @@ post
     assert any("PermissionError" in h and "read-only filesystem" in h for h in hints)
     assert "gone.txt" in files
     # Update should still be written successfully
-    assert writes["f.txt"] == "pre\nnew\npost\n"
+    assert writes["f.txt"] == "pre\n new\npost\n"
     assert statuses == {
         "f.txt": FileApplyStatus.Update,
         "new.txt": FileApplyStatus.Create,
@@ -397,7 +397,7 @@ w
 
     # Only the second chunk exists in the file; the first will fail to locate.
     def open_fn(p: str) -> str:
-        return "pre\nOLD\npost\nmid\nx\ny\nz\na\nu\nv\nw\n"
+        return "pre\nOLD\npost\nmid\nx\ny\nz\n a\nu\nv\nw\n"
 
     writes: dict[str, str] = {}
 
@@ -413,7 +413,7 @@ w
     # One build error for the unfound first chunk; still applied second chunk
     assert len(errs) == 1
     assert "Failed to locate change block" in errs[0].msg
-    assert writes["f.txt"] == "pre\nOLD\npost\nmid\nx\ny\nz\nb\nu\nv\nw\n"
+    assert writes["f.txt"] == "pre\nOLD\npost\nmid\nx\ny\nz\n b\nu\nv\nw\n"
     # Partial update status expected
     assert statuses == {"f.txt": FileApplyStatus.PartialUpdate}
 
@@ -431,7 +431,7 @@ ctxB
 ctxC
 *** End Patch"""
     # Original file has an extra trailing 'end' and newline to ensure preservation
-    original = "ctx1\nctx2\nctx3\nold\nctxA\nctxB\nctxC\nend\n"
+    original = "ctx1\nctx2\nctx3\n old\nctxA\nctxB\nctxC\nend\n"
     patch, perrs = parse_v4a_patch(patch_text)
     assert perrs == []
     commits, errs, _ = build_commits(patch, {"src/t.py": original})
@@ -442,7 +442,7 @@ ctxC
     chg = commit.changes["src/t.py"]
     assert chg.type == ActionType.UPDATE
     assert chg.old_content == original
-    assert chg.new_content == "ctx1\nctx2\nctx3\nnew\nctxA\nctxB\nctxC\nend\n"
+    assert chg.new_content == "ctx1\nctx2\nctx3\n new\nctxA\nctxB\nctxC\nend\n"
 
 
 def test_build_commits_update_applies_change_multiple_chunks():
@@ -467,13 +467,13 @@ b4
 b5
 b6
 *** End Patch"""
-    original = "a1\na2\na3\nX\na4\na5\na6\nmid\nb1\nb2\nb3\nP\nb4\nb5\nb6\n"
+    original = "a1\na2\na3\n X\na4\na5\na6\nmid\nb1\nb2\nb3\n P\nb4\nb5\nb6\n"
     patch, perrs = parse_v4a_patch(patch_text)
     assert perrs == []
     commits, errs, _ = build_commits(patch, {"src/multi.py": original})
     assert errs == []
     out = commits[0].changes["src/multi.py"].new_content
-    assert out == "a1\na2\na3\nY\na4\na5\na6\nmid\nb1\nb2\nb3\nQ\nb4\nb5\nb6\n"
+    assert out == "a1\na2\na3\n Y\na4\na5\na6\nmid\nb1\nb2\nb3\n Q\nb4\nb5\nb6\n"
 
 
 def test_build_commits_add_and_delete_changes():
@@ -490,7 +490,7 @@ def test_build_commits_add_and_delete_changes():
     assert len(commits) == 1
     commit = commits[0]
     assert commit.changes["src/new.txt"].type == ActionType.ADD
-    assert commit.changes["src/new.txt"].new_content == "line1\nline2"
+    assert commit.changes["src/new.txt"].new_content == " line1\n line2"
     assert commit.changes["src/old.txt"].type == ActionType.DELETE
     assert commit.changes["src/old.txt"].old_content is None
     assert commit.changes["src/old.txt"].new_content is None
@@ -520,7 +520,7 @@ ctxC
     assert "Matched" in (errs[0].hint or "")
     assert "Matched source lines" in (errs[0].hint or "")
     assert "'ctx1'" in (errs[0].hint or "")
-    assert "Next expected line: 'old'" in (errs[0].hint or "")
+    assert "Next expected line: ' old'" in (errs[0].hint or "")
     assert "File has: 'NOT_OLD'" in (errs[0].hint or "")
     assert "ensure exact whitespace" in (errs[0].hint or "")
 
@@ -546,7 +546,7 @@ qA
 qB
 qC
 *** End Patch"""
-    original = "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\nR\nqA\nqB\nqC\n"
+    original = "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\n R\nqA\nqB\nqC\n"
     patch, perrs = parse_v4a_patch(patch_text)
     assert perrs == []
     commits, errs, _ = build_commits(patch, {"src/partial.py": original})
@@ -558,7 +558,7 @@ qC
     chg = commits[0].changes["src/partial.py"]
     assert chg.type == ActionType.UPDATE
     assert chg.old_content == original
-    assert chg.new_content == "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\nS\nqA\nqB\nqC\n"
+    assert chg.new_content == "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\n S\nqA\nqB\nqC\n"
 
 
 def test_parse_update_chunk_without_suffix():
@@ -577,8 +577,8 @@ ctx3
     assert len(act.chunks) == 1
     ch = act.chunks[0]
     assert ch.prefix == ["ctx1", "ctx2", "ctx3"]
-    assert ch.deletions == ["old"]
-    assert ch.additions == ["new"]
+    assert ch.deletions == [" old"]
+    assert ch.additions == [" new"]
     assert ch.suffix == []  # suffix is optional
 
 
@@ -591,7 +591,7 @@ ctx3
 - old
 + new
 *** End Patch"""
-    original = "ctx1\nctx2\nctx3\nold\nend\n"
+    original = "ctx1\nctx2\nctx3\n old\nend\n"
     patch, perrs = parse_v4a_patch(patch_text)
     assert perrs == []
     commits, errs, _ = build_commits(patch, {"src/no_suffix.py": original})
@@ -600,4 +600,48 @@ ctx3
     chg = commits[0].changes["src/no_suffix.py"]
     assert chg.type == ActionType.UPDATE
     assert chg.old_content == original
-    assert chg.new_content == "ctx1\nctx2\nctx3\nnew\nend\n"
+    assert chg.new_content == "ctx1\nctx2\nctx3\n new\nend\n"
+
+
+def test_parse_context_normalization_leading_space_and_blank():
+    text = """*** Begin Patch
+*** Update File: src/ctx_norm.py
+ header1
+
+- old
++ new
+ footer1
+*** End Patch"""
+    patch, errors = parse_v4a_patch(text)
+    assert errors == []
+    act = patch.actions["src/ctx_norm.py"]
+    assert act.type == ActionType.UPDATE
+    assert len(act.chunks) == 1
+    ch = act.chunks[0]
+    # Leading single space is stripped, blank line kept as empty string
+    assert ch.prefix == ["header1", ""]
+    assert ch.deletions == [" old"]
+    assert ch.additions == [" new"]
+    assert ch.suffix == ["footer1"]
+
+
+def test_build_commits_with_normalized_context_applies():
+    patch_text = """*** Begin Patch
+*** Update File: src/ctx_norm_apply.py
+ header1
+
+- old
++ new
+ footer1
+*** End Patch"""
+    # File has no leading spaces in context; fuzzy context match and normalization should still apply
+    original = "header1\n\n old\nfooter1\n"
+    patch, perrs = parse_v4a_patch(patch_text)
+    assert perrs == []
+    commits, errs, _ = build_commits(patch, {"src/ctx_norm_apply.py": original})
+    assert errs == []
+    assert len(commits) == 1
+    chg = commits[0].changes["src/ctx_norm_apply.py"]
+    assert chg.type == ActionType.UPDATE
+    assert chg.old_content == original
+    assert chg.new_content == "header1\n\n new\nfooter1\n"

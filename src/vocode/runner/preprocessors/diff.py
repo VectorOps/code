@@ -24,10 +24,10 @@ Each file appears exactly once as one of:
 
 For Update/Add files, changes are expressed with context blocks:
 
-[3 lines of pre-context EXACTLY matching file contents]
+[3 lines of pre-context EXACTLY matching file contents prefixed with a single space]
 - <old line prefixed with minus and one space>
 + <new line prefixed with plus and one space>
-[3 lines of post-context EXACTLY matching file contents]
+[3 lines of post-context EXACTLY matching file contents prefixed with a single space]
 
 Context rules:
 
@@ -48,24 +48,20 @@ Validation checklist (you must pass all before emitting):
 5. Each changed file appears exactly once.
 6. When creating the patch, ensure the number of blank lines in the context sections exactly matches the source file, as any mismatch will cause the patch to fail.
 
-Minimal example (fenced, raw):
+Minimal example:
 
 ```patch
 *** Begin Patch
 *** Update File: pygorithm/searching/binary_search.py
-@@ class BaseClass
-@@     def search(self):
+@@class BaseClass
+@@    def search(self):
 -        pass
 +        raise NotImplementedError()
-@@ class Subclass
-@@     def search(self):
--        pass
-+        raise NotImplementedError()
-*** Update File: pygorithm/searching/binary_search_test.py
-@@ class TestSubclass
-@@     def test_search(self):
--        pass
-+        raise NotImplementedError()
+@@
+-def hello():
++def bye():
+*** Add File: pygorithm/searching/binary_search_test.py
++print("Hello World")
 *** Delete File: pygorithm/searching/dummy.py
 *** End Patch
 ```
