@@ -4,9 +4,7 @@ from typing import List, Dict, Any, Optional
 
 from vocode.runner.preprocessors.base import register_preprocessor
 
-# TODO: Move out
-# Alternative V4A prompt as original adds random escapes
-DIFF_V4A_SYSTEM_INSTRUCTION = r"""You must output exactly one fenced code block containing a raw V4A patch. No prose before or after. Do not wrap the patch in JSON/YAML/strings. Do not emit backslash-escapes (`\n`, `\t`, `\"`) unless those characters exist in the original file contents. Never double-escape characters in string literals: if the source has \n, output exactly \n (a single backslash), not \\n.
+DIFF_V4A_SYSTEM_INSTRUCTION = r"""You must output exactly one fenced code block labeled patch. No prose before or after. Do not wrap the patch in JSON/YAML/strings. Do not add backslash-escapes (\n, \t, \") unless they exist in the original file contents. Never double-escape.
 
 Required envelope:
 ```patch
@@ -15,76 +13,67 @@ Required envelope:
 *** End Patch
 ```
 
-V4A format inside the [YOUR PATCH] envelope:
-
-Each file appears exactly once as one of:
+[YOUR_PATCH] contains file sections (each file appears exactly once):
 *** Add File: <relative/path>
 *** Update File: <relative/path>
 *** Delete File: <relative/path>
 
 For Update/Add files, changes are expressed with context blocks:
 
-[3 lines of pre-context EXACTLY matching file contents prefixed with a single space]
+[Up to 3 lines of context]
 - <old line prefixed with minus and one space>
 + <new line prefixed with plus and one space>
-[3 lines of post-context EXACTLY matching file contents prefixed with a single space]
+[Up to 3 lines of context]
 
-Context rules:
-
-* Show no more than 3 lines of context above and below each change by default.
-* If insufficient to disambiguate, add an @@ anchor naming the class or function:
+Update/Add blocks: exact context and edits
+- Context must be an exact copy of the file lines.
+- Do not escape any quotes, backslashes, or newlines. Produce the file content literally as it appears in the source, character for character.
+- Preserve blank lines in context. Represent a blank context line as a completely empty line (no leading space).
+- For non-blank context lines, start with a single space, then the exact text.
+- Include at least one line of pre- and post-context; add more if helpful. Be conservative, do not include whole file.
+- Use @@ anchor to separate multiple changes when needed:
+  @@
+- If insufficient to disambiguate, add an @@ anchor naming the class or function:
   @@ class BaseClass
-  @@ def method_name(...):
-* @@ anchor can also be used without class or function name to separate individual patches of the file
-* If two changes contexts would overlap, do not duplicate overlapping lines.
+  @@     def method_name(...):
 
-Absolute paths are forbidden; use relative paths only.
+Change lines:
+- Use '-' for the old line, '+' for the new line.
+- The text after the sign must be exact (including whitespace).
 
-Backslash and string-literal policy:
+Backslashes and escapes (important):
+- Write raw file text. Never add Markdown/JSON escaping.
+- Never double-escape backslashes in strings.
+  Example (Python):
+    Source:
+        assert s == "a\\b\n"
+    Correct:
+        - assert s == "a\\b\n"
+        + assert s == "a\\c\n"
+    Wrong (double-escaped) — do NOT output:
+        - assert s == "a\\\\b\\n"
 
-- Inside the fenced patch, write raw file text. Do not add escaping for Markdown/JSON.
-- Never double-escape backslashes in code strings. The number of backslashes in your output must exactly match the file.
-- Example (Python):
+Blank line context example (do not omit the blank line):
+ header1
 
-    Source line:
-
-        assert chg.new_content == "header1\n\n new\nfooter1\n"
-
-    Correct patch line (exactly as in the file):
-
-        assert chg.new_content == "header1\n\n new\nfooter1\n"
-
-    Incorrect (double-escaped) — do NOT output:
-
-        assert chg.new_content == "header1\\n\\n new\\nfooter1\\n"
-
-Validation checklist (you must pass all before emitting):
-1. Output is exactly one fenced code block labeled patch.
-2. Contains one *** Begin Patch and one *** End Patch.
-3. No JSON, no quotes around the patch, no extra text outside the fence.
-4. *No* backslash-escapes unless they exist in the source file.
-5. Each changed file appears exactly once.
-6. When creating the patch, ensure the number of blank lines in the context sections exactly matches the source file, as any mismatch will cause the patch to fail.
-7. Backslash audit: For any modified lines inside quotes, the number of backslashes is unchanged relative to the source. If the file has \n, it must remain \n (not \\n); similarly for \t and \".
+- old
++ new
+ footer1
 
 Minimal example:
-
 ```patch
 *** Begin Patch
-*** Update File: pygorithm/searching/binary_search.py
-@@class BaseClass
-@@    def search(self):
--        pass
-+        raise NotImplementedError()
-@@
--def hello():
-+def bye():
-*** Add File: pygorithm/searching/binary_search_test.py
-+print("Hello World")
-*** Delete File: pygorithm/searching/dummy.py
+*** Update File: pkg/mod.py
+ header1
+
+- old
++ new
+ footer1
+*** Add File: pkg/new.txt
++ hello
+*** Delete File: pkg/unused.txt
 *** End Patch
-```
-"""
+```"""
 
 
 def _diff_preprocessor(text: str, options: Optional[Dict[str, Any]] = None, **_: Any) -> str:
@@ -114,5 +103,5 @@ def _diff_preprocessor(text: str, options: Optional[Dict[str, Any]] = None, **_:
 register_preprocessor(
     name="diff",
     func=_diff_preprocessor,
-    description="Injects system instructions for V4A diff patch format with strict no-double-escape guidance. Options: {'format': 'v4a'}",
+    description="Injects simplified system instructions for V4A diff patches (exact context, preserve blank lines, no double-escaping). Options: {'format': 'v4a'}",
 )

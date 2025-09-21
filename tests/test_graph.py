@@ -50,7 +50,7 @@ def test_duplicate_node_names_error():
 def test_edge_to_unknown_node_error():
     nodes = [{"name": "A", "type": "root", "outcomes": []}]
     edges = [{"source_node": "A", "source_outcome": "x", "target_node": "B"}]
-    with pytest.raises(ValueError, match="target_node 'B' does not exist"):
+    with pytest.raises(ValueError, match="target_node\n'B' does not exist"):
         Graph.build(nodes=nodes, edges=edges)
 
 

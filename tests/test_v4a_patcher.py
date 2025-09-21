@@ -523,9 +523,9 @@ def test_build_commits_update_partial_match_reports_hint():
     assert "Next expected line: ' old'" in (errs[0].hint or "")
     assert "File has: 'NOT_OLD'" in (errs[0].hint or "")
     assert "ensure exact whitespace" in (errs[0].hint or "")
-    assert "Similar lines to expected next line" in (errs[0].hint or "")
+    assert "Possible variants" in (errs[0].hint or "")
     assert "'NOT_OLD'" in (errs[0].hint or "")
-    assert "L4:" in (errs[0].hint or "")
+    assert "Best partial match at L1" in (errs[0].hint or "")
 
 
 def test_build_commits_partial_apply_on_some_chunks():
@@ -637,8 +637,8 @@ def test_build_commits_with_normalized_context_applies():
 + new
  footer1
 *** End Patch"""
-    # File has no leading spaces in context; fuzzy context match and normalization should still apply
-    original = "header1\n\n old\nfooter1\n"
+    # File has an extra blank line after the existing blank context; normalization should still apply
+    original = "header1\n\n\n old\nfooter1\n"
     patch, perrs = parse_v4a_patch(patch_text)
     assert perrs == []
     commits, errs, _ = build_commits(patch, {"src/ctx_norm_apply.py": original})
@@ -647,4 +647,48 @@ def test_build_commits_with_normalized_context_applies():
     chg = commits[0].changes["src/ctx_norm_apply.py"]
     assert chg.type == ActionType.UPDATE
     assert chg.old_content == original
+    assert chg.new_content == "header1\n\n\n new\nfooter1\n"
+
+
+def test_update_chunk_with_no_modifications_is_ignored():
+    text = """*** Begin Patch
+*** Update File: src/empty.py
+@@ anchor only
+ ctx1
+ ctx2
+ ctx3
+*** End Patch"""
+    patch, errors = parse_v4a_patch(text)
+    assert errors == []
+    assert "src/empty.py" in patch.actions
+    act = patch.actions["src/empty.py"]
+    assert act.type == ActionType.UPDATE
+    # The chunk has only context and no +/- lines, so it should be ignored.
+    assert len(act.chunks) == 0
+
+
+def test_build_commits_handles_missing_empty_line_in_context():
+    patch_text = """*** Begin Patch
+*** Update File: src/missing_blank.py
+ header1
+- old
++ new
+ footer1
+*** End Patch"""
+    # File has an extra blank line after header1 that is not present in the patch.
+    original = "header1\n\n old\nfooter1\n"
+    patch, perrs = parse_v4a_patch(patch_text)
+    assert perrs == []
+    # Build commits should insert the missing empty context line and still match/apply.
+    commits, errs, _ = build_commits(patch, {"src/missing_blank.py": original})
+    assert errs == []
+    assert len(commits) == 1
+    chg = commits[0].changes["src/missing_blank.py"]
+    assert chg.type == ActionType.UPDATE
+    assert chg.old_content == original
     assert chg.new_content == "header1\n\n new\nfooter1\n"
+    # And the chunk should have been adjusted to include the missing blank in prefix.
+    act = patch.actions["src/missing_blank.py"]
+    assert len(act.chunks) == 1
+    ch = act.chunks[0]
+    assert ch.prefix == ["header1", ""]

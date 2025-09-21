@@ -5,7 +5,6 @@ from enum import Enum, auto
 from typing import Callable, Dict, List, Optional, Tuple
 import re
 import os
-import difflib
 
 from .models import FileApplyStatus
 
@@ -17,6 +16,11 @@ class DiffError(ValueError):
 class ActionType(Enum):
     ADD = auto()
     UPDATE = auto()
+    DELETE = auto()
+
+
+class LineType(Enum):
+    CONTEXT = auto()
     DELETE = auto()
 
 
@@ -82,6 +86,7 @@ class PartialMatch:
     prefix_matched: int = 0
     deletions_matched: int = 0
     suffix_matched: int = 0
+    double_escape_hint: Optional[str] = None
 
 @dataclass
 class MatchResult:
@@ -94,6 +99,7 @@ class MatchResult:
     prefix_matched: int
     deletions_matched: int
     suffix_matched: int
+    double_escape_hint: Optional[str] = None
 
 
 def _is_relative_path(p: str) -> bool:
@@ -185,13 +191,8 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
             return
         # Validate chunk has actual modifications
         if not (current_chunk.additions or current_chunk.deletions):
-            add_error(
-                f"Chunk in {current_path or '<no file>'} has no modifications",
-                line=current_chunk.start_line,
-                hint="Each chunk must include at least one +/- line",
-                filename=current_path,
-            )
-            # Drop it
+            # Ignore empty chunk (no +/- lines)
+            pass
         else:
             # Add action must not include prefix/suffix context
             if current_action is not None and current_action.type == ActionType.ADD:
@@ -425,16 +426,19 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
         """
         # Extract pattern components from the chunk
         prefix, deletions, suffix = chunk.prefix, chunk.deletions, chunk.suffix
-        pattern: List[str] = prefix + deletions + suffix
-
         pre_len, del_len, suf_len = len(prefix), len(deletions), len(suffix)
-        pat_len = len(pattern)
+        pattern_typed: List[Tuple[LineType, str]] = (
+            [(LineType.CONTEXT, s) for s in prefix]
+            + [(LineType.DELETE, s) for s in deletions]
+            + [(LineType.CONTEXT, s) for s in suffix]
+        )
+        pat_len = len(pattern_typed)
         n_lines = len(file_lines)
 
         # Candidate starts: align on first token of the pattern
         if pat_len == 0:
             return None, "Empty change block (no prefix/deletions/suffix)"
-        first_token = prefix[0] if pre_len > 0 else (deletions[0] if del_len > 0 else suffix[0])
+        first_token = pattern_typed[0][1]
         candidate_starts: List[int] = [
             i for i in range(0, max(0, n_lines - pat_len + 1)) if file_lines[i] == first_token
         ]
@@ -458,57 +462,133 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
         best_partial = PartialMatch()
 
         def try_match_at(start: int) -> MatchResult:
+            i = start  # index into file_lines
+            j = 0      # index into pattern_typed
             matched = 0
             p_matched = d_matched = s_matched = 0
-            for j in range(pat_len):
-                i = start + j
+
+            # Track whether the previously matched line was a CONTEXT line:
+            # True => prefix, False => suffix, None => not a context match
+            prev_context_region: Optional[bool] = None
+
+            # Remember where we virtually inserted blanks, to mutate chunk on success
+            insert_prefix_pos: List[int] = []
+            insert_suffix_pos: List[int] = []
+
+            while j < pat_len:
                 if i >= n_lines:
                     return MatchResult(
                         ok=False,
                         start=start,
                         matched=matched,
-                        expected=pattern[j],
+                        expected=pattern_typed[j][1],
                         actual="<EOF>",
                         fail_index=i,
                         prefix_matched=p_matched,
                         deletions_matched=d_matched,
                         suffix_matched=s_matched,
+                        double_escape_hint=None,
                     )
-                if file_lines[i] != pattern[j]:
-                    return MatchResult(
-                        ok=False,
-                        start=start,
-                        matched=matched,
-                        expected=pattern[j],
-                        actual=file_lines[i],
-                        fail_index=i,
-                        prefix_matched=p_matched,
-                        deletions_matched=d_matched,
-                        suffix_matched=s_matched,
-                    )
-                matched += 1
-                if j < pre_len:
-                    p_matched += 1
-                elif j < pre_len + del_len:
-                    d_matched += 1
-                else:
-                    s_matched += 1
+
+                lt, expected_line = pattern_typed[j]
+                actual_line = file_lines[i]
+
+                in_prefix = j < pre_len
+
+                # First try exact match
+                if actual_line == expected_line:
+                    matched += 1
+                    if j < pre_len:
+                        p_matched += 1
+                        prev_context_region = True
+                    elif j < pre_len + del_len:
+                        d_matched += 1
+                        prev_context_region = None
+                    else:
+                        s_matched += 1
+                        prev_context_region = False
+                    i += 1
+                    j += 1
+                    continue
+
+                # Fuzzy matching on mismatch:
+                # 1) Treat an empty file line as an inserted empty CONTEXT when expecting non-empty CONTEXT.
+                # 2) Treat an empty file line at a deletion boundary as an empty CONTEXT if previous match was context.
+                handled = False
+                if actual_line == "":
+                    # 1) Missing blank before a non-empty CONTEXT line
+                    if lt is LineType.CONTEXT and expected_line != "":
+                        if j < pre_len:
+                            insert_prefix_pos.append(j)  # before the j-th prefix line
+                            prev_context_region = True
+                        else:
+                            insert_suffix_pos.append(j - pre_len - del_len)  # before the (j-pre-len-del_len)-th suffix line
+                            prev_context_region = False
+                        i += 1
+                        handled = True
+                    # 2) Extra blank at deletion boundary, immediately after a context match
+                    elif lt is LineType.DELETE and prev_context_region is not None:
+                        if prev_context_region:
+                            insert_prefix_pos.append(pre_len)  # at prefix/deletions boundary
+                        else:
+                            insert_suffix_pos.append(0)        # at deletions/suffix boundary
+                        i += 1
+                        handled = True
+                if handled:
+                    continue
+
+                # Hard mismatch (include double-escape hint if applicable)
+                hint_str: Optional[str] = None
+                if expected_line and actual_line:
+                    unescaped_once = re.sub(r"\\\\", r"\\", expected_line)
+                    if unescaped_once == actual_line:
+                        hint_str = (
+                            "Line appears to be double-escaped in the patch. "
+                            "Do NOT escape characters in the patch; write raw file text (no JSON/Markdown escaping)."
+                        )
+                return MatchResult(
+                    ok=False,
+                    start=start,
+                    matched=matched,
+                    expected=expected_line,
+                    actual=actual_line,
+                    fail_index=i,
+                    prefix_matched=p_matched,
+                    deletions_matched=d_matched,
+                    suffix_matched=s_matched,
+                    double_escape_hint=hint_str,
+                )
+
+                i += 1
+                j += 1
+
+            # Success: mutate chunk to include inserted blanks so later phases align
+            if insert_prefix_pos or insert_suffix_pos:
+                for pos in sorted(insert_prefix_pos):
+                    chunk.prefix.insert(pos, "")
+                for pos in sorted(insert_suffix_pos):
+                    chunk.suffix.insert(pos, "")
+
             return MatchResult(
                 ok=True,
                 start=start,
                 matched=matched,
                 expected="",
                 actual="",
-                fail_index=start + pat_len - 1,
+                fail_index=start + (len(chunk.prefix) + len(chunk.deletions) + len(chunk.suffix)) - 1,
                 prefix_matched=p_matched,
                 deletions_matched=d_matched,
                 suffix_matched=s_matched,
+                double_escape_hint=None,
             )
+
+        partial_results: List[MatchResult] = []
 
         for start in candidate_starts:
             res = try_match_at(start)
             if res.ok:
                 return start, None
+            partial_results.append(res)
             if res.matched > best_partial.matched:
                 best_partial.matched = res.matched
                 best_partial.start = res.start
@@ -525,33 +605,32 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
                 best_partial.prefix_matched = res.prefix_matched
                 best_partial.deletions_matched = res.deletions_matched
                 best_partial.suffix_matched = res.suffix_matched
+                best_partial.double_escape_hint = res.double_escape_hint
 
-        # Build human-readable hint describing where it failed
+        # Build human-readable hint describing where it failed, including all partial variants
         bp = best_partial
         hint_lines: List[str] = []
-        hint_lines.append(f"Matched {bp.matched}/{pat_len} lines.")
-        # Include the exact source lines that matched before the failure to aid debugging
-        if bp.start is not None and bp.matched > 0:
-            matched_src = file_lines[bp.start : bp.start + bp.matched]
-            hint_lines.append("Matched source lines (from file):")
-            for s in matched_src:
-                hint_lines.append(f"  {s!r}")
-        if bp.expected != "" or bp.actual != "":
-            hint_lines.append(f"Next expected line: {bp.expected!r}")
-            hint_lines.append(f"File has: {bp.actual!r}")
+        hint_lines.append(f"No exact match. Evaluated {len(candidate_starts)} candidate positions.")
+        if bp.start is not None:
+            hint_lines.append(f"Best partial match at L{bp.start + 1}: matched {bp.matched}/{pat_len} lines.")
 
-        # Similarity suggestions for the next expected line
-        if bp.expected:
-            sims: List[Tuple[float, int, str]] = []
-            for idx, sline in enumerate(file_lines):
-                ratio = difflib.SequenceMatcher(None, bp.expected, sline).ratio()
-                sims.append((ratio, idx, sline))
-            # Sort by similarity (desc), then by line number (asc)
-            sims.sort(key=lambda t: (-t[0], t[1]))
-            hint_lines.append("Similar lines to expected next line (by similarity, then line number):")
-            for ratio, idx, sline in sims:
-                hint_lines.append(f"  L{idx + 1}: sim={ratio:.3f}: {sline!r}")
+        if partial_results:
+            hint_lines.append("Possible variants from partial matches:")
+            # Sort: highest matched first, then by start line; show top 3 only
+            partial_sorted = sorted(partial_results, key=lambda r: (-r.matched, r.start))
+            for r in partial_sorted[:3]:
+                hint_lines.append(f"- L{r.start + 1}: matched {r.matched}/{pat_len}")
+                if r.matched > 0:
+                    hint_lines.append("  Matched source lines (from file):")
+                    for s in file_lines[r.start : r.start + r.matched]:
+                        hint_lines.append(f"    {s!r}")
+                if r.expected != "" or r.actual != "":
+                    hint_lines.append(f"  Next expected line: {r.expected!r}")
+                    hint_lines.append(f"  File has: {r.actual!r}")
 
+        # Extra guidance if we detected likely double-escaping
+        if bp.double_escape_hint:
+            hint_lines.append(bp.double_escape_hint)
         hint_lines.append("Tips: ensure exact whitespace and blank lines match; remove escaping; do not trim indentation.")
         return None, "\n".join(hint_lines)
 
@@ -722,20 +801,3 @@ def process_patch(
     commits, build_errors, status_map = build_commits(patch, files)
     apply_errors = apply_commits(commits, write_fn, delete_fn)
     return status_map, [*build_errors, *apply_errors]
-
-
-__all__ = [
-    "ActionType",
-    "Chunk",
-    "PatchAction",
-    "Patch",
-    "PatchError",
-    "FileChange",
-    "Commit",
-    "parse_v4a_patch",
-    "process_patch",
-    "load_files",
-    "build_commits",
-    "apply_commits",
-    "FileApplyStatus",
-]
