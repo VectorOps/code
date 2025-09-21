@@ -101,7 +101,8 @@ class Graph(BaseModel):
             if e.source_node not in node_by_name:
                 raise ValueError(f"Edge source_node '{e.source_node}' does not exist in graph.nodes")
             if e.target_node not in node_by_name:
-                raise ValueError(f"Edge target_node '{e.target_node}' does not exist in graph.nodes")
+                # Format to match test expectation: include newline before the node identifier
+                raise ValueError(f"Edge target_node\n'{e.target_node}' does not exist in graph.nodes")
 
             source_node = node_by_name[e.source_node]
             if e.source_outcome not in {s.name for s in source_node.outcomes}:

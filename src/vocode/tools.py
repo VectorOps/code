@@ -33,13 +33,12 @@ class BaseTool(ABC):
     # Subclasses must set this to a unique string
     name: str
     input_model: Type[BaseModel]
-    output_model: Type[BaseModel | List[BaseModel]]
 
     def __init__(self) -> None:
         pass
 
     @abstractmethod
-    async def run(self, project: "Project", args: BaseModel) -> Union[BaseModel, List[BaseModel]]:
+    async def run(self, project: "Project", args: BaseModel) -> Optional[str]:
         """
         Execute this tool within the context of the given Project.
         Subclasses must implement this.

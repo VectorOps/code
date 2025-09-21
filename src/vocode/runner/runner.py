@@ -393,18 +393,9 @@ class Runner:
                 continue
 
             try:
-                result_obj = await tool.run(self.project, args_model)
-                if isinstance(result_obj, BaseModel):
-                    result_payload = result_obj.model_dump()
-                elif isinstance(result_obj, list):
-                    result_payload = [
-                        (item.model_dump() if isinstance(item, BaseModel) else item)
-                        for item in result_obj
-                    ]
-                else:
-                    result_payload = result_obj
+                result = await tool.run(self.project, args_model)
                 tc.status = ToolCallStatus.completed
-                tc.result = result_payload
+                tc.result = result
             except Exception as e:
                 tc.status = ToolCallStatus.rejected
                 tc.result = {"error": f"Tool '{tc.name}' failed: {str(e)}"}

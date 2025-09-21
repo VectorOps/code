@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from pydantic import BaseModel
-from typing import Any, Dict, Union, TYPE_CHECKING
+from typing import Any, Dict, Union, TYPE_CHECKING, Optional
 
 from vocode.project import init_project
 from vocode.tools import BaseTool, register_tool
@@ -26,7 +26,7 @@ def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeyp
     class EchoTool(BaseTool):
         name = "echo"
 
-        async def run(self, project: "Project", args: BaseModel) -> Union[BaseModel, Any]:
+        async def run(self, project: "Project", args: BaseModel) -> Optional[str]:
             pass
 
         def openapi_spec(self) -> Dict[str, Any]:
@@ -35,7 +35,7 @@ def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeyp
     class NeedsTool(BaseTool):
         name = "needs"
 
-        async def run(self, project: "Project", args: BaseModel) -> Union[BaseModel, Any]:
+        async def run(self, project: "Project", args: BaseModel) -> Optional[str]:
             pass
 
         def openapi_spec(self) -> Dict[str, Any]:
@@ -44,7 +44,7 @@ def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeyp
     class DisabledTool(BaseTool):
         name = "disabled"
 
-        async def run(self, project: "Project", args: BaseModel) -> Union[BaseModel, Any]:
+        async def run(self, project: "Project", args: BaseModel) -> Optional[str]:
             pass
 
         def openapi_spec(self) -> Dict[str, Any]:

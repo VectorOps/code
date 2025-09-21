@@ -102,6 +102,7 @@ Concrete example: files that were read and already in context.
 *** [X] Add a way to write file changes after confirmation
 *** [X] Tell Know that files were updated and project needs to be updated
 *** [X] Handle all kind of errors - mismatched chunks, etc
+*** [ ] Add patch tool mode for V4A specifically. It double-escapes everything quoted.
 ** [ ] Create RepoMap node - call into Know with provided prompt
 ** [ ] Create documentation node - read AGENT.md files for all paths that are mentioned in previous messages.
 - Have configuration for static message text

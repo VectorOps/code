@@ -21,15 +21,13 @@ class _KnowToolWrapper(BaseTool):
         self.name = self._know_tool.tool_name
         # Propagate input/output model types from the Know tool
         self.input_model = self._know_tool.tool_input
-        self.output_model = self._know_tool.tool_output
 
     def openapi_spec(self) -> dict[str, Any]:
         return self._know_tool.get_openai_schema()
 
-    async def run(self, project: "Project", args: BaseModel) -> Union[BaseModel, Any]:
+    async def run(self, project: "Project", args: BaseModel) -> Optional[str]:
         def do_execute():
-            result = self._know_tool.execute(project.know.pm, args)
-            return self._know_tool.to_python(result)
+            return self._know_tool.execute(project.know.pm, args)
 
         return await know_thread.async_proxy()(do_execute)()
 
