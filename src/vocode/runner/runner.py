@@ -450,7 +450,16 @@ class Runner:
             if conf in (Confirmation.prompt, Confirmation.confirm):
                 return i
         return None
-
+    def _find_last_history_with_user_input_index(self) -> Optional[int]:
+        """
+        Find the most recent history step that already has a recorded user response
+        (either a post-final user message or an approval). Returns its index or None.
+        """
+        for i in range(len(self._history) - 1, -1, -1):
+            h = self._history[i]
+            if h.response is not None:
+                return i
+        return None
     def _find_last_user_input_step_index(self, task: Assignment) -> Optional[int]:
         """
         Find the most recent step that contains an actual user response (message.role == 'user').
@@ -496,11 +505,12 @@ class Runner:
             self.status = RunnerStatus.stopped
             return
 
-        # Case 2: replace last message_request input -> pop including that step to re-execute
+        # Case 2: replace last message_request user input -> pop including that step to re-execute
         step_idx = self._find_last_user_input_step_index(task)
         if step_idx is None:
             raise RuntimeError("No previous user input to replace")
-        # Pop history entries from that step onward (inclusive)
+        # Note: history length typically matches number of finished steps.
+        # We conservatively pop all history entries whose index >= step_idx.
         to_pop_hist = max(0, len(self._history) - step_idx)
         for _ in range(to_pop_hist):
             if self._history:
@@ -532,35 +542,37 @@ class Runner:
         self.status = RunnerStatus.running
         graph = self.workflow.graph
         incoming_policy_override: Optional[ResetPolicy] = None
-
         # Runner resuming
-        resume_info = None
-        if prev_status == RunnerStatus.stopped:
-            resume_info = self._prepare_resume(task)
-
         pending_input_messages: List[Message] = []
-
-        # Preloaded request/response/activity when resuming from a rewound final
         preloaded_req: Optional[ReqPacket] = None
         preloaded_final_act: Optional[Activity] = None
         preloaded_resp_default: Optional[RespPacket] = None
+        resume_info = None
 
-        if resume_info is not None:
-            next_rn, next_msgs, incoming_policy_override = resume_info
-            if next_rn is None:
+        if prev_status == RunnerStatus.stopped and self._resume_history_step is not None:
+            # Resume anchored at the saved history step (exact node+messages)
+            rn = self._find_runtime_node_by_name(self._resume_history_step.node)
+            if rn is None:
                 self.status = RunnerStatus.finished
                 return
-            current_runtime_node = next_rn
-            pending_input_messages = list(next_msgs or [])
-        else:
-            current_runtime_node = graph.root
-            pending_input_messages = [self.initial_message] if self.initial_message is not None else []
-
-        # If we have a resume history step saved from rewind(), inject its request/activity/response
-        if self._resume_history_step is not None:
+            current_runtime_node = rn
+            pending_input_messages = list(self._resume_history_step.messages or [])
             preloaded_req = self._resume_history_step.req
             preloaded_final_act = self._resume_history_step.activity
             preloaded_resp_default = self._resume_history_step.response
+        else:
+            if prev_status == RunnerStatus.stopped:
+                resume_info = self._prepare_resume(task)
+            if resume_info is not None:
+                next_rn, next_msgs, incoming_policy_override = resume_info
+                if next_rn is None:
+                    self.status = RunnerStatus.finished
+                    return
+                current_runtime_node = next_rn
+                pending_input_messages = list(next_msgs or [])
+            else:
+                current_runtime_node = graph.root
+                pending_input_messages = [self.initial_message] if self.initial_message is not None else []
 
         def _clear_resume_markers():
             nonlocal preloaded_req, preloaded_final_act, preloaded_resp_default

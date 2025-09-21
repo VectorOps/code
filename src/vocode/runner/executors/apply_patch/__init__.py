@@ -141,47 +141,79 @@ class ApplyPatchExecutor(Executor):
             )
             # Compose result message based on statuses and errors
             created = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Create])
-            updated = sorted([f for f, s in statuses.items() if s in (FileApplyStatus.Update, FileApplyStatus.PartialUpdate)])
+            updated_full = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Update])
+            updated_partial = sorted([f for f, s in statuses.items() if s == FileApplyStatus.PartialUpdate])
             deleted = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Delete])
 
             if errs:
-                # Failure: include summary of what did get applied, then list errors
-                parts = []
-                if created:
-                    parts.append(f"{len(created)} added")
-                if updated:
-                    parts.append(f"{len(updated)} updated")
-                if deleted:
-                    parts.append(f"{len(deleted)} deleted")
-                summary = ""
-                if parts:
-                    summary = " Applied: " + ", ".join(parts) + "."
+                # Determine what actually got applied based on successful IO (changes_map)
+                actually_applied = sorted(changes_map.keys())
+                applied_any = bool(actually_applied)
 
-                lines = ["Failed to apply patch fully. Please analyze following error messages and provide fixed patch." + summary]
+                failed_files = sorted({e.filename for e in errs if getattr(e, "filename", None)})
+                # Ask to regenerate chunks for partial files and for files that failed entirely
+                targets_for_fix = sorted(set(updated_partial) | (set(failed_files) - set(actually_applied)))
+
+                lines: list[str] = []
+                if not applied_any:
+                    # Nothing was applied at all: request a brand new full patch
+                    lines.append("Failed to apply patch. No changes were applied.")
+                    lines.append("Please generate a new complete patch that applies cleanly to the current repository state.")
+                else:
+                    # Some changes landed: summarize precisely and ask to regenerate only failed chunks
+                    lines.append("Applied patch partially. Some changes were written, but at least one chunk failed.")
+
+                    # What actually happened on disk
+                    if actually_applied:
+                        lines.append("Successfully applied to files:")
+                        for f in actually_applied:
+                            lines.append(f"* {f}")
+
+                    # Be explicit about partials
+                    if updated_partial:
+                        lines.append("Files with partial updates (some chunks applied, some failed):")
+                        for f in updated_partial:
+                            lines.append(f"* {f}")
+
+                    # Ask for regeneration of failed pieces only
+                    if targets_for_fix:
+                        lines.append("Please regenerate patch chunks only for the failed parts in these files:")
+                        for f in targets_for_fix:
+                            lines.append(f"* {f}")
+                    else:
+                        # Fallback if we could not identify a specific target list
+                        lines.append("Please regenerate patch chunks for the parts that failed.")
+
+                # Append detailed error list with hints
+                lines.append("Errors:")
                 for e in errs:
                     loc = ""
                     if e.filename and e.line:
                         loc = f"{e.filename}:{e.line}: "
                     elif e.filename:
                         loc = f"{e.filename}: "
-                    lines.append(f"- {loc}{e.msg}")
-                    if e.hint:
+                    lines.append(f"* {loc}{e.msg}")
+                    if getattr(e, "hint", None):
                         lines.append(f"  Hint: {e.hint}")
+
                 final = Message(role="agent", text="\n".join(lines))
                 outcome = "fail"
             else:
                 # Success summary
-                parts = []
+                lines = ["Applied patch successfully."]
                 if created:
-                    parts.append(f"{len(created)} added: {', '.join(created)}")
-                if updated:
-                    parts.append(f"{len(updated)} updated: {', '.join(updated)}")
+                    lines.append("Added:")
+                    for f in created:
+                        lines.append(f"* {f}")
+                if updated_full:
+                    lines.append("Updated:")
+                    for f in updated_full:
+                        lines.append(f"* {f}")
                 if deleted:
-                    parts.append(f"{len(deleted)} deleted: {', '.join(deleted)}")
-                summary = "Applied patch successfully."
-                if parts:
-                    summary += " Changes: " + "; ".join(parts) + "."
-                final = Message(role="agent", text=summary)
+                    lines.append("Deleted:")
+                    for f in deleted:
+                        lines.append(f"* {f}")
+                final = Message(role="agent", text="\n".join(lines))
 
             # Build the accumulated list for refresh
             changed_files = [

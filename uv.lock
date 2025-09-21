@@ -608,7 +608,7 @@ wheels = [
 [[package]]
 name = "know"
 version = "0.1.0"
-source = { git = "https://github.com/VectorOps/know.git#a0f66cdd6c5ebd87d1fb455df38a63f06e512b8e" }
+source = { git = "https://github.com/VectorOps/know.git#454a266d9396f36e529bb2c8de6076333c9d8e71" }
 dependencies = [
     { name = "click" },
     { name = "devtools" },
