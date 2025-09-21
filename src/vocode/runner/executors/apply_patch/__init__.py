@@ -16,6 +16,7 @@ from vocode.runner.models import (
 )
 
 from .v4a import process_patch, DiffError
+from .models import FileApplyStatus
 
 
 class ApplyPatchExecutor(Executor):
@@ -132,12 +133,56 @@ class ApplyPatchExecutor(Executor):
                 self._remove_file(rel)
                 _record(rel, FileChangeType.DELETED)
 
-            _ = process_patch(
+            statuses, errs = process_patch(
                 patch_text,
                 open_fn=self._open_file,
                 write_fn=tracking_write,
-                remove_fn=tracking_remove,
+                delete_fn=tracking_remove,
             )
+            # Compose result message based on statuses and errors
+            created = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Create])
+            updated = sorted([f for f, s in statuses.items() if s in (FileApplyStatus.Update, FileApplyStatus.PartialUpdate)])
+            deleted = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Delete])
+
+            if errs:
+                # Failure: include summary of what did get applied, then list errors
+                parts = []
+                if created:
+                    parts.append(f"{len(created)} added")
+                if updated:
+                    parts.append(f"{len(updated)} updated")
+                if deleted:
+                    parts.append(f"{len(deleted)} deleted")
+                summary = ""
+                if parts:
+                    summary = " Applied: " + ", ".join(parts) + "."
+
+                lines = ["Failed to apply patch fully. Please analyze following error messages and provide fixed patch." + summary]
+                for e in errs:
+                    loc = ""
+                    if e.filename and e.line:
+                        loc = f"{e.filename}:{e.line}: "
+                    elif e.filename:
+                        loc = f"{e.filename}: "
+                    lines.append(f"- {loc}{e.msg}")
+                    if e.hint:
+                        lines.append(f"  Hint: {e.hint}")
+                final = Message(role="agent", text="\n".join(lines))
+                outcome = "fail"
+            else:
+                # Success summary
+                parts = []
+                if created:
+                    parts.append(f"{len(created)} added: {', '.join(created)}")
+                if updated:
+                    parts.append(f"{len(updated)} updated: {', '.join(updated)}")
+                if deleted:
+                    parts.append(f"{len(deleted)} deleted: {', '.join(deleted)}")
+                summary = "Applied patch successfully."
+                if parts:
+                    summary += " Changes: " + "; ".join(parts) + "."
+                final = Message(role="agent", text=summary)
+
             # Build the accumulated list for refresh
             changed_files = [
                 FileChangeModel(type=chg_type, relative_filename=rel)
@@ -145,8 +190,7 @@ class ApplyPatchExecutor(Executor):
             ]
             # Schedule a non-blocking project refresh in the background (do not await).
             asyncio.create_task(self.project.refresh(files=changed_files))  # type: ignore[attr-defined]
-            final = Message(role="agent", text="Done!")
-        except DiffError as e:
+        except Exception as e:
             final = Message(role="agent", text=f"Error applying patch: {e}")
             outcome = "fail"
 

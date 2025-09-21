@@ -13,7 +13,9 @@ Required envelope:
 *** Begin Patch
 [YOUR_PATCH]
 *** End Patch
-V4A format inside the envelope:
+```
+
+V4A format inside the [YOUR PATCH] envelope:
 
 Each file appears exactly once as one of:
 *** Add File: <relative/path>
@@ -23,8 +25,8 @@ Each file appears exactly once as one of:
 For Update/Add files, changes are expressed with context blocks:
 
 [3 lines of pre-context EXACTLY matching file contents]
-- <old line>
-+ <new line>
+- <old line prefixed with minus and one space>
++ <new line prefixed with plus and one space>
 [3 lines of post-context EXACTLY matching file contents]
 
 Context rules:
@@ -33,7 +35,7 @@ Context rules:
 * If insufficient to disambiguate, add an @@ anchor naming the class or function:
   @@ class BaseClass
   @@ def method_name(...):
-
+* @@ anchor can also be used without class or function name to separate individual patches of the file
 * If two changes contexts would overlap, do not duplicate overlapping lines.
 
 Absolute paths are forbidden; use relative paths only.

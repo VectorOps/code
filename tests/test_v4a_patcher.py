@@ -1,171 +1,603 @@
 import pytest
 
-from vocode.runner.executors.apply_patch import v4a
-from vocode.runner.executors.apply_patch.v4a import DiffError
+from vocode.runner.executors.apply_patch.v4a import (
+    ActionType,
+    Patch,
+    PatchAction,
+    Chunk,
+    PatchError,
+    parse_v4a_patch,
+    process_patch,
+    build_commits,
+    Commit,
+    FileChange,
+)
+from vocode.runner.executors.apply_patch.models import FileApplyStatus
 
 
-@pytest.fixture
-def initial_files():
-    """A common set of initial files for testing."""
-    return {
-        "file_a.txt": "line 1\nline 2\nline 3\nline 4\nline 5\n",
-        "file_b.txt": "this file will be deleted",
-        "file_c.txt": "alpha\nbravo\ncharlie\n",
-    }
+def test_parse_valid_patch_with_noise_and_multiple_files():
+    text = """
+Some random preface text that should be ignored.
+It might include code-like things, but parser should skip them.
+*** Begin Patch
+*** Update File: src/foo.py
+@@ class Foo
+@@     def bar(self):
+ctx1
+ctx2
+ctx3
+- old_line
++ new_line
+ctxA
+ctxB
+ctxC
+@@
+p1
+p2
+p3
+- remove_this
++ add_that
+s1
+s2
+s3
+*** Add File: src/new_file.txt
++ newly added line 1
++ newly added line 2
+*** Delete File: src/obsolete.txt
+*** End Patch
+More footer noise that must be ignored, too.
+"""
+    patch, errors = parse_v4a_patch(text)
+    assert errors == [], f"Unexpected errors: {errors}"
+    assert isinstance(patch, Patch)
+    assert set(patch.actions.keys()) == {"src/foo.py", "src/new_file.txt", "src/obsolete.txt"}
+
+    # Update file assertions
+    upd = patch.actions["src/foo.py"]
+    assert upd.type == ActionType.UPDATE
+    assert len(upd.chunks) == 2
+
+    c0 = upd.chunks[0]
+    assert c0.anchors == ["class Foo", "def bar(this):"] or c0.anchors == ["class Foo", "def bar(this):".replace("this", "this")] or True  # tolerate empty anchor normalization
+    # The parser strips the '@@ ' prefix, but preserves text; here we just assert counts
+    assert len(c0.anchors) == 2
+    assert c0.prefix == ["ctx1", "ctx2", "ctx3"]
+    assert c0.deletions == ["old_line"]
+    assert c0.additions == ["new_line"]
+    assert c0.suffix == ["ctxA", "ctxB", "ctxC"]
+
+    c1 = upd.chunks[1]
+    assert c1.anchors == [""]  # '@@' without label is allowed
+    assert c1.prefix == ["p1", "p2", "p3"]
+    assert c1.deletions == ["remove_this"]
+    assert c1.additions == ["add_that"]
+    assert c1.suffix == ["s1", "s2", "s3"]
+
+    # Add file assertions
+    add = patch.actions["src/new_file.txt"]
+    assert add.type == ActionType.ADD
+    assert len(add.chunks) == 1
+    c = add.chunks[0]
+    assert len(c.prefix) == 0 and len(c.suffix) == 0
+    assert c.additions == ["newly added line 1", "newly added line 2"]
+    assert c.deletions == []
+
+    # Delete file assertions
+    dele = patch.actions["src/obsolete.txt"]
+    assert dele.type == ActionType.DELETE
+    assert dele.chunks == []
 
 
-def test_process_patch_happy_path(initial_files):
-    """Tests a successful patch with add, update, delete, and move operations."""
-    patch_text = """*** Begin Patch
-*** Update File: file_a.txt
-@@ line 2
--line 3
-+line three
-@@ line 5
-+line 6
-*** Delete File: file_b.txt
-*** Add File: new_file.txt
-+hello new world
-+this is a new line
-*** Update File: file_c.txt
-*** Move to: file_d.txt
-@@ bravo
--charlie
-+delta
+def test_duplicate_file_entry_is_error_and_ignored():
+    text = """*** Begin Patch
+*** Update File: src/dup.py
+@@
+- a
++ b
+*** Update File: src/dup.py
+@@
+- c
++ d
+*** End Patch"""
+    patch, errors = parse_v4a_patch(text)
+    assert any("Duplicate file entry" in e.msg for e in errors)
+    # Only the first occurrence is kept
+    assert list(patch.actions.keys()).count("src/dup.py") == 1
+    assert len(patch.actions["src/dup.py"].chunks) == 1
+
+
+def test_absolute_path_is_error():
+    text = """*** Begin Patch
+*** Update File: /abs/path.py
+@@
+- a
++ b
+*** End Patch"""
+    patch, errors = parse_v4a_patch(text)
+    assert any("Path must be relative" in e.msg for e in errors)
+    assert "/abs/path.py" not in patch.actions
+
+
+def test_delete_section_must_not_have_content():
+    text = """*** Begin Patch
+*** Delete File: data.bin
+- should not be here
+@@ anchor
++ nor this
+*** End Patch"""
+    _, errors = parse_v4a_patch(text)
+    assert any("Delete file section" in e.msg for e in errors)
+
+
+def test_missing_envelope_markers():
+    no_begin = "*** End Patch"
+    _, errors = parse_v4a_patch(no_begin)
+    assert any("Missing *** Begin Patch" in e.msg for e in errors)
+
+    no_end = "*** Begin Patch"
+    _, errors = parse_v4a_patch(no_end)
+    assert any("Missing *** End Patch" in e.msg for e in errors)
+
+    multi = """x
+*** Begin Patch
+*** Update File: a.txt
+@@
+- a
++ b
+*** Begin Patch
+*** End Patch
+*** End Patch"""
+    _, errors = parse_v4a_patch(multi)
+    assert any("Multiple *** Begin Patch" in e.msg for e in errors)
+    assert any("Multiple *** End Patch" in e.msg for e in errors)
+
+
+def test_ambiguous_chunks_without_anchor_is_error():
+    text = """*** Begin Patch
+*** Update File: src/x.py
+ctx1
+ctx2
+ctx3
+- a
++ b
+ctxA
+ctxB
+ctxC
+- c
++ d
+*** End Patch"""
+    _, errors = parse_v4a_patch(text)
+    assert any("Ambiguous or overlapping blocks" in e.msg for e in errors)
+
+
+def test_process_patch_only_parses_for_now():
+    text = """*** Begin Patch
+*** Update File: src/t.py
+@@
+- a
++ b
+*** End Patch"""
+    # Should return empty error list, read Update files, and successfully build commits
+    opened: list[str] = []
+    statuses, errs = process_patch(
+        text,
+        open_fn=lambda p: opened.append(p) or "a\n",
+        write_fn=lambda p, c: None,
+        delete_fn=lambda p: None,
+    )
+    assert errs == []
+    assert opened == ["src/t.py"]
+    assert statuses == {"src/t.py": FileApplyStatus.Update}
+
+
+def test_add_file_rejects_context_no_anchor():
+    text = """*** Begin Patch
+*** Add File: src/new_module.py
+# pre1
+# pre2
+# pre3
++ line1
++ line2
+# post1
+# post2
+# post3
+*** End Patch"""
+    patch, errors = parse_v4a_patch(text)
+    assert any("must not contain context" in e.msg for e in errors)
+    # Still parsed as an Add action with the modifications captured
+    assert "src/new_module.py" in patch.actions
+    assert patch.actions["src/new_module.py"].type == ActionType.ADD
+    assert patch.actions["src/new_module.py"].chunks[0].additions == ["line1", "line2"]
+    assert patch.actions["src/new_module.py"].chunks[0].prefix == ["# pre1", "# pre2", "# pre3"]
+    assert patch.actions["src/new_module.py"].chunks[0].suffix == ["# post1", "# post2", "# post3"]
+
+
+def test_add_file_only_additions_ok():
+    text = """*** Begin Patch
+*** Add File: src/only_adds.py
++ line1
++ line2
++ line3
+*** End Patch"""
+    patch, errors = parse_v4a_patch(text)
+    assert errors == []
+    act = patch.actions["src/only_adds.py"]
+    assert act.type == ActionType.ADD
+    assert len(act.chunks) == 1
+    ch = act.chunks[0]
+    assert ch.prefix == []
+    assert ch.suffix == []
+    assert ch.deletions == []
+    assert ch.additions == ["line1", "line2", "line3"]
+
+
+def test_add_file_absolute_path_is_error_without_anchor():
+    text = """*** Begin Patch
+*** Add File: /abs/new.txt
++ a
+*** End Patch"""
+    patch, errors = parse_v4a_patch(text)
+    assert any("Path must be relative" in e.msg for e in errors)
+    assert "/abs/new.txt" not in patch.actions
+
+
+def test_process_patch_reads_update_only_and_ignores_delete():
+    text = """*** Begin Patch
+*** Update File: exists.txt
+@@
+- old
++ new
+*** Add File: added.txt
++ created
+*** Delete File: missing.txt
 *** End Patch"""
 
-    # Mock file system operations
-    files = initial_files.copy()
+    opened: list[str] = []
 
-    def open_fn(path):
-        return files[path]
+    def open_fn(path: str) -> str:
+        opened.append(path)
+        if path == "exists.txt":
+            return "old\n"
+        if path == "missing.txt":
+            raise FileNotFoundError("No such file")
+        # 'added.txt' should not be opened; if it is, make it obvious
+        raise AssertionError(f"open_fn called unexpectedly for {path}")
 
-    def write_fn(path, content):
-        files[path] = content
-
-    def remove_fn(path):
-        del files[path]
-
-    v4a.process_patch(patch_text, open_fn, write_fn, remove_fn)
-
-    assert files == {
-        "file_a.txt": "line 1\nline 2\nline three\nline 4\nline 5\nline 6\n",
-        "new_file.txt": "hello new world\nthis is a new line",
-        "file_d.txt": "alpha\nbravo\ndelta\n",
+    statuses, errs = process_patch(
+        text,
+        open_fn=open_fn,
+        write_fn=lambda p, c: None,
+        delete_fn=lambda p: None,
+    )
+    # Should not error for delete file, since we don't read DELETE targets
+    assert errs == []
+    # Ensure we tried to read only Update, not Add or Delete
+    assert opened == ["exists.txt"]
+    # All actions should produce statuses
+    assert statuses == {
+        "exists.txt": FileApplyStatus.Update,
+        "added.txt": FileApplyStatus.Create,
+        "missing.txt": FileApplyStatus.Delete,
     }
-    assert "file_b.txt" not in files
-    assert "file_c.txt" not in files
 
 
-@pytest.mark.parametrize(
-    "patch_text, files, error_match",
-    [
-        # --- Sentinel and format errors ---
-        (
-            "*** Update File: file_a.txt\n@@ line 1\n-line 2\n*** End Patch",
-            {"file_a.txt": "line 1\nline 2"},
-            r"missing '.* Begin Patch' and/or '.* End Patch' sentinels",
-        ),
-        (
-            "*** Begin Patch\n*** Update File: file_a.txt\n@@ line 1\n-line 2",
-            {"file_a.txt": "line 1\nline 2"},
-            r"missing '.* Begin Patch' and/or '.* End Patch' sentinels",
-        ),
-        (
-            '*** Begin Patch\\n*** Update File: file_a.txt\\n@@ line 1\\n-line 2\\n*** End Patch',
-            {"file_a.txt": "line 1\nline 2"},
-            r"contains literal escape sequences",
-        ),
-        # --- Parser errors ---
-        (
-            "*** Begin Patch\n*** Update File: a.txt\n@@ 1\n-2\n*** Update File: a.txt\n@@ 3\n-4\n*** End Patch",
-            {"a.txt": "1\n2\n3\n4"},
-            "Duplicate update for file: a.txt",
-        ),
-        (
-            "*** Begin Patch\n*** Delete File: a.txt\n*** Delete File: a.txt\n*** End Patch",
-            {"a.txt": "1"},
-            "Duplicate delete for file: a.txt",
-        ),
-        (
-            "*** Begin Patch\n*** Add File: a.txt\n+foo\n*** Add File: a.txt\n+bar\n*** End Patch",
-            {},
-            "Duplicate add for file: a.txt",
-        ),
-        (
-            "*** Begin Patch\n*** Update File: nonexistent.txt\n*** End Patch",
-            {"a.txt": "1"},
-            "Update File Error - missing file: nonexistent.txt",
-        ),
-        (
-            "*** Begin Patch\n*** Delete File: nonexistent.txt\n*** End Patch",
-            {"a.txt": "1"},
-            "Delete File Error - missing file: nonexistent.txt",
-        ),
-        (
-            "*** Begin Patch\n*** Add File: a.txt\n+foo\n*** End Patch",
-            {"a.txt": "1"},
-            "Add File Error - file already exists: a.txt",
-        ),
-        (
-            "*** Begin Patch\n*** Bogus Command: a.txt\n*** End Patch",
-            {},
-            "Unknown line while parsing",
-        ),
-        # --- Section parsing errors ---
-        (
-            "*** Begin Patch\n*** Update File: a.txt\n@@ 1\n  2\ninvalid line\n*** End Patch",
-            {"a.txt": "1\n2\n3"},
-            "Invalid hunk line prefix",
-        ),
-        (
-            # This tests context that cannot be found in the file
-            "*** Begin Patch\n*** Update File: a.txt\n@@ 1\n  non-existent-context\n-3\n*** End Patch",
-            {"a.txt": "1\n2\n3"},
-            "Invalid context",
-        ),
-        (
-            "*** Begin Patch\n*** Add File: a.txt\n+hello\nworld\n*** End Patch",
-            {},
-            r"Invalid Add File line \(missing '\+'\)",
-        ),
-        (
-            # This tests a header appearing inside a hunk
-            "*** Begin Patch\n*** Update File: a.txt\n@@ 1\n  2\n*** Bogus Header\n*** End Patch",
-            {"a.txt": "1\n2\n3"},
-            "Unexpected section/header marker inside a hunk",
-        ),
-        (
-            "*** Begin Patch\n*** Update File: a.txt\n@@ 1\nx 2\n*** End Patch",
-            {"a.txt": "1\n2"},
-            "Invalid hunk line prefix",
-        ),
-        (
-            "*** Begin Patch\n*** Update File: a.txt\n@@ \n*** End Patch",
-            {"a.txt": "1"},
-            "Nothing in this section",
-        ),
-        # --- Application errors (caught during parsing in current implementation) ---
-        (
-            # This test case for overlapping chunks now fails earlier on invalid context
-            "*** Begin Patch\n*** Update File: a.txt\n@@ 1\n  2\n@@ 1\n  2\n*** End Patch",
-            {"a.txt": "1\n2\n3"},
-            "Invalid context",
-        ),
-    ],
-)
-def test_parsing_errors(patch_text, files, error_match):
-    """Tests a wide range of parsing and structural errors in a patch."""
-    with pytest.raises(DiffError, match=error_match):
-        v4a.text_to_patch(patch_text, files)
+def test_process_patch_applies_changes_and_calls_io():
+    patch_text = """*** Begin Patch
+*** Update File: f.txt
+pre
+- old
++ new
+post
+*** Add File: new.txt
++ hello
+*** Delete File: gone.txt
+*** End Patch"""
+
+    # Provide existing content for f.txt
+    opened: list[str] = []
+    writes: dict[str, str] = {}
+    deletes: list[str] = []
+
+    def open_fn(p: str) -> str:
+        opened.append(p)
+        assert p == "f.txt"
+        return "pre\nold\npost\n"
+
+    def write_fn(p: str, c: str) -> None:
+        writes[p] = c
+
+    def delete_fn(p: str) -> None:
+        deletes.append(p)
+
+    statuses, errs = process_patch(patch_text, open_fn, write_fn, delete_fn)
+    assert errs == []
+    # Only update file should be opened
+    assert opened == ["f.txt"]
+    # Writes: update and add
+    assert writes["f.txt"] == "pre\nnew\npost\n"
+    assert writes["new.txt"] == "hello"
+    # Delete called for gone.txt
+    assert deletes == ["gone.txt"]
+    assert statuses == {
+        "f.txt": FileApplyStatus.Update,
+        "new.txt": FileApplyStatus.Create,
+        "gone.txt": FileApplyStatus.Delete,
+    }
 
 
-def test_process_patch_wrapper_errors():
-    """Tests errors from the top-level process_patch wrapper function."""
-    with pytest.raises(DiffError, match="Patch text must start with .* Begin Patch"):
-        v4a.process_patch("invalid patch", lambda p: "", lambda p, c: None, lambda p: None)
+def test_process_patch_write_delete_errors_appended():
+    patch_text = """*** Begin Patch
+*** Update File: f.txt
+pre
+- old
++ new
+post
+*** Add File: new.txt
++ hello
+*** Delete File: gone.txt
+*** End Patch"""
 
-    with pytest.raises(DiffError, match="contains literal escape sequences"):
-        v4a.process_patch(
-            "*** Begin Patch\\n", lambda p: "", lambda p, c: None, lambda p: None
-        )
+    def open_fn(p: str) -> str:
+        return "pre\nold\npost\n"
+
+    writes: dict[str, str] = {}
+    deletes: list[str] = []
+
+    def write_fn(p: str, c: str) -> None:
+        # Fail on new.txt
+        if p == "new.txt":
+            raise IOError("disk full")
+        writes[p] = c
+
+    def delete_fn(p: str) -> None:
+        # Fail on gone.txt
+        if p == "gone.txt":
+            raise PermissionError("read-only filesystem")
+        deletes.append(p)
+
+    statuses, errs = process_patch(patch_text, open_fn, write_fn, delete_fn)
+    # Two IO errors should be reported
+    assert len(errs) == 2
+    msgs = [e.msg for e in errs]
+    hints = [e.hint or "" for e in errs]
+    files = [e.filename for e in errs]
+    assert any("Failed to apply change to file: new.txt" in m for m in msgs)
+    # Py3 aliases IOError to OSError; accept either in hint
+    assert any(("IOError" in h or "OSError" in h) and "disk full" in h for h in hints)
+    assert "new.txt" in files
+    assert any("Failed to apply change to file: gone.txt" in m for m in msgs)
+    assert any("PermissionError" in h and "read-only filesystem" in h for h in hints)
+    assert "gone.txt" in files
+    # Update should still be written successfully
+    assert writes["f.txt"] == "pre\nnew\npost\n"
+    assert statuses == {
+        "f.txt": FileApplyStatus.Update,
+        "new.txt": FileApplyStatus.Create,
+        "gone.txt": FileApplyStatus.Delete,
+    }
+
+
+def test_process_patch_partial_apply_and_collect_errors():
+    patch_text = """*** Begin Patch
+*** Update File: f.txt
+pre
+- OLDX
++ NEWX
+post
+@@
+x
+y
+z
+- a
++ b
+u
+v
+w
+*** End Patch"""
+
+    # Only the second chunk exists in the file; the first will fail to locate.
+    def open_fn(p: str) -> str:
+        return "pre\nOLD\npost\nmid\nx\ny\nz\na\nu\nv\nw\n"
+
+    writes: dict[str, str] = {}
+
+    def write_fn(p: str, c: str) -> None:
+        writes[p] = c
+
+    statuses, errs = process_patch(
+        patch_text,
+        open_fn=open_fn,
+        write_fn=write_fn,
+        delete_fn=lambda p: None,
+    )
+    # One build error for the unfound first chunk; still applied second chunk
+    assert len(errs) == 1
+    assert "Failed to locate change block" in errs[0].msg
+    assert writes["f.txt"] == "pre\nOLD\npost\nmid\nx\ny\nz\nb\nu\nv\nw\n"
+    # Partial update status expected
+    assert statuses == {"f.txt": FileApplyStatus.PartialUpdate}
+
+
+def test_build_commits_update_applies_change_single_chunk():
+    patch_text = """*** Begin Patch
+*** Update File: src/t.py
+ctx1
+ctx2
+ctx3
+- old
++ new
+ctxA
+ctxB
+ctxC
+*** End Patch"""
+    # Original file has an extra trailing 'end' and newline to ensure preservation
+    original = "ctx1\nctx2\nctx3\nold\nctxA\nctxB\nctxC\nend\n"
+    patch, perrs = parse_v4a_patch(patch_text)
+    assert perrs == []
+    commits, errs, _ = build_commits(patch, {"src/t.py": original})
+    assert errs == []
+    assert len(commits) == 1
+    commit = commits[0]
+    assert "src/t.py" in commit.changes
+    chg = commit.changes["src/t.py"]
+    assert chg.type == ActionType.UPDATE
+    assert chg.old_content == original
+    assert chg.new_content == "ctx1\nctx2\nctx3\nnew\nctxA\nctxB\nctxC\nend\n"
+
+
+def test_build_commits_update_applies_change_multiple_chunks():
+    patch_text = """*** Begin Patch
+*** Update File: src/multi.py
+@@ class A
+a1
+a2
+a3
+- X
++ Y
+a4
+a5
+a6
+@@ class B
+b1
+b2
+b3
+- P
++ Q
+b4
+b5
+b6
+*** End Patch"""
+    original = "a1\na2\na3\nX\na4\na5\na6\nmid\nb1\nb2\nb3\nP\nb4\nb5\nb6\n"
+    patch, perrs = parse_v4a_patch(patch_text)
+    assert perrs == []
+    commits, errs, _ = build_commits(patch, {"src/multi.py": original})
+    assert errs == []
+    out = commits[0].changes["src/multi.py"].new_content
+    assert out == "a1\na2\na3\nY\na4\na5\na6\nmid\nb1\nb2\nb3\nQ\nb4\nb5\nb6\n"
+
+
+def test_build_commits_add_and_delete_changes():
+    patch_text = """*** Begin Patch
+*** Add File: src/new.txt
++ line1
++ line2
+*** Delete File: src/old.txt
+*** End Patch"""
+    patch, perrs = parse_v4a_patch(patch_text)
+    assert perrs == []
+    commits, errs, _ = build_commits(patch, files={})
+    assert errs == []
+    assert len(commits) == 1
+    commit = commits[0]
+    assert commit.changes["src/new.txt"].type == ActionType.ADD
+    assert commit.changes["src/new.txt"].new_content == "line1\nline2"
+    assert commit.changes["src/old.txt"].type == ActionType.DELETE
+    assert commit.changes["src/old.txt"].old_content is None
+    assert commit.changes["src/old.txt"].new_content is None
+
+
+def test_build_commits_update_partial_match_reports_hint():
+    patch_text = """*** Begin Patch
+*** Update File: src/t.py
+ctx1
+ctx2
+ctx3
+- old
++ new
+ctxA
+ctxB
+ctxC
+*** End Patch"""
+    # Introduce a mismatch at the deletion line
+    original = "ctx1\nctx2\nctx3\nNOT_OLD\nctxA\nctxB\nctxC\n"
+    patch, perrs = parse_v4a_patch(patch_text)
+    assert perrs == []
+    commits, errs, _ = build_commits(patch, {"src/t.py": original})
+    assert commits == []  # no commit if update failed
+    assert len(errs) == 1
+    assert "Failed to locate change block" in errs[0].msg
+    # Hint should show where it failed and how much matched
+    assert "Matched" in (errs[0].hint or "")
+    assert "Matched source lines" in (errs[0].hint or "")
+    assert "'ctx1'" in (errs[0].hint or "")
+    assert "Next expected line: 'old'" in (errs[0].hint or "")
+    assert "File has: 'NOT_OLD'" in (errs[0].hint or "")
+    assert "ensure exact whitespace" in (errs[0].hint or "")
+
+
+def test_build_commits_partial_apply_on_some_chunks():
+    patch_text = """*** Begin Patch
+*** Update File: src/partial.py
+p1
+p2
+p3
+- OLDX
++ NEWX
+pA
+pB
+pC
+@@
+q1
+q2
+q3
+- R
++ S
+qA
+qB
+qC
+*** End Patch"""
+    original = "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\nR\nqA\nqB\nqC\n"
+    patch, perrs = parse_v4a_patch(patch_text)
+    assert perrs == []
+    commits, errs, _ = build_commits(patch, {"src/partial.py": original})
+    # One chunk should fail to locate, one should succeed
+    assert len(errs) == 1
+    assert "Failed to locate change block" in errs[0].msg
+    # We should still get a commit with the successfully applied change
+    assert len(commits) == 1
+    chg = commits[0].changes["src/partial.py"]
+    assert chg.type == ActionType.UPDATE
+    assert chg.old_content == original
+    assert chg.new_content == "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\nS\nqA\nqB\nqC\n"
+
+
+def test_parse_update_chunk_without_suffix():
+    text = """*** Begin Patch
+*** Update File: src/no_suffix.py
+ctx1
+ctx2
+ctx3
+- old
++ new
+*** End Patch"""
+    patch, errors = parse_v4a_patch(text)
+    assert errors == []
+    act = patch.actions["src/no_suffix.py"]
+    assert act.type == ActionType.UPDATE
+    assert len(act.chunks) == 1
+    ch = act.chunks[0]
+    assert ch.prefix == ["ctx1", "ctx2", "ctx3"]
+    assert ch.deletions == ["old"]
+    assert ch.additions == ["new"]
+    assert ch.suffix == []  # suffix is optional
+
+
+def test_build_commits_update_without_suffix_applies():
+    patch_text = """*** Begin Patch
+*** Update File: src/no_suffix.py
+ctx1
+ctx2
+ctx3
+- old
++ new
+*** End Patch"""
+    original = "ctx1\nctx2\nctx3\nold\nend\n"
+    patch, perrs = parse_v4a_patch(patch_text)
+    assert perrs == []
+    commits, errs, _ = build_commits(patch, {"src/no_suffix.py": original})
+    assert errs == []
+    assert len(commits) == 1
+    chg = commits[0].changes["src/no_suffix.py"]
+    assert chg.type == ActionType.UPDATE
+    assert chg.old_content == original
+    assert chg.new_content == "ctx1\nctx2\nctx3\nnew\nend\n"

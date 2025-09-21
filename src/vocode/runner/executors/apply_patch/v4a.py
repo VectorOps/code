@@ -1,27 +1,51 @@
-"""
-A self-contained **pure-Python 3.9+** utility for applying human-readable
-“pseudo-diff” patch files to a collection of text files.
-"""
-import pathlib
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import (
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Union,
-)
+from enum import Enum, auto
+from typing import Callable, Dict, List, Optional, Tuple
+import re
+import os
+
+from .models import FileApplyStatus
 
 
-# --------------------------------------------------------------------------- #
-#  Domain objects
-# --------------------------------------------------------------------------- #
-class ActionType(str, Enum):
-    ADD = "add"
-    DELETE = "delete"
-    UPDATE = "update"
+class DiffError(ValueError):
+    """Any problem detected while parsing or applying a patch."""
+
+
+class ActionType(Enum):
+    ADD = auto()
+    UPDATE = auto()
+    DELETE = auto()
+
+
+@dataclass
+class Chunk:
+    anchors: List[str] = field(default_factory=list)
+    prefix: List[str] = field(default_factory=list)
+    suffix: List[str] = field(default_factory=list)
+    deletions: List[str] = field(default_factory=list)
+    additions: List[str] = field(default_factory=list)
+    start_line: Optional[int] = None
+
+
+@dataclass
+class PatchAction:
+    type: ActionType = ActionType.UPDATE
+    chunks: List[Chunk] = field(default_factory=list)
+
+
+@dataclass
+class Patch:
+    actions: Dict[str, PatchAction] = field(default_factory=dict)
+
+
+@dataclass
+class PatchError:
+    msg: str
+    line: Optional[int] = None
+    hint: Optional[str] = None
+    filename: Optional[str] = None
 
 
 @dataclass
@@ -37,754 +61,650 @@ class Commit:
     changes: Dict[str, FileChange] = field(default_factory=dict)
 
 
-# --------------------------------------------------------------------------- #
-#  Exceptions
-# --------------------------------------------------------------------------- #
-class DiffError(ValueError):
-    """Any problem detected while parsing or applying a patch."""
-
-
-def _format_error_message(
-    message: str,
-    *,
-    file: Optional[str] = None,
-    line_no: Optional[int] = None,
-    got_line: Optional[str] = None,
-    hints: Optional[List[str]] = None,
-) -> str:
-    parts: List[str] = [f"Patch error: {message}"]
-    if file:
-        parts.append(f"File: {file}")
-    if line_no is not None:
-        parts.append(f"Line: {line_no}")
-    if got_line is not None:
-        # Show a safe representation of the line for clarity
-        got = repr(got_line)
-        # Limit extremely long lines to avoid flooding the LLM
-        if len(got) > 500:
-            got = got[:500] + "... (truncated)"
-        parts.append(f"Got line: {got}")
-    if hints:
-        parts.append("Hints:")
-        for h in hints:
-            parts.append(f"- {h}")
-    return "\n".join(parts)
-
-
-def _detect_literal_escapes(text: str) -> List[str]:
-    """
-    Detect common literal escape sequences that indicate the patch
-    was pasted as an escaped string (e.g., '\\n' instead of real newlines).
-    """
-    found: List[str] = []
-    tokens = ["\\r\\n", "\\n", "\\r", "\\t", "\\\""]
-    for tok in tokens:
-        if tok in text:
-            found.append(tok)
-    # Stronger signal: sentinel with literal \n embedded
-    if "*** Begin Patch\\n" in text or "\\n*** End Patch" in text:
-        if "\\n" not in found:
-            found.append("\\n")
-    return found
-
-
-# --------------------------------------------------------------------------- #
-#  Helper dataclasses used while parsing patches
-# --------------------------------------------------------------------------- #
-@dataclass
-class Chunk:
-    orig_index: int = -1
-    del_lines: List[str] = field(default_factory=list)
-    ins_lines: List[str] = field(default_factory=list)
-
+BEGIN_MARKER = "*** Begin Patch"
+END_MARKER = "*** End Patch"
+FILE_HEADER_RE = re.compile(r"^\*\*\*\s+(Add|Update|Delete)\s+File:\s+(.+)$")
+ANCHOR_RE = re.compile(r"^@@(.*)$")
 
 @dataclass
-class PatchAction:
-    type: ActionType
-    new_file: Optional[str] = None
-    chunks: List[Chunk] = field(default_factory=list)
-    move_path: Optional[str] = None
-
+class PartialMatch:
+    matched: int = -1
+    start: Optional[int] = None
+    phase: str = ""
+    expected: str = ""
+    actual: str = ""
+    fail_line: Optional[int] = None
+    prefix_matched: int = 0
+    deletions_matched: int = 0
+    suffix_matched: int = 0
 
 @dataclass
-class Patch:
-    actions: Dict[str, PatchAction] = field(default_factory=dict)
+class MatchResult:
+    ok: bool
+    start: int
+    matched: int
+    phase: str
+    expected: str
+    actual: str
+    fail_index: int  # 0-based index into file_lines where the mismatch/EOF occurred
+    prefix_matched: int
+    deletions_matched: int
+    suffix_matched: int
 
 
-# --------------------------------------------------------------------------- #
-#  Patch text parser
-# --------------------------------------------------------------------------- #
-@dataclass
-class Parser:
-    current_files: Dict[str, str]
-    lines: List[str]
-    index: int = 0
-    patch: Patch = field(default_factory=Patch)
-    fuzz: int = 0
-    current_file: Optional[str] = None
-
-    def _make_err(self, message: str, *, hints: Optional[List[str]] = None) -> DiffError:
-        got_line: Optional[str] = None
-        if 0 <= self.index < len(self.lines):
-            got_line = self.lines[self.index]
-        return DiffError(
-            _format_error_message(
-                message,
-                file=self.current_file,
-                line_no=self.index + 1,
-                got_line=got_line,
-                hints=hints,
-            )
-        )
-
-    # ------------- low-level helpers -------------------------------------- #
-    def _cur_line(self) -> str:
-        if self.index >= len(self.lines):
-            raise DiffError(
-                _format_error_message(
-                    "Unexpected end of input while parsing patch",
-                    file=self.current_file,
-                    line_no=self.index + 1,
-                    hints=[
-                        "Ensure the patch contains all required sections and ends with '*** End Patch'.",
-                        "Do not truncate the patch; include the full content.",
-                    ],
-                )
-            )
-        return self.lines[self.index]
-
-    @staticmethod
-    def _norm(line: str) -> str:
-        """Strip CR so comparisons work for both LF and CRLF input."""
-        return line.rstrip("\r")
-
-    # ------------- scanning convenience ----------------------------------- #
-    def is_done(self, prefixes: Optional[Tuple[str, ...]] = None) -> bool:
-        if self.index >= len(self.lines):
-            return True
-        if (
-            prefixes
-            and len(prefixes) > 0
-            and self._norm(self._cur_line()).startswith(prefixes)
-        ):
-            return True
+def _is_relative_path(p: str) -> bool:
+    # Reject absolute POSIX and Windows (drive or UNC) paths
+    if not p:
         return False
+    if p.startswith("/") or p.startswith("\\"):
+        return False
+    if re.match(r"^[A-Za-z]:[\\/]", p):
+        return False
+    # Normalize and ensure it doesn't escape upward with absolute root
+    norm = os.path.normpath(p)
+    # Keep relative; allow ../ segments, but forbid path becoming absolute after norm
+    return not os.path.isabs(norm)
 
-    def startswith(self, prefix: Union[str, Tuple[str, ...]]) -> bool:
-        return self._norm(self._cur_line()).startswith(prefix)
 
-    def read_str(self, prefix: str) -> str:
-        """
-        Consume the current line if it starts with *prefix* and return the text
-        **after** the prefix.  Raises if prefix is empty.
-        """
-        if prefix == "":
-            raise ValueError("read_str() requires a non-empty prefix")
-        if self._norm(self._cur_line()).startswith(prefix):
-            text = self._cur_line()[len(prefix) :]
-            self.index += 1
-            return text
-        return ""
+def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
+    """
+    Best-effort, resilient V4A parser.
+    - Ignores any text before the first BEGIN marker and after the matching END marker.
+    - Validates:
+        * One BEGIN and one END marker (records errors if multiples).
+        * Each file appears exactly once (duplicates are errors; later ones ignored).
+        * Paths must be relative.
+        * Delete sections must not contain change/content lines.
+        * Context chunk boundaries must be unambiguous (require @@ between multiple chunks).
+        * Context chunks may use any number of prefix/suffix lines (3 is typical).
+    Returns a Patch model and a list of PatchError.
+    """
+    errors: List[PatchError] = []
+    lines = text.splitlines()
 
-    def read_line(self) -> str:
-        """Return the current raw line and advance."""
-        line = self._cur_line()
-        self.index += 1
-        return line
+    begin_idxs = [i for i, l in enumerate(lines) if l.strip() == BEGIN_MARKER]
+    end_idxs = [i for i, l in enumerate(lines) if l.strip() == END_MARKER]
 
-    # ------------- public entry point -------------------------------------- #
-    def parse(self) -> None:
-        while not self.is_done(("*** End Patch",)):
-            # ---------- UPDATE ---------- #
-            path = self.read_str("*** Update File: ")
-            if path:
-                self.current_file = path
-                if path in self.patch.actions:
-                    raise self._make_err(
-                        f"Duplicate update for file: {path}",
-                        hints=[
-                            "Only one '*** Update File:' section per file is allowed.",
-                            "Merge multiple hunks into a single update section for the file.",
-                        ],
-                    )
-                move_to = self.read_str("*** Move to: ")
-                if path not in self.current_files:
-                    raise self._make_err(
-                        f"Update File Error - missing file: {path}",
-                        hints=[
-                            f"If this is a new file, use '*** Add File: {path}' instead of update.",
-                            "If the file should exist, verify the path and ensure it is loaded.",
-                        ],
-                    )
-                text = self.current_files[path]
-                action = self._parse_update_file(text)
-                action.move_path = move_to or None
-                self.patch.actions[path] = action
-                continue
+    def add_error(
+        msg: str,
+        *,
+        line: Optional[int] = None,
+        hint: Optional[str] = None,
+        filename: Optional[str] = None,
+    ):
+        errors.append(PatchError(msg=msg, line=line, hint=hint, filename=filename))
 
-            # ---------- DELETE ---------- #
-            path = self.read_str("*** Delete File: ")
-            if path:
-                self.current_file = path
-                if path in self.patch.actions:
-                    raise self._make_err(
-                        f"Duplicate delete for file: {path}",
-                        hints=[
-                            "Only one '*** Delete File:' section per file is allowed.",
-                            "Remove duplicate delete sections.",
-                        ],
-                    )
-                if path not in self.current_files:
-                    raise self._make_err(
-                        f"Delete File Error - missing file: {path}",
-                        hints=[
-                            "Delete can only target existing files.",
-                            "Remove this section or correct the file path.",
-                        ],
-                    )
-                self.patch.actions[path] = PatchAction(type=ActionType.DELETE)
-                continue
+    if not begin_idxs:
+        return Patch(), [PatchError("Missing *** Begin Patch", line=None, hint="Ensure patch is wrapped with *** Begin Patch / *** End Patch")]
+    if not end_idxs:
+        return Patch(), [PatchError("Missing *** End Patch", line=None, hint="Ensure patch is wrapped with *** Begin Patch / *** End Patch")]
+    if len(begin_idxs) > 1:
+        extra_begins = [str(i + 1) for i in begin_idxs[1:]]
+        add_error("Multiple *** Begin Patch markers found; using the first",
+                  line=begin_idxs[1] + 1,
+                  hint=f"Extra BEGIN markers at lines: {', '.join(extra_begins)}")
+    # Choose the first end after the first begin; if none, error
+    first_begin = begin_idxs[0]
+    ends_after_begin = [i for i in end_idxs if i > first_begin]
+    if not ends_after_begin:
+        add_error("No *** End Patch after *** Begin Patch",
+                  line=first_begin + 1,
+                  hint="Add *** End Patch after this line")
+        return Patch(), errors
+    if len(end_idxs) > 1:
+        first_end_after_begin = ends_after_begin[0]
+        extras = [i for i in end_idxs if i != first_end_after_begin]
+        add_error("Multiple *** End Patch markers found; using the first after begin",
+                  line=(extras[0] + 1) if extras else (first_end_after_begin + 1),
+                  hint=f"Extra END markers at lines: {', '.join(str(i + 1) for i in extras)}")
+    first_end = ends_after_begin[0]
 
-            # ---------- ADD ---------- #
-            path = self.read_str("*** Add File: ")
-            if path:
-                self.current_file = path
-                if path in self.patch.actions:
-                    raise self._make_err(
-                        f"Duplicate add for file: {path}",
-                        hints=[
-                            "Only one '*** Add File:' section per file is allowed.",
-                            "Consolidate the file content in a single add section.",
-                        ],
-                    )
-                if path in self.current_files:
-                    raise self._make_err(
-                        f"Add File Error - file already exists: {path}",
-                        hints=[
-                            "Use '*** Update File:' for modifying existing files.",
-                            "If you intended to replace it, delete first or update in-place.",
-                        ],
-                    )
-                self.patch.actions[path] = self._parse_add_file()
-                continue
+    content = lines[first_begin + 1 : first_end]
 
-            raise self._make_err(
-                f"Unknown line while parsing: {self._cur_line()}",
-                hints=[
-                    "Expected one of: '*** Update File:', '*** Add File:', '*** Delete File:', or '*** End Patch'.",
-                    "If your patch contains literal escape sequences like '\\n', send the patch with real newlines (e.g., in a code block).",
-                ],
+    patch = Patch()
+    seen_paths: set[str] = set()
+
+    current_path: Optional[str] = None
+    current_action: Optional[PatchAction] = None
+    skip_current_file: bool = False
+
+    # Chunk assembly state
+    pending_anchors: List[str] = []
+    current_chunk: Optional[Chunk] = None
+    chunk_has_mods: bool = False  # any +/- seen in current_chunk
+
+    def finish_chunk_if_any():
+        nonlocal current_chunk, chunk_has_mods, pending_anchors
+        if current_chunk is None:
+            # Drop stray anchors if never used
+            pending_anchors = []
+            return
+        # Validate chunk has actual modifications
+        if not (current_chunk.additions or current_chunk.deletions):
+            add_error(
+                f"Chunk in {current_path or '<no file>'} has no modifications",
+                line=current_chunk.start_line,
+                hint="Each chunk must include at least one +/- line",
+                filename=current_path,
             )
+            # Drop it
+        else:
+            # Add action must not include prefix/suffix context
+            if current_action is not None and current_action.type == ActionType.ADD:
+                if current_chunk.prefix or current_chunk.suffix:
+                    add_error(
+                        f"Add file section for {current_path} must not contain context",
+                        line=current_chunk.start_line,
+                        hint="Remove context lines for Add sections; only use + lines",
+                        filename=current_path,
+                    )
+            if current_action is not None:
+                current_action.chunks.append(current_chunk)
+        current_chunk = None
+        chunk_has_mods = False
+        pending_anchors = []
 
-        if not self.startswith("*** End Patch"):
-            raise self._make_err(
-                "Missing *** End Patch sentinel",
-                hints=[
-                    "Ensure the patch ends with a line exactly: *** End Patch",
-                    "If the patch was truncated, include the full content.",
-                ],
-            )
-        self.index += 1  # consume sentinel
+    def start_chunk_if_needed():
+        nonlocal current_chunk, chunk_has_mods, pending_anchors
+        if current_chunk is None:
+            current_chunk = Chunk(anchors=list(pending_anchors), start_line=current_line_num)
+            pending_anchors = []
+            chunk_has_mods = False
 
-    # ------------- section parsers ---------------------------------------- #
-    def _parse_update_file(self, text: str) -> PatchAction:
-        action = PatchAction(type=ActionType.UPDATE)
-        lines = text.split("\n")
-        index = 0
-        while not self.is_done(
-            (
-                "*** End Patch",
-                "*** Update File:",
-                "*** Delete File:",
-                "*** Add File:",
-                "*** End of File",
-            )
-        ):
-            def_str = self.read_str("@@ ")
-            section_str = ""
-            if not def_str and self._norm(self._cur_line()) == "@@":
-                section_str = self.read_line()
+    for current_line_num, raw_line in enumerate(content, start=first_begin + 2):
+        # Detect new file header
+        m_header = FILE_HEADER_RE.match(raw_line)
+        if m_header is not None:
+            # Close previous file and chunk
+            finish_chunk_if_any()
+            current_chunk = None
+            chunk_has_mods = False
+            pending_anchors = []
 
-            if not (def_str or section_str or index == 0):
-                raise self._make_err(
-                    f"Invalid line in update section: {self._cur_line()}",
-                    hints=[
-                        "Each hunk must start with a line beginning '@@ '.",
-                        "Within a hunk, lines must start with ' ', '+', or '-'.",
-                    ],
+            action_word, path = m_header.group(1), m_header.group(2).strip()
+            current_path = path
+            current_action = None
+            skip_current_file = False
+
+            # Validate path
+            if not _is_relative_path(path):
+                add_error(
+                    f"Path must be relative: {path!r}",
+                    line=current_line_num,
+                    hint="Use a relative path, not absolute",
+                    filename=path,
                 )
-
-            if def_str.strip():
-                found = False
-                if def_str not in lines[:index]:
-                    for i, s in enumerate(lines[index:], index):
-                        if s == def_str:
-                            index = i + 1
-                            found = True
-                            break
-                if not found and def_str.strip() not in [
-                    s.strip() for s in lines[:index]
-                ]:
-                    for i, s in enumerate(lines[index:], index):
-                        if s.strip() == def_str.strip():
-                            index = i + 1
-                            self.fuzz += 1
-                            found = True
-                            break
-
-            next_ctx, chunks, end_idx, eof = peek_next_section(
-                self.lines, self.index, file_path=self.current_file
-            )
-            new_index, fuzz = find_context(lines, next_ctx, index, eof)
-            if new_index == -1:
-                error_detail = _format_context_error(lines, next_ctx, index)
-                raise self._make_err(
-                    f"Invalid context: Patch context does not match file content.\n{error_detail}",
-                    hints=[
-                        "Regenerate the patch against the latest version of the file.",
-                        "Make sure that the code in the patch is not additionally escaped.",
-                    ],
+                skip_current_file = True
+                continue
+            # Validate uniqueness
+            if path in seen_paths:
+                add_error(
+                    f"Duplicate file entry: {path}",
+                    line=current_line_num,
+                    hint="Each file may only appear once in a patch",
+                    filename=path,
                 )
-            self.fuzz += fuzz
-            for ch in chunks:
-                ch.orig_index += new_index
-                action.chunks.append(ch)
-            index = new_index + len(next_ctx)
-            self.index = end_idx
-        return action
+                skip_current_file = True
+                continue
+            seen_paths.add(path)
 
-    def _parse_add_file(self) -> PatchAction:
-        lines: List[str] = []
-        while not self.is_done(
-            ("*** End Patch", "*** Update File:", "*** Delete File:", "*** Add File:")
-        ):
-            s = self.read_line()
-            if not s.startswith("+"):
-                raise self._make_err(
-                    f"Invalid Add File line (missing '+'): {s}",
-                    hints=[
-                        "Each line in an Add section must begin with '+'.",
-                        "For a blank line, include a line with just '+'.",
-                    ],
-                )
-            lines.append(s[1:])  # strip leading '+'
-        return PatchAction(type=ActionType.ADD, new_file="\n".join(lines))
-
-
-# --------------------------------------------------------------------------- #
-#  Helper functions
-# --------------------------------------------------------------------------- #
-def _format_context_error(
-    file_lines: List[str], patch_context: List[str], start_index: int
-) -> str:
-    """Generates a detailed error message for a context mismatch."""
-    if not patch_context:
-        return "Context from patch is empty."
-
-    best_match_len = -1
-    best_match_start_idx = -1
-
-    # Find the longest prefix of patch_context that matches a slice of file_lines
-    for i in range(start_index, len(file_lines)):
-        match_len = 0
-        for j in range(len(patch_context)):
-            if i + j >= len(file_lines):
-                break
-            # Using rstrip for some fuzziness. A full implementation would check
-            # exact, then rstrip, then strip, like find_context_core. This is
-            # simpler for better error reporting.
-            if file_lines[i + j].rstrip() == patch_context[j].rstrip():
-                match_len += 1
+            # Initialize action
+            if action_word == "Add":
+                current_action = PatchAction(type=ActionType.ADD)
+            elif action_word == "Update":
+                current_action = PatchAction(type=ActionType.UPDATE)
+            elif action_word == "Delete":
+                current_action = PatchAction(type=ActionType.DELETE)
             else:
-                break
+                add_error(
+                    f"Unknown action '{action_word}' for file {path}",
+                    line=current_line_num,
+                    hint="Use Add/Update/Delete",
+                    filename=path,
+                )
+                skip_current_file = True
+                continue
 
-        if match_len > best_match_len:
-            best_match_len = match_len
-            best_match_start_idx = i
+            # Record action
+            patch.actions[path] = current_action
+            continue
 
-    patch_ctx_str = "\n".join(f"  {line!r}" for line in patch_context)
+        # Ignore anything until we have a current file
+        if current_path is None or current_action is None or skip_current_file:
+            continue
 
-    if best_match_len <= 0:
-        return f"Could not find context in file.\nExpected patch context:\n{patch_ctx_str}"
+        # Handle Delete action: it must not have content
+        if current_action.type == ActionType.DELETE:
+            if raw_line.startswith("-") or raw_line.startswith("+") or ANCHOR_RE.match(raw_line):
+                add_error(
+                    f"Delete file section for {current_path} must not contain changes",
+                    line=current_line_num,
+                    hint="Delete sections must not include anchors or +/- lines",
+                    filename=current_path,
+                )
+            # Otherwise ignore lines inside delete section
+            continue
 
-    msg_parts = [
-        f"Found best partial match of {best_match_len}/{len(patch_context)} lines at file line {best_match_start_idx + 1}.",
-        "Expected patch context:",
-        patch_ctx_str,
-    ]
-    if best_match_len > 0:
-        msg_parts.append("Matched lines from file:")
-        for k in range(best_match_len):
-            msg_parts.append(f"  {file_lines[best_match_start_idx + k]!r}")
+        # Non-delete: Update/Add have content blocks
+        m_anchor = ANCHOR_RE.match(raw_line)
+        if m_anchor is not None:
+            # Starting a new chunk or setting anchors for the next chunk
+            # If there is an open chunk, finish it before starting a new one
+            if current_chunk is not None:
+                finish_chunk_if_any()
+            anchor_text = m_anchor.group(1)
+            # Normalize: remove one leading space if present
+            if anchor_text.startswith(" "):
+                anchor_text = anchor_text[1:]
+            pending_anchors.append(anchor_text)
+            continue
 
-    if best_match_len < len(patch_context):
-        msg_parts.append("First mismatch:")
-        expected = patch_context[best_match_len]
-        if best_match_start_idx + best_match_len < len(file_lines):
-            found = file_lines[best_match_start_idx + best_match_len]
-            msg_parts.append(f"  - Expected from patch: {expected!r}")
-            msg_parts.append(f"  - Found in file:       {found!r}")
+        # Diff lines
+        if raw_line.startswith("-") or raw_line.startswith("+"):
+            # If we are inside a chunk and have already recorded modifications,
+            # and we encounter new +/- without an intervening anchor, treat as ambiguous multi-chunk.
+            if current_chunk is not None and chunk_has_mods and current_chunk.suffix:
+                add_error(
+                    f"Ambiguous or overlapping blocks in {current_path}: missing @@ between chunks",
+                    line=current_line_num,
+                    hint="Separate adjacent change blocks with an @@ anchor",
+                    filename=current_path,
+                )
+                finish_chunk_if_any()
+            start_chunk_if_needed()
+            # Normalize removal of the prefix sign and at most one following space
+            if raw_line.startswith("-"):
+                content_line = raw_line[1:]
+                if content_line.startswith(" "):
+                    content_line = content_line[1:]
+                current_chunk.deletions.append(content_line)
+                chunk_has_mods = True
+            else:
+                content_line = raw_line[1:]
+                if content_line.startswith(" "):
+                    content_line = content_line[1:]
+                current_chunk.additions.append(content_line)
+                chunk_has_mods = True
+            continue
+
+        # Context line (neither header, anchor, nor +/-)
+        # If we have pending anchors but no chunk, start chunk to capture prefix
+        if current_chunk is None and pending_anchors:
+            start_chunk_if_needed()
+
+        if current_chunk is None:
+            # We haven't started a chunk yet; treat as prefix for a prospective chunk.
+            # Start a chunk implicitly to hold context leading into the first +/-.
+            start_chunk_if_needed()
+
+        # Append as pre- or post-context depending on whether we've seen any modifications
+        if not chunk_has_mods:
+            current_chunk.prefix.append(raw_line)
         else:
-            msg_parts.append(f"  - Expected from patch: {expected!r}")
-            msg_parts.append("  - Found in file:       <end of file>")
+            current_chunk.suffix.append(raw_line)
 
-    return "\n".join(msg_parts)
+    # End of content: close out any open chunk
+    finish_chunk_if_any()
 
-
-def find_context_core(
-    lines: List[str], context: List[str], start: int
-) -> Tuple[int, int]:
-    if not context:
-        return start, 0
-
-    # First, try an exact match on the original context.
-    for i in range(start, len(lines)):
-        if lines[i : i + len(context)] == context:
-            return i, 0
-
-    # If exact match fails, try fuzzy matching.
-    for i in range(start, len(lines)):
-        if [s.rstrip() for s in lines[i : i + len(context)]] == [
-            s.rstrip() for s in context
-        ]:
-            return i, 1
-    for i in range(start, len(lines)):
-        if [s.strip() for s in lines[i : i + len(context)]] == [
-            s.strip() for s in context
-        ]:
-            return i, 100
-    return -1, 0
+    return patch, errors
 
 
-def find_context(
-    lines: List[str], context: List[str], start: int, eof: bool
-) -> Tuple[int, int]:
-    if eof:
-        new_index, fuzz = find_context_core(lines, context, len(lines) - len(context))
-        if new_index != -1:
-            return new_index, fuzz
-        new_index, fuzz = find_context_core(lines, context, start)
-        return new_index, fuzz + 10_000
-    return find_context_core(lines, context, start)
-
-
-def peek_next_section(
-    lines: List[str], index: int, file_path: Optional[str] = None
-) -> Tuple[List[str], List[Chunk], int, bool]:
-    old: List[str] = []
-    del_lines: List[str] = []
-    ins_lines: List[str] = []
-    chunks: List[Chunk] = []
-    mode = "keep"
-    orig_index = index
-
-    while index < len(lines):
-        s = lines[index]
-        if s.startswith(
-            (
-                "@@",
-                "*** End Patch",
-                "*** Update File:",
-                "*** Delete File:",
-                "*** Add File:",
-                "*** End of File",
-            )
-        ):
-            break
-        if s == "***":
-            break
-        if s.startswith("***"):
-            raise DiffError(
-                _format_error_message(
-                    f"Unexpected section/header marker inside a hunk: {s}",
-                    file=file_path,
-                    line_no=index + 1,
-                    got_line=s,
-                    hints=[
-                        "Section headers ('*** ...') must start at the top level, not inside a hunk.",
-                        "Close the current hunk or finish the section before starting a new one.",
-                    ],
+def load_files(paths: List[str], open_fn: Callable[[str], str]) -> Tuple[Dict[str, str], List[PatchError]]:
+    """
+    Read a set of files, returning a (files, errors) tuple.
+    files: mapping path -> content for successfully read files
+    errors: list of PatchError for files that failed to read
+    """
+    files: Dict[str, str] = {}
+    errs: List[PatchError] = []
+    for path in paths:
+        try:
+            files[path] = open_fn(path)
+        except Exception as e:
+            errs.append(
+                PatchError(
+                    msg=f"Failed to read file: {path}",
+                    line=None,
+                    hint=f"{type(e).__name__}: {e}",
+                    filename=path,
                 )
             )
-        index += 1
+    return files, errs
 
-        last_mode = mode
-        if s == "":
-            s = " "
-        if s[0] == "+":
-            mode = "add"
-        elif s[0] == "-":
-            mode = "delete"
-        elif s[0] == " ":
-            mode = "keep"
-        else:
-            raise DiffError(
-                _format_error_message(
-                    f"Invalid hunk line prefix: {s}",
-                    file=file_path,
-                    line_no=index,
-                    got_line=s,
-                    hints=[
-                        "Lines inside a hunk must start with one of: ' ' (context), '+' (insert), '-' (delete).",
-                        "Add a hunk header '@@ ' before hunk lines, if missing.",
-                    ],
-                )
-            )
-        s = s[1:]
 
-        if mode == "keep" and last_mode != mode:
-            if ins_lines or del_lines:
-                chunks.append(
-                    Chunk(
-                        orig_index=len(old) - len(del_lines),
-                        del_lines=del_lines,
-                        ins_lines=ins_lines,
+def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], List[PatchError], Dict[str, FileApplyStatus]]:
+    """
+    Produce a list of Commit objects describing concrete file changes
+    from a parsed Patch and a mapping of already loaded file contents.
+    Returns (commits, errors).
+    """
+    commits: List[Commit] = []
+    errors: List[PatchError] = []
+    changes: Dict[str, FileChange] = {}
+    status_map: Dict[str, FileApplyStatus] = {}
+
+    def add_error(
+        msg: str,
+        *,
+        line: Optional[int] = None,
+        hint: Optional[str] = None,
+        filename: Optional[str] = None,
+    ):
+        errors.append(PatchError(msg=msg, line=line, hint=hint, filename=filename))
+
+    def join_lines(lines: List[str], *, eol: bool) -> str:
+        s = "\n".join(lines)
+        return s + ("\n" if eol else "")
+
+    def find_block(
+        file_lines: List[str],
+        chunk: Chunk,
+    ) -> Tuple[Optional[int], Optional[str]]:
+        """
+        Try to find a contiguous block equal to prefix + deletions + suffix.
+        Returns (start_index, None) on success.
+        Returns (None, hint) on failure with a detailed human-readable hint.
+        Preference: if anchors are provided, search candidates closest to anchor lines first.
+        """
+        # Extract pattern components from the chunk
+        prefix, deletions, suffix = chunk.prefix, chunk.deletions, chunk.suffix
+        pattern: List[str] = prefix + deletions + suffix
+
+        pre_len, del_len, suf_len = len(prefix), len(deletions), len(suffix)
+        pat_len = len(pattern)
+        n_lines = len(file_lines)
+
+        # Candidate starts: align on first token of the pattern
+        if pat_len == 0:
+            return None, "Empty change block (no prefix/deletions/suffix)"
+        first_token = prefix[0] if pre_len > 0 else (deletions[0] if del_len > 0 else suffix[0])
+        candidate_starts: List[int] = [
+            i for i in range(0, max(0, n_lines - pat_len + 1)) if file_lines[i] == first_token
+        ]
+        if not candidate_starts:
+            # No direct anchor match; scan whole feasible range
+            candidate_starts = list(range(0, max(0, n_lines - pat_len + 1)))
+
+        # If anchors are provided and non-empty, prioritize candidate starts near lines containing anchor text
+        anchor_idxs: List[int] = []
+        for a in chunk.anchors:
+            if a:
+                for i, line in enumerate(file_lines):
+                    if a in line:
+                        anchor_idxs.append(i)
+        if anchor_idxs:
+            # Try candidates closest to any anchor line first
+            def _dist_to_anchors(i: int) -> int:
+                return min(abs(i - ai) for ai in anchor_idxs)
+            candidate_starts.sort(key=lambda i: (_dist_to_anchors(i), i))
+
+        best_partial = PartialMatch()
+
+        def try_match_at(start: int) -> MatchResult:
+            matched = 0
+            p_matched = d_matched = s_matched = 0
+            for j in range(pat_len):
+                i = start + j
+                if i >= n_lines:
+                    phase = "prefix" if j < pre_len else ("deletions" if j < pre_len + del_len else "suffix")
+                    return MatchResult(
+                        ok=False,
+                        start=start,
+                        matched=matched,
+                        phase=phase,
+                        expected=pattern[j],
+                        actual="<EOF>",
+                        fail_index=i,
+                        prefix_matched=p_matched,
+                        deletions_matched=d_matched,
+                        suffix_matched=s_matched,
                     )
-                )
-            del_lines, ins_lines = [], []
-
-        if mode == "delete":
-            del_lines.append(s)
-            old.append(s)
-        elif mode == "add":
-            ins_lines.append(s)
-        elif mode == "keep":
-            old.append(s)
-
-    if ins_lines or del_lines:
-        chunks.append(
-            Chunk(
-                orig_index=len(old) - len(del_lines),
-                del_lines=del_lines,
-                ins_lines=ins_lines,
-            )
-        )
-
-    if index < len(lines) and lines[index] == "*** End of File":
-        index += 1
-        return old, chunks, index, True
-
-    if index == orig_index:
-        raise DiffError(
-            _format_error_message(
-                "Nothing in this section",
-                file=file_path,
-                line_no=index + 1,
-                hints=[
-                    "After a hunk header '@@', include at least one line starting with ' ', '+', or '-'.",
-                    "If you intended to indicate end-of-file context, add a '*** End of File' marker.",
-                ],
-            )
-        )
-    return old, chunks, index, False
-
-
-# --------------------------------------------------------------------------- #
-#  Patch → Commit and Commit application
-# --------------------------------------------------------------------------- #
-def _get_updated_file(text: str, action: PatchAction, path: str) -> str:
-    if action.type is not ActionType.UPDATE:
-        raise DiffError("_get_updated_file called with non-update action")
-    orig_lines = text.split("\n")
-    dest_lines: List[str] = []
-    orig_index = 0
-
-    for chunk in action.chunks:
-        if chunk.orig_index > len(orig_lines):
-            raise DiffError(
-                _format_error_message(
-                    f"Chunk start index {chunk.orig_index} exceeds file length",
-                    file=path,
-                    hints=[
-                        "The patch context likely did not match the file.",
-                        "Regenerate the patch against the current file contents.",
-                    ],
-                )
-            )
-        if orig_index > chunk.orig_index:
-            raise DiffError(
-                _format_error_message(
-                    f"Overlapping chunks at {orig_index} > {chunk.orig_index}",
-                    file=path,
-                    hints=[
-                        "Combine or reorder hunks so they don't overlap.",
-                        "Regenerate the patch to ensure chunk ordering is correct.",
-                    ],
-                )
+                if file_lines[i] != pattern[j]:
+                    phase = "prefix" if j < pre_len else ("deletions" if j < pre_len + del_len else "suffix")
+                    return MatchResult(
+                        ok=False,
+                        start=start,
+                        matched=matched,
+                        phase=phase,
+                        expected=pattern[j],
+                        actual=file_lines[i],
+                        fail_index=i,
+                        prefix_matched=p_matched,
+                        deletions_matched=d_matched,
+                        suffix_matched=s_matched,
+                    )
+                matched += 1
+                if j < pre_len:
+                    p_matched += 1
+                elif j < pre_len + del_len:
+                    d_matched += 1
+                else:
+                    s_matched += 1
+            return MatchResult(
+                ok=True,
+                start=start,
+                matched=matched,
+                phase="ok",
+                expected="",
+                actual="",
+                fail_index=start + pat_len - 1,
+                prefix_matched=p_matched,
+                deletions_matched=d_matched,
+                suffix_matched=s_matched,
             )
 
-        dest_lines.extend(orig_lines[orig_index : chunk.orig_index])
-        orig_index = chunk.orig_index
+        for start in candidate_starts:
+            res = try_match_at(start)
+            if res.ok:
+                return start, None
+            if res.matched > best_partial.matched:
+                best_partial.matched = res.matched
+                best_partial.start = res.start
+                best_partial.phase = res.phase
+                best_partial.expected = res.expected
+                best_partial.actual = res.actual
+                best_partial.fail_line = res.fail_index + 1  # human lines
+                best_partial.prefix_matched = res.prefix_matched
+                best_partial.deletions_matched = res.deletions_matched
+                best_partial.suffix_matched = res.suffix_matched
 
-        dest_lines.extend(chunk.ins_lines)
-        orig_index += len(chunk.del_lines)
+        # Build human-readable hint describing where it failed
+        bp = best_partial
+        hint_lines: List[str] = []
+        hint_lines.append(f"Matched {bp.matched}/{pat_len} lines.")
+        # Include the exact source lines that matched before the failure to aid debugging
+        if bp.start is not None and bp.matched > 0:
+            matched_src = file_lines[bp.start : bp.start + bp.matched]
+            hint_lines.append("Matched source lines (from file):")
+            for s in matched_src:
+                hint_lines.append(f"  {s!r}")
+        if bp.expected != "" or bp.actual != "":
+            hint_lines.append(f"Next expected line: {bp.expected!r}")
+            hint_lines.append(f"File has: {bp.actual!r}")
+        hint_lines.append("Tips: ensure exact whitespace and blank lines match; remove escaping; do not trim indentation.")
+        return None, "\n".join(hint_lines)
 
-    dest_lines.extend(orig_lines[orig_index:])
-    return "\n".join(dest_lines)
+        # End find_block
 
-
-def patch_to_commit(patch: Patch, orig: Dict[str, str]) -> Commit:
-    commit = Commit()
+    # Process actions (compute all matches first per file, then check overlaps, then apply)
     for path, action in patch.actions.items():
-        if action.type is ActionType.DELETE:
-            commit.changes[path] = FileChange(
-                type=ActionType.DELETE, old_content=orig[path]
-            )
-        elif action.type is ActionType.ADD:
-            if action.new_file is None:
-                raise DiffError(
-                    _format_error_message(
-                        "ADD action without file content",
-                        hints=[
-                            "Provide the new file content after '*** Add File:' with each line prefixed by '+'.",
-                            "Include a '+' line even for blank lines.",
-                        ],
-                    )
-                )
-            commit.changes[path] = FileChange(
-                type=ActionType.ADD, new_content=action.new_file
-            )
-        elif action.type is ActionType.UPDATE:
-            new_content = _get_updated_file(orig[path], action, path)
-            commit.changes[path] = FileChange(
-                type=ActionType.UPDATE,
-                old_content=orig[path],
-                new_content=new_content,
-                move_path=action.move_path,
-            )
-    return commit
+        if action.type == ActionType.ADD:
+            # Build content from additions across all chunks
+            add_lines: List[str] = []
+            for ch in action.chunks:
+                add_lines.extend(ch.additions)
+            new_content = join_lines(add_lines, eol=False)
+            changes[path] = FileChange(type=ActionType.ADD, new_content=new_content)
+            status_map[path] = FileApplyStatus.Create
+            continue
 
+        if action.type == ActionType.DELETE:
+            changes[path] = FileChange(type=ActionType.DELETE)
+            status_map[path] = FileApplyStatus.Delete
+            continue
 
-# --------------------------------------------------------------------------- #
-#  User-facing helpers
-# --------------------------------------------------------------------------- #
-def text_to_patch(text: str, orig: Dict[str, str]) -> Tuple[Patch, int]:
-    lines = text.splitlines()  # preserves blank lines, no strip()
-    has_begin = len(lines) >= 1 and Parser._norm(lines[0]).startswith("*** Begin Patch")
-    has_end = len(lines) >= 1 and Parser._norm(lines[-1]) == "*** End Patch"
-    if not (has_begin and has_end):
-        escapes = _detect_literal_escapes(text)
-        if escapes:
-            raise DiffError(
-                _format_error_message(
-                    "Invalid patch text - looks like it contains literal escape sequences instead of real newlines.",
-                    hints=[
-                        f"Detected escape sequences: {', '.join(escapes)}",
-                        "Paste the patch with real newlines (e.g., surrounded by a Markdown code block).",
-                        "If you have a JSON-escaped string, decode it before applying.",
-                    ],
+        # UPDATE
+        original = files.get(path)
+        if original is None:
+            add_error(
+                f"No loaded content for file: {path}",
+                hint="Load files before building commits or ensure the file exists for update.",
+                filename=path,
+            )
+            continue
+        # Preserve trailing newline status
+        had_eol = original.endswith("\n")
+        lines = original.splitlines()
+
+        # Phase 1: locate all blocks for this file
+        located: List[Tuple[int, int, Chunk]] = []
+        any_failed = False
+        for ch in action.chunks:
+            start_idx, hint = find_block(lines, ch)
+            if start_idx is None:
+                add_error(
+                    f"Failed to locate change block in {path}",
+                    line=ch.start_line,
+                    hint=hint,
+                    filename=path,
                 )
-            )
-        raise DiffError(
-            _format_error_message(
-                "Invalid patch text - missing '*** Begin Patch' and/or '*** End Patch' sentinels.",
-                hints=[
-                    "Ensure the first line starts with '*** Begin Patch' and the last line is exactly '*** End Patch'.",
-                ],
-            )
+                any_failed = True
+                # Do not break; collect all failures for better reporting
+                continue
+            pre_len, del_len, suf_len = len(ch.prefix), len(ch.deletions), len(ch.suffix)
+            pattern_len = pre_len + del_len + suf_len
+            end_idx = start_idx + pattern_len
+            located.append((start_idx, end_idx, ch))
+
+        # If some chunks could not be found, still apply the ones we did find.
+        # If none located, skip updating this file.
+        if not located:
+            continue
+
+        # Phase 2: detect overlaps (using original file indices)
+        located.sort(key=lambda t: t[0])
+        overlaps_found = False
+        for (s1, e1, ch1), (s2, e2, ch2) in zip(located, located[1:]):
+            if not (e1 <= s2):  # overlap if e1 > s2
+                overlaps_found = True
+                add_error(
+                    f"Overlapping change blocks detected in {path}",
+                    line=min((ch1.start_line or 0), (ch2.start_line or 0)) or None,
+                    hint=(
+                        "Two change blocks overlap in their context/deletion ranges. "
+                        f"First block covers [{s1}, {e1}), second covers [{s2}, {e2}). "
+                        "Reorder the chunks or regenerate the patch to avoid overlapping contexts."
+                    ),
+                    filename=path,
+                )
+        if overlaps_found:
+            # Do not apply any changes to this file if overlaps exist
+            continue
+
+        # Phase 3: apply non-overlapping blocks to produce new content
+        result: List[str] = []
+        cursor = 0
+        for start_idx, end_idx, ch in located:
+            pre_len, del_len, suf_len = len(ch.prefix), len(ch.deletions), len(ch.suffix)
+            # Copy up to the block start
+            result.extend(lines[cursor:start_idx])
+            # Keep prefix as-is from original
+            result.extend(lines[start_idx : start_idx + pre_len])
+            # Replace deletions with additions
+            result.extend(ch.additions)
+            # Keep suffix as-is from original
+            result.extend(lines[start_idx + pre_len + del_len : start_idx + pre_len + del_len + suf_len])
+            cursor = end_idx
+        # Append remainder of file
+        result.extend(lines[cursor:])
+        lines = result
+
+        new_content = join_lines(lines, eol=had_eol)
+        changes[path] = FileChange(
+            type=ActionType.UPDATE,
+            old_content=original,
+            new_content=new_content,
         )
+        # Mark status based on whether any chunks for this file failed to locate
+        status_map[path] = FileApplyStatus.PartialUpdate if any_failed else FileApplyStatus.Update
 
-    parser = Parser(current_files=orig, lines=lines, index=1)
-    parser.parse()
-    return parser.patch, parser.fuzz
+    if changes:
+        commits.append(Commit(changes=changes))
 
-
-def identify_files_needed(text: str) -> List[str]:
-    lines = text.splitlines()
-    return [
-        line[len("*** Update File: ") :]
-        for line in lines
-        if line.startswith("*** Update File: ")
-    ] + [
-        line[len("*** Delete File: ") :]
-        for line in lines
-        if line.startswith("*** Delete File: ")
-    ]
+    return commits, errors, status_map
 
 
-def identify_files_added(text: str) -> List[str]:
-    lines = text.splitlines()
-    return [
-        line[len("*** Add File: ") :]
-        for line in lines
-        if line.startswith("*** Add File: ")
-    ]
-
-
-# --------------------------------------------------------------------------- #
-#  File-system helpers
-# --------------------------------------------------------------------------- #
-def load_files(paths: List[str], open_fn: Callable[[str], str]) -> Dict[str, str]:
-    return {path: open_fn(path) for path in paths}
-
-
-def apply_commit(
-    commit: Commit,
+def apply_commits(
+    commits: List[Commit],
     write_fn: Callable[[str, str], None],
-    remove_fn: Callable[[str], None],
-) -> None:
-    for path, change in commit.changes.items():
-        if change.type is ActionType.DELETE:
-            remove_fn(path)
-        elif change.type is ActionType.ADD:
-            if change.new_content is None:
-                raise DiffError(
-                    _format_error_message(
-                        "ADD change has no content",
-                        file=path,
-                        hints=[
-                            "Provide content lines in the Add section, each starting with '+'.",
-                        ],
+    delete_fn: Callable[[str], None],
+) -> List[PatchError]:
+    """
+    Apply a list of commits using provided IO functions.
+    Always attempts all writes/deletes, collecting errors for any failures.
+    """
+    errors: List[PatchError] = []
+
+    for commit in commits:
+        for path, change in commit.changes.items():
+            try:
+                if change.type == ActionType.ADD or change.type == ActionType.UPDATE:
+                    write_fn(path, change.new_content or "")
+                elif change.type == ActionType.DELETE:
+                    delete_fn(path)
+                else:
+                    # Future-proof: unknown types
+                    errors.append(
+                        PatchError(
+                            msg=f"Unknown change type for {path}",
+                            hint="Supported types are Add/Update/Delete",
+                            filename=path,
+                        )
+                    )
+            except Exception as e:
+                errors.append(
+                    PatchError(
+                        msg=f"Failed to apply change to file: {path}",
+                        hint=f"{type(e).__name__}: {e}",
+                        filename=path,
                     )
                 )
-            write_fn(path, change.new_content)
-        elif change.type is ActionType.UPDATE:
-            if change.new_content is None:
-                raise DiffError(
-                    _format_error_message(
-                        "UPDATE change has no new content",
-                        file=path,
-                        hints=[
-                            "Verify hunks produce output; ensure at least one insertion or deletion is present.",
-                        ],
-                    )
-                )
-            target = change.move_path or path
-            write_fn(target, change.new_content)
-            if change.move_path:
-                remove_fn(path)
+    return errors
 
 
 def process_patch(
     text: str,
     open_fn: Callable[[str], str],
     write_fn: Callable[[str, str], None],
-    remove_fn: Callable[[str], None],
-) -> str:
-    if not text.startswith("*** Begin Patch"):
-        escapes = _detect_literal_escapes(text)
-        if escapes:
-            raise DiffError(
-                _format_error_message(
-                    "Patch text appears to be escaped (contains literal '\\n' etc.).",
-                    hints=[
-                        f"Detected escape sequences: {', '.join(escapes)}",
-                        "Send the patch with real newlines or decode the escaped string first.",
-                        "The first line must be '*** Begin Patch'.",
-                    ],
-                )
-            )
-        raise DiffError(
-            _format_error_message(
-                "Patch text must start with *** Begin Patch",
-                hints=[
-                    "Ensure the header line is exactly: *** Begin Patch",
-                ],
-            )
-        )
-    paths = identify_files_needed(text)
-    orig = load_files(paths, open_fn)
-    patch, _fuzz = text_to_patch(text, orig)
-    commit = patch_to_commit(patch, orig)
-    apply_commit(commit, write_fn, remove_fn)
-    return "Done!"
+    delete_fn: Callable[[str], None],
+) -> Tuple[Dict[str, FileApplyStatus], List[PatchError]]:
+    patch, errors = parse_v4a_patch(text)
+    if errors:
+        return {}, errors
+
+    # Load files needed for application (Update only). Add/Delete do not require reading here.
+    paths = [p for p, a in patch.actions.items() if a.type == ActionType.UPDATE]
+    files, read_errors = load_files(paths, open_fn)
+    if read_errors:
+        return {}, read_errors
+    # Build commits (may be partial) and apply; return combined errors with statuses.
+    commits, build_errors, status_map = build_commits(patch, files)
+    apply_errors = apply_commits(commits, write_fn, delete_fn)
+    return status_map, [*build_errors, *apply_errors]
+
+
+__all__ = [
+    "ActionType",
+    "Chunk",
+    "PatchAction",
+    "Patch",
+    "PatchError",
+    "FileChange",
+    "Commit",
+    "parse_v4a_patch",
+    "process_patch",
+    "load_files",
+    "build_commits",
+    "apply_commits",
+    "FileApplyStatus",
+]
