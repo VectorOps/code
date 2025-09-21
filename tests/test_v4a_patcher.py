@@ -23,23 +23,23 @@ It might include code-like things, but parser should skip them.
 *** Update File: src/foo.py
 @@ class Foo
 @@     def bar(self):
-ctx1
-ctx2
-ctx3
+ ctx1
+ ctx2
+ ctx3
 - old_line
 + new_line
-ctxA
-ctxB
-ctxC
+ ctxA
+ ctxB
+ ctxC
 @@
-p1
-p2
-p3
+ p1
+ p2
+ p3
 - remove_this
 + add_that
-s1
-s2
-s3
+ s1
+ s2
+ s3
 *** Add File: src/new_file.txt
 + newly added line 1
 + newly added line 2
@@ -155,14 +155,14 @@ def test_missing_envelope_markers():
 def test_ambiguous_chunks_without_anchor_is_error():
     text = """*** Begin Patch
 *** Update File: src/x.py
-ctx1
-ctx2
-ctx3
+ ctx1
+ ctx2
+ ctx3
 - a
 + b
-ctxA
-ctxB
-ctxC
+ ctxA
+ ctxB
+ ctxC
 - c
 + d
 *** End Patch"""
@@ -193,14 +193,14 @@ def test_process_patch_only_parses_for_now():
 def test_add_file_rejects_context_no_anchor():
     text = """*** Begin Patch
 *** Add File: src/new_module.py
-# pre1
-# pre2
-# pre3
+ # pre1
+ # pre2
+ # pre3
 + line1
 + line2
-# post1
-# post2
-# post3
+ # post1
+ # post2
+ # post3
 *** End Patch"""
     patch, errors = parse_v4a_patch(text)
     assert any("must not contain context" in e.msg for e in errors)
@@ -284,10 +284,10 @@ def test_process_patch_reads_update_only_and_ignores_delete():
 def test_process_patch_applies_changes_and_calls_io():
     patch_text = """*** Begin Patch
 *** Update File: f.txt
-pre
+ pre
 - old
 + new
-post
+ post
 *** Add File: new.txt
 + hello
 *** Delete File: gone.txt
@@ -328,10 +328,10 @@ post
 def test_process_patch_write_delete_errors_appended():
     patch_text = """*** Begin Patch
 *** Update File: f.txt
-pre
+ pre
 - old
 + new
-post
+ post
 *** Add File: new.txt
 + hello
 *** Delete File: gone.txt
@@ -380,19 +380,19 @@ post
 def test_process_patch_partial_apply_and_collect_errors():
     patch_text = """*** Begin Patch
 *** Update File: f.txt
-pre
+ pre
 - OLDX
 + NEWX
-post
+ post
 @@
-x
-y
-z
+ x
+ y
+ z
 - a
 + b
-u
-v
-w
+ u
+ v
+ w
 *** End Patch"""
 
     # Only the second chunk exists in the file; the first will fail to locate.
@@ -421,14 +421,14 @@ w
 def test_build_commits_update_applies_change_single_chunk():
     patch_text = """*** Begin Patch
 *** Update File: src/t.py
-ctx1
-ctx2
-ctx3
+ ctx1
+ ctx2
+ ctx3
 - old
 + new
-ctxA
-ctxB
-ctxC
+ ctxA
+ ctxB
+ ctxC
 *** End Patch"""
     # Original file has an extra trailing 'end' and newline to ensure preservation
     original = "ctx1\nctx2\nctx3\n old\nctxA\nctxB\nctxC\nend\n"
@@ -449,23 +449,23 @@ def test_build_commits_update_applies_change_multiple_chunks():
     patch_text = """*** Begin Patch
 *** Update File: src/multi.py
 @@ class A
-a1
-a2
-a3
+ a1
+ a2
+ a3
 - X
 + Y
-a4
-a5
-a6
+ a4
+ a5
+ a6
 @@ class B
-b1
-b2
-b3
+ b1
+ b2
+ b3
 - P
 + Q
-b4
-b5
-b6
+ b4
+ b5
+ b6
 *** End Patch"""
     original = "a1\na2\na3\n X\na4\na5\na6\nmid\nb1\nb2\nb3\n P\nb4\nb5\nb6\n"
     patch, perrs = parse_v4a_patch(patch_text)
@@ -499,14 +499,14 @@ def test_build_commits_add_and_delete_changes():
 def test_build_commits_update_partial_match_reports_hint():
     patch_text = """*** Begin Patch
 *** Update File: src/t.py
-ctx1
-ctx2
-ctx3
+ ctx1
+ ctx2
+ ctx3
 - old
 + new
-ctxA
-ctxB
-ctxC
+ ctxA
+ ctxB
+ ctxC
 *** End Patch"""
     # Introduce a mismatch at the deletion line
     original = "ctx1\nctx2\nctx3\nNOT_OLD\nctxA\nctxB\nctxC\n"
@@ -523,28 +523,31 @@ ctxC
     assert "Next expected line: ' old'" in (errs[0].hint or "")
     assert "File has: 'NOT_OLD'" in (errs[0].hint or "")
     assert "ensure exact whitespace" in (errs[0].hint or "")
+    assert "Similar lines to expected next line" in (errs[0].hint or "")
+    assert "'NOT_OLD'" in (errs[0].hint or "")
+    assert "L4:" in (errs[0].hint or "")
 
 
 def test_build_commits_partial_apply_on_some_chunks():
     patch_text = """*** Begin Patch
 *** Update File: src/partial.py
-p1
-p2
-p3
+ p1
+ p2
+ p3
 - OLDX
 + NEWX
-pA
-pB
-pC
+ pA
+ pB
+ pC
 @@
-q1
-q2
-q3
+ q1
+ q2
+ q3
 - R
 + S
-qA
-qB
-qC
+ qA
+ qB
+ qC
 *** End Patch"""
     original = "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\n R\nqA\nqB\nqC\n"
     patch, perrs = parse_v4a_patch(patch_text)
@@ -564,9 +567,9 @@ qC
 def test_parse_update_chunk_without_suffix():
     text = """*** Begin Patch
 *** Update File: src/no_suffix.py
-ctx1
-ctx2
-ctx3
+ ctx1
+ ctx2
+ ctx3
 - old
 + new
 *** End Patch"""
@@ -585,9 +588,9 @@ ctx3
 def test_build_commits_update_without_suffix_applies():
     patch_text = """*** Begin Patch
 *** Update File: src/no_suffix.py
-ctx1
-ctx2
-ctx3
+ ctx1
+ ctx2
+ ctx3
 - old
 + new
 *** End Patch"""

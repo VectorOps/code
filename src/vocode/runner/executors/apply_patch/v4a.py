@@ -5,6 +5,7 @@ from enum import Enum, auto
 from typing import Callable, Dict, List, Optional, Tuple
 import re
 import os
+import difflib
 
 from .models import FileApplyStatus
 
@@ -65,6 +66,10 @@ BEGIN_MARKER = "*** Begin Patch"
 END_MARKER = "*** End Patch"
 FILE_HEADER_RE = re.compile(r"^\*\*\*\s+(Add|Update|Delete)\s+File:\s+(.+)$")
 ANCHOR_RE = re.compile(r"^@@(.*)$")
+ANCHOR_PREFIX = "@@"
+DELETE_PREFIX = "-"
+ADD_PREFIX = "+"
+CONTEXT_PREFIX = " "
 
 @dataclass
 class PartialMatch:
@@ -83,7 +88,6 @@ class MatchResult:
     ok: bool
     start: int
     matched: int
-    phase: str
     expected: str
     actual: str
     fail_index: int  # 0-based index into file_lines where the mismatch/EOF occurred
@@ -275,7 +279,7 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
 
         # Handle Delete action: it must not have content
         if current_action.type == ActionType.DELETE:
-            if raw_line.startswith("-") or raw_line.startswith("+") or ANCHOR_RE.match(raw_line):
+            if raw_line.startswith(DELETE_PREFIX) or raw_line.startswith(ADD_PREFIX) or raw_line.startswith(ANCHOR_PREFIX):
                 add_error(
                     f"Delete file section for {current_path} must not contain changes",
                     line=current_line_num,
@@ -286,13 +290,12 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
             continue
 
         # Non-delete: Update/Add have content blocks
-        m_anchor = ANCHOR_RE.match(raw_line)
-        if m_anchor is not None:
+        if raw_line.startswith(ANCHOR_PREFIX):
             # Starting a new chunk or setting anchors for the next chunk
             # If there is an open chunk, finish it before starting a new one
             if current_chunk is not None:
                 finish_chunk_if_any()
-            anchor_text = m_anchor.group(1)
+            anchor_text = raw_line[len(ANCHOR_PREFIX):]
             # Normalize: remove one leading space if present
             if anchor_text.startswith(" "):
                 anchor_text = anchor_text[1:]
@@ -300,7 +303,7 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
             continue
 
         # Diff lines
-        if raw_line.startswith("-") or raw_line.startswith("+"):
+        if raw_line.startswith(DELETE_PREFIX) or raw_line.startswith(ADD_PREFIX):
             # If we are inside a chunk and have already recorded modifications,
             # and we encounter new +/- without an intervening anchor, treat as ambiguous multi-chunk.
             if current_chunk is not None and chunk_has_mods and current_chunk.suffix:
@@ -314,38 +317,48 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
 
             start_chunk_if_needed()
 
-            # Normalize removal of the prefix sign
-            if raw_line.startswith("-"):
-                content_line = raw_line[1:]
-                current_chunk.deletions.append(content_line)
+            if raw_line.startswith(DELETE_PREFIX):
+                current_chunk.deletions.append(raw_line[len(DELETE_PREFIX):])
                 chunk_has_mods = True
             else:
-                content_line = raw_line[1:]
-                current_chunk.additions.append(content_line)
+                current_chunk.additions.append(raw_line[len(ADD_PREFIX):])
                 chunk_has_mods = True
             continue
 
-        # Context line (neither header, anchor, nor +/-)
-        # If we have pending anchors but no chunk, start chunk to capture prefix
-        if current_chunk is None and pending_anchors:
-            start_chunk_if_needed()
-
-        if current_chunk is None:
-            # We haven't started a chunk yet; treat as prefix for a prospective chunk.
-            # Start a chunk implicitly to hold context leading into the first +/-.
-            start_chunk_if_needed()
-
-        # Append as pre- or post-context depending on whether we've seen any modifications.
-        # Context normalization: remove a single leading space; blank lines are allowed and stored as "".
-        ctx_line = raw_line
-        if ctx_line.strip() == "":
+        # Context line or invalid starter
+        # Allow blank lines as empty context; otherwise require a single leading space.
+        if raw_line.strip() == "":
+            # Blank line -> empty context
+            if current_chunk is None and pending_anchors:
+                start_chunk_if_needed()
+            if current_chunk is None:
+                start_chunk_if_needed()
             ctx_line = ""
-        elif ctx_line.startswith(" "):
-            ctx_line = ctx_line[1:]
-        if not chunk_has_mods:
-            current_chunk.prefix.append(ctx_line)
-        else:
-            current_chunk.suffix.append(ctx_line)
+            if not chunk_has_mods:
+                current_chunk.prefix.append(ctx_line)
+            else:
+                current_chunk.suffix.append(ctx_line)
+            continue
+        if raw_line.startswith(CONTEXT_PREFIX):
+            if current_chunk is None and pending_anchors:
+                start_chunk_if_needed()
+            if current_chunk is None:
+                start_chunk_if_needed()
+            ctx_line = raw_line[len(CONTEXT_PREFIX):]
+            if not chunk_has_mods:
+                current_chunk.prefix.append(ctx_line)
+            else:
+                current_chunk.suffix.append(ctx_line)
+            continue
+        # Any other non-blank line is invalid inside a file section
+        add_error(
+            f"Invalid patch line in {current_path}: must start with @@, -, +, or a space",
+            line=current_line_num,
+            hint="Lines inside file sections must start with '@@', '-', '+', or a single leading space for context. Blank lines are allowed as empty context.",
+            filename=current_path,
+        )
+        # Skip this line and continue parsing
+        continue
 
     # End of content: close out any open chunk
     finish_chunk_if_any()
@@ -450,12 +463,10 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
             for j in range(pat_len):
                 i = start + j
                 if i >= n_lines:
-                    phase = "prefix" if j < pre_len else ("deletions" if j < pre_len + del_len else "suffix")
                     return MatchResult(
                         ok=False,
                         start=start,
                         matched=matched,
-                        phase=phase,
                         expected=pattern[j],
                         actual="<EOF>",
                         fail_index=i,
@@ -464,12 +475,10 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
                         suffix_matched=s_matched,
                     )
                 if file_lines[i] != pattern[j]:
-                    phase = "prefix" if j < pre_len else ("deletions" if j < pre_len + del_len else "suffix")
                     return MatchResult(
                         ok=False,
                         start=start,
                         matched=matched,
-                        phase=phase,
                         expected=pattern[j],
                         actual=file_lines[i],
                         fail_index=i,
@@ -488,7 +497,6 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
                 ok=True,
                 start=start,
                 matched=matched,
-                phase="ok",
                 expected="",
                 actual="",
                 fail_index=start + pat_len - 1,
@@ -504,7 +512,13 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
             if res.matched > best_partial.matched:
                 best_partial.matched = res.matched
                 best_partial.start = res.start
-                best_partial.phase = res.phase
+                # Derive phase from how many were matched in each section
+                if res.prefix_matched < pre_len:
+                    best_partial.phase = "prefix"
+                elif res.deletions_matched < del_len:
+                    best_partial.phase = "deletions"
+                else:
+                    best_partial.phase = "suffix"
                 best_partial.expected = res.expected
                 best_partial.actual = res.actual
                 best_partial.fail_line = res.fail_index + 1  # human lines
@@ -525,6 +539,19 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
         if bp.expected != "" or bp.actual != "":
             hint_lines.append(f"Next expected line: {bp.expected!r}")
             hint_lines.append(f"File has: {bp.actual!r}")
+
+        # Similarity suggestions for the next expected line
+        if bp.expected:
+            sims: List[Tuple[float, int, str]] = []
+            for idx, sline in enumerate(file_lines):
+                ratio = difflib.SequenceMatcher(None, bp.expected, sline).ratio()
+                sims.append((ratio, idx, sline))
+            # Sort by similarity (desc), then by line number (asc)
+            sims.sort(key=lambda t: (-t[0], t[1]))
+            hint_lines.append("Similar lines to expected next line (by similarity, then line number):")
+            for ratio, idx, sline in sims:
+                hint_lines.append(f"  L{idx + 1}: sim={ratio:.3f}: {sline!r}")
+
         hint_lines.append("Tips: ensure exact whitespace and blank lines match; remove escaping; do not trim indentation.")
         return None, "\n".join(hint_lines)
 

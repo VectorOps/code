@@ -66,6 +66,7 @@ Concrete example: files that were read and already in context.
 ** [ ] Diff parsers
 *** [X] GPT V4A diff format
 **** [X] Better error reporting and verify apply patch cycle
+**** [ ] When multiple chunks match, but we can't match any of the chunks - return all possible lines
 *** [ ] Fenced diff format
 *** [ ] Unified Diff format
 * [X] Settings

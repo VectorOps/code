@@ -98,3 +98,24 @@ workflows:
       - prompt.done -> pause
       - pause.done -> debug
       - debug.done -> done
+  patcher:
+    nodes:
+      - name: prompt
+        type: input
+        message: Enter your request
+        confirmation: auto
+        hide_final_output: true
+        outcomes:
+          - name: done
+      - $include:
+          template: nodes/coder.yaml
+      - $include:
+          template: nodes/apply_patch.yaml
+        confirmation: auto
+      - name: finish
+        type: noop
+    edges:
+      - prompt.done -> coder
+      - coder.done -> apply
+      - apply.success -> prompt
+      - apply.fail -> coder:keep_state
