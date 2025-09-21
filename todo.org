@@ -1,5 +1,6 @@
 #+title: Code ToDo
 * [ ] Runner
+** [ ] ctrl+c after providing looping llm answer did not continue from that step - it started from initial step.
 ** [X] Change executors to have explicit state
 ** [X] Stop/Resume should work off activities
 ** [X] Rewind should work off activities
