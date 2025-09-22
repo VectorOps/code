@@ -15,7 +15,8 @@ from vocode.runner.models import (
     PACKET_MESSAGE,
 )
 
-from .v4a import process_patch, DiffError
+from .v4a import process_patch as v4a_process_patch, DiffError
+from .patch import process_patch as sr_process_patch
 from .models import FileApplyStatus
 
 
@@ -64,39 +65,28 @@ class ApplyPatchExecutor(Executor):
         except OSError as e:
             raise DiffError(f"Failed to remove file: {rel}: {e}") from e
 
-    def _extract_patch_text(self, messages: List[Message]) -> Optional[str]:
-        # Find the last message containing a V4A patch block
-        for m in reversed(messages):
-            txt = (m.text or "").strip()
-            if "*** Begin Patch" in txt:
-                start = txt.find("*** Begin Patch")
-                # Prefer up to the last End Patch if present
-                end_idx = txt.rfind("*** End Patch")
-                if end_idx != -1:
-                    end = end_idx + len("*** End Patch")
-                    return txt[start:end]
-                return txt[start:]
-        return None
 
     async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: ApplyPatchNode = self.config  # type: ignore[assignment]
 
-        # Enforce supported patch format
-        if (cfg.patch_format or "v4a").lower() != "v4a":
+        # Enforce supported patch formats
+        fmt = (cfg.patch_format or "v4a").lower()
+        if fmt not in ("v4a", "patch"):
             final = Message(role="agent", text=f"Unsupported patch format: {cfg.patch_format}")
             yield (ReqFinalMessage(message=final, outcome_name="fail"), inp.state)
             return
 
-        # Determine patch text from provided messages or latest response
-        patch_text: Optional[str] = self._extract_patch_text(inp.messages)
-        if patch_text is None:
-            if inp.response is not None and inp.response.kind == PACKET_MESSAGE and inp.response.message is not None:
-                # Accept either a proper patch block or raw text
-                patch_text = self._extract_patch_text([inp.response.message]) or (inp.response.message.text or "")
-            else:
-                # Ask user for a message containing a patch
-                yield (ReqMessageRequest(), inp.state)
-                return
+        # Determine source text: let patchers extract actual patch content
+        source_text: Optional[str] = None
+        if inp.response is not None and inp.response.kind == PACKET_MESSAGE and inp.response.message is not None:
+            source_text = inp.response.message.text or ""
+        elif inp.messages:
+            # Use the last message text as the source
+            source_text = inp.messages[-1].text or ""
+        if not source_text or not source_text.strip():
+            # Ask user for a message containing a patch
+            yield (ReqMessageRequest(), inp.state)
+            return
 
 
         outcome = "success"
@@ -133,12 +123,20 @@ class ApplyPatchExecutor(Executor):
                 self._remove_file(rel)
                 _record(rel, FileChangeType.DELETED)
 
-            statuses, errs = process_patch(
-                patch_text,
-                open_fn=self._open_file,
-                write_fn=tracking_write,
-                delete_fn=tracking_remove,
-            )
+            if fmt == "v4a":
+                statuses, errs = v4a_process_patch(
+                    source_text,
+                    open_fn=self._open_file,
+                    write_fn=tracking_write,
+                    delete_fn=tracking_remove,
+                )
+            else:
+                statuses, errs = sr_process_patch(
+                    source_text,
+                    open_fn=self._open_file,
+                    write_fn=tracking_write,
+                    delete_fn=tracking_remove,
+                )
             # Compose result message based on statuses and errors
             created = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Create])
             updated_full = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Update])

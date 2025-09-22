@@ -144,6 +144,43 @@ Source contains assert s == "a\\b\n"
 * No trailing commentary or extra fences outside the single patch block.
 """
 
+DIFF_PATCH_SYSTEM_INSTRUCTION = r"""# Patch format: SEARCH/REPLACE blocks
+
+**IMPORTANT:** You implement exactly the ARCHITECT PLAN. Follow repo style. Keep edits minimal. No speculation. No reformatting. No new deps unless the plan says so.
+
+**OUTPUT:** Only patch blocks. No prose before/between/after.
+
+## Format
+Emit exactly one SEARCH/REPLACE fenced block per change using the file’s language tag:
+
+```<lang>
+<full/path/to/file>
+<<<<<<< SEARCH
+<contiguous lines that EXACTLY match current file content>
+=======
+<replacement lines>
+>>>>>>> REPLACE
+```
+
+Edits: use the format above.
+Adds (new file): leave SEARCH empty; put full file contents in REPLACE.
+Deletes: put entire current file in SEARCH; leave REPLACE empty.
+
+## Rules
+1. SEARCH must match character-for-character (whitespace, quotes, comments, docstrings).
+2. Include enough lines in SEARCH to uniquely identify lines being replaced.
+3. No other diff headers, line numbers, or markers.
+4. Keep changes narrowly scoped; avoid touching unrelated code.
+5. Use existing libs/patterns; keep imports/types/names consistent.
+6. SEARCH/REPLACE will only change first occurence.
+7. Keep changes small. Break larger changes into series of SEARCH/REPLACE blocks.
+8. You are allowed to emit multiple blocks per file, but blocks should not overlap.
+
+## Self-check before emitting
+1. All planned changes covered?
+2. SEARCH sections exact? Imports/types/tests correct? Unrelated edits avoided?
+"""
+
 
 def _diff_preprocessor(text: str, options: Optional[Dict[str, Any]] = None, **_: Any) -> str:
     """
@@ -151,7 +188,8 @@ def _diff_preprocessor(text: str, options: Optional[Dict[str, Any]] = None, **_:
     Options:
       - format: str, defaults to "v4a"
     Behavior:
-      - For format == "v4a", appends DIFF_V4A_SYSTEM_INSTRUCTION to the input text.
+      - For format == "v4a", appends DIFF_V4A_SYSTEM_INSTRUCTION.
+      - For format in {'patch','fenced','search_replace','sr'}, appends DIFF_PATCH_SYSTEM_INSTRUCTION.
     """
     fmt = (options or {}).get("format", "v4a")
 
@@ -160,11 +198,16 @@ def _diff_preprocessor(text: str, options: Optional[Dict[str, Any]] = None, **_:
     else:
         fmt = "v4a"
 
-    if fmt != "v4a":
+    instruction: Optional[str] = None
+    if fmt == "v4a":
+        instruction = DIFF_V4A_SYSTEM_INSTRUCTION
+    elif fmt == "patch":
+        instruction = DIFF_PATCH_SYSTEM_INSTRUCTION
+    else:
         return text
 
     base_text = text or ""
-    new_text = (base_text + ("\n\n" if base_text else "") + DIFF_V4A_SYSTEM_INSTRUCTION).strip()
+    new_text = (base_text + ("\n\n" if base_text else "") + instruction).strip()
     return new_text
 
 
@@ -172,5 +215,5 @@ def _diff_preprocessor(text: str, options: Optional[Dict[str, Any]] = None, **_:
 register_preprocessor(
     name="diff",
     func=_diff_preprocessor,
-    description="Injects simplified system instructions for V4A diff patches (exact context, preserve blank lines, no double-escaping). Options: {'format': 'v4a'}",
+    description="Injects system instructions for diff patches. Options: {'format': 'v4a'|'patch'} — 'v4a' => V4A context diffs; 'patch' => fenced SEARCH/REPLACE blocks.",
 )

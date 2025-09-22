@@ -24,6 +24,7 @@
 ** [ ] Update templates and parametrize them via variables
 ** [ ] Figure out why confirmation override for discovery did not work
 ** [ ] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
+** [ ] Tweak prompt for discovery to only work with existing files
 * [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 Concrete example: files that were read and already in context.
 * [ ] Error handling
@@ -66,8 +67,8 @@ Concrete example: files that were read and already in context.
 ** [ ] Diff parsers
 *** [X] GPT V4A diff format
 **** [X] Better error reporting and verify apply patch cycle
-**** [ ] When multiple chunks match, but we can't match any of the chunks - return all possible lines
-*** [ ] Fenced diff format
+**** [X] When multiple chunks match, but we can't match any of the chunks - return all possible lines
+*** [X] Fenced diff format
 *** [ ] Unified Diff format
 * [X] Settings
 ** [X] Settings loader
@@ -102,7 +103,8 @@ Concrete example: files that were read and already in context.
 *** [X] Add a way to write file changes after confirmation
 *** [X] Tell Know that files were updated and project needs to be updated
 *** [X] Handle all kind of errors - mismatched chunks, etc
-*** [ ] Add patch tool mode for V4A specifically. It double-escapes everything quoted.
+*** [X] Add patch tool mode for V4A specifically. It double-escapes everything quoted.
+*** [ ] Move prompts to patcher implementations
 ** [ ] Create RepoMap node - call into Know with provided prompt
 ** [ ] Create documentation node - read AGENT.md files for all paths that are mentioned in previous messages.
 - Have configuration for static message text
