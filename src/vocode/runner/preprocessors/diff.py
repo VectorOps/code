@@ -7,7 +7,7 @@ from vocode.runner.preprocessors.base import register_preprocessor
 DIFF_V4A_SYSTEM_INSTRUCTION = r"""You must output *exactly one* fenced code block labeled patch.
 No prose before or after.
 Do not wrap the patch in JSON/YAML/strings.
-Do not add backslash-escapes (\n, \t, \") unless they *literally* present in the source file.
+Do not add backslash-escapes (\n, \t, \") or html-escapes (&quot; and similar) unless they *literally* present in the source file.
 *Never* double-escape.
 
 Required envelope:

@@ -191,8 +191,15 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
             return
         # Validate chunk has actual modifications
         if not (current_chunk.additions or current_chunk.deletions):
-            # Ignore empty chunk (no +/- lines)
-            pass
+            # Special case: for Add sections, treat context-only block as file content
+            if current_action is not None and current_action.type == ActionType.ADD and (current_chunk.prefix or current_chunk.suffix):
+                # Move context lines into additions preserving order
+                current_chunk.additions = list(current_chunk.prefix) + list(current_chunk.suffix)
+                current_chunk.prefix.clear()
+                current_chunk.suffix.clear()
+                if current_action is not None:
+                    current_action.chunks.append(current_chunk)
+            # Otherwise, ignore empty chunk (no +/- lines)
         else:
             # Add action must not include prefix/suffix context
             if current_action is not None and current_action.type == ActionType.ADD:
@@ -352,6 +359,16 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
                 current_chunk.suffix.append(ctx_line)
             continue
         # Any other non-blank line is invalid inside a file section
+        # For Add sections, treat such lines as implicit additions to be permissive.
+        if current_action.type == ActionType.ADD:
+            if current_chunk is None and pending_anchors:
+                start_chunk_if_needed()
+            if current_chunk is None:
+                start_chunk_if_needed()
+            current_chunk.additions.append(raw_line)
+            chunk_has_mods = True
+            continue
+
         add_error(
             f"Invalid patch line in {current_path}: must start with @@, -, +, or a space",
             line=current_line_num,
@@ -797,6 +814,7 @@ def process_patch(
     files, read_errors = load_files(paths, open_fn)
     if read_errors:
         return {}, read_errors
+
     # Build commits (may be partial) and apply; return combined errors with statuses.
     commits, build_errors, status_map = build_commits(patch, files)
     apply_errors = apply_commits(commits, write_fn, delete_fn)

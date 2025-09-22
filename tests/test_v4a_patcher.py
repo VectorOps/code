@@ -628,6 +628,48 @@ def test_parse_context_normalization_leading_space_and_blank():
     assert ch.suffix == ["footer1"]
 
 
+def test_add_file_without_plus_lines_treated_as_content():
+    text = """*** Begin Patch
+*** Add File: src/raw_add.txt
+ line1
+ line2
+ line3
+*** End Patch"""
+    patch, errors = parse_v4a_patch(text)
+    assert errors == []
+    assert "src/raw_add.txt" in patch.actions
+    act = patch.actions["src/raw_add.txt"]
+    assert act.type == ActionType.ADD
+    assert len(act.chunks) == 1
+    ch = act.chunks[0]
+    # Context-only block is converted to additions; no prefix/suffix retained
+    assert ch.prefix == []
+    assert ch.suffix == []
+    assert ch.deletions == []
+    assert ch.additions == ["line1", "line2", "line3"]
+
+
+def test_process_patch_add_file_context_only_block_writes_all_content():
+    text = """*** Begin Patch
+*** Add File: src/raw_and_blank.txt
+ line1
+
+ line3
+*** End Patch"""
+    writes: dict[str, str] = {}
+
+    statuses, errs = process_patch(
+        text,
+        open_fn=lambda p: "",  # Should not be called for Add
+        write_fn=lambda p, c: writes.__setitem__(p, c),
+        delete_fn=lambda p: None,
+    )
+    assert errs == []
+    assert statuses == {"src/raw_and_blank.txt": FileApplyStatus.Create}
+    # Blank line preserved between line1 and line3; no trailing newline
+    assert writes["src/raw_and_blank.txt"] == "line1\n\nline3"
+
+
 def test_build_commits_with_normalized_context_applies():
     patch_text = """*** Begin Patch
 *** Update File: src/ctx_norm_apply.py

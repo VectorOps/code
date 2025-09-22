@@ -1,6 +1,6 @@
 # Default Vocode configuration
 ui:
-  log_level: debug
+  #log_level: debug
 tools:
   - name: vectorops_read_files
     auto_approve: true
