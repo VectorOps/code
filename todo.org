@@ -37,6 +37,7 @@ Concrete example: files that were read and already in context.
 * [X] UI protocol
 ** [X] In-memory bidirectional stream implementation for TUI
 * [ ] Terminal UI
+** [ ] Assume markdown as default formatter
 ** [X] Add way to show log messages (inline? out of process?)
 ** [X] Fix line breaks - if line is naturally too long, then moving caret to the beginning of the line does not work, we need to go one line up.
 ** [X] Fix intermediate response streaming
