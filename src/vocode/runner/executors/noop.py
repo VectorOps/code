@@ -1,12 +1,30 @@
 from __future__ import annotations
 
 from typing import AsyncIterator, Optional, Any
+from pydantic import BaseModel, Field
 import asyncio
 
 from vocode.runner.runner import Executor
-from vocode.models import NoopNode
+from vocode.models import Node, Confirmation, MessageMode
 from vocode.state import Message
 from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
+
+
+class NoopNode(Node):
+    type: str = "noop"
+    # Auto-skip without prompting for approval
+    confirmation: Confirmation = Field(default=Confirmation.auto, description="No-op auto confirmation")
+    # No-op defaults to passing all messages to the next node
+    message_mode: MessageMode = Field(
+        default=MessageMode.all_messages,
+        description="No-op defaults to passing all messages to the next node",
+    )
+    sleep_seconds: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="If set, sleep for this many seconds before producing the final response.",
+    )
+
 
 class NoopExecutor(Executor):
     # Must match NoopNode.type

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import pathlib
 from typing import AsyncIterator, List, Optional, Any, Dict, Callable, Tuple
+from pydantic import BaseModel, Field
 from dataclasses import dataclass
 import asyncio
 
 from vocode.runner.runner import Executor
-from vocode.models import ApplyPatchNode, ResetPolicy
+from vocode.models import Node, ResetPolicy
 from vocode.state import Message
 from vocode.runner.models import (
     ReqPacket,
@@ -26,6 +27,14 @@ from .patch import (
     DIFF_PATCH_SYSTEM_INSTRUCTION as PATCH_SYSTEM_PROMPT,
 )
 
+
+# Node
+class ApplyPatchNode(Node):
+    type: str = "apply_patch"
+    patch_format: str = Field(default="v4a", description="Patch format identifier (currently only 'v4a' is supported)")
+
+
+# Internal state
 @dataclass(frozen=True)
 class PatchFormat:
     name: str

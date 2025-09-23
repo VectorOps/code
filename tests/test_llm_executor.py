@@ -6,8 +6,13 @@ from pathlib import Path
 from vocode.testing import ProjectSandbox
 
 from vocode.runner.executors import llm as llm_mod
-from vocode.runner.executors.llm import LLMExecutor, CHOOSE_OUTCOME_TOOL_NAME
-from vocode.models import LLMNode, OutcomeStrategy, OutcomeSlot, LLMToolSpec
+from vocode.runner.executors.llm import (
+    LLMExecutor,
+    CHOOSE_OUTCOME_TOOL_NAME,
+    LLMNode,
+    LLMToolSpec,
+)
+from vocode.models import OutcomeStrategy, OutcomeSlot
 from vocode.state import Message, ToolCall
 from vocode.runner.models import (
     ReqInterimMessage,
@@ -113,6 +118,7 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
+
         class _DummyWeatherTool:
             def openapi_spec(self):
                 return {
@@ -125,7 +131,9 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
 
         execu = LLMExecutor(cfg, project)
         state = None
-        agen = execu.run(ExecRunInput(messages=[Message(role="user", text="Weather?")], state=state))
+        agen = execu.run(
+            ExecRunInput(messages=[Message(role="user", text="Weather?")], state=state)
+        )
 
         # Drain interim messages until tool call request
         interim_msgs, pkt, state = await drain_until_non_interim(agen)
@@ -153,7 +161,13 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
             arguments={"city": "NYC"},
             result={"temp": 72},
         )
-        agen2 = execu.run(ExecRunInput(messages=[], state=state, response=RespToolCall(tool_calls=[tool_result])))
+        agen2 = execu.run(
+            ExecRunInput(
+                messages=[],
+                state=state,
+                response=RespToolCall(tool_calls=[tool_result]),
+            )
+        )
         interim_msgs2, pkt2, state2 = await drain_until_non_interim(agen2)
 
         assert interim_msgs2 == ["It is ", "sunny."]
@@ -182,7 +196,9 @@ async def test_llm_executor_function_tokens_pct_applied(monkeypatch, tmp_path):
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
-        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Q?")], state=None))
+        agen = LLMExecutor(cfg, project).run(
+            ExecRunInput(messages=[Message(role="user", text="Q?")], state=None)
+        )
 
         # Drain until final (no external tools to execute)
         _, pkt, _ = await drain_until_non_interim(agen)
@@ -215,7 +231,9 @@ async def test_llm_executor_tag_strategy_streaming_and_strip(monkeypatch, tmp_pa
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
-        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Question")], state=None))
+        agen = LLMExecutor(cfg, project).run(
+            ExecRunInput(messages=[Message(role="user", text="Question")], state=None)
+        )
 
         interim, pkt, _ = await drain_until_non_interim(agen)
         assert interim == ["Answer body", "\nOUTCOME: reject"]
@@ -234,7 +252,9 @@ async def test_llm_executor_tag_strategy_streaming_and_strip(monkeypatch, tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_llm_executor_tag_strategy_fallback_to_first_outcome(monkeypatch, tmp_path):
+async def test_llm_executor_tag_strategy_fallback_to_first_outcome(
+    monkeypatch, tmp_path
+):
     cfg = LLMNode(
         name="LLM",
         model="gpt-x",
@@ -246,7 +266,9 @@ async def test_llm_executor_tag_strategy_fallback_to_first_outcome(monkeypatch, 
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
-        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Go")], state=None))
+        agen = LLMExecutor(cfg, project).run(
+            ExecRunInput(messages=[Message(role="user", text="Go")], state=None)
+        )
 
         _, pkt, _ = await drain_until_non_interim(agen)
         assert pkt.kind == "final_message"
@@ -257,7 +279,9 @@ async def test_llm_executor_tag_strategy_fallback_to_first_outcome(monkeypatch, 
 
 
 @pytest.mark.asyncio
-async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monkeypatch, tmp_path):
+async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(
+    monkeypatch, tmp_path
+):
     cfg = LLMNode(
         name="LLM",
         model="gpt-x",
@@ -271,6 +295,7 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monke
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
+
         class _DummyWeatherTool:
             def openapi_spec(self):
                 return {
@@ -281,7 +306,10 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monke
 
         project.tools["weather"] = _DummyWeatherTool()
 
-        history = [Message(role="user", text="Hi"), Message(role="agent", text="Prev assistant")]
+        history = [
+            Message(role="user", text="Hi"),
+            Message(role="agent", text="Prev assistant"),
+        ]
         agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=history, state=None))
 
         _, pkt, _ = await drain_until_non_interim(agen)
@@ -303,8 +331,11 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(monke
         assert {"role": "user", "content": "Hi"} in sent_msgs
         assert {"role": "user", "content": "Prev assistant"} in sent_msgs
 
+
 @pytest.mark.asyncio
-async def test_llm_executor_additional_messages_with_existing_state(monkeypatch, tmp_path):
+async def test_llm_executor_additional_messages_with_existing_state(
+    monkeypatch, tmp_path
+):
     cfg = LLMNode(
         name="LLM",
         model="gpt-x",
@@ -320,13 +351,17 @@ async def test_llm_executor_additional_messages_with_existing_state(monkeypatch,
         execu = LLMExecutor(cfg, project)
 
         # First run with initial user history (no state yet)
-        agen1 = execu.run(ExecRunInput(messages=[Message(role="user", text="Hi")], state=None))
+        agen1 = execu.run(
+            ExecRunInput(messages=[Message(role="user", text="Hi")], state=None)
+        )
         _, pkt1, state1 = await drain_until_non_interim(agen1)
         assert pkt1.kind == "final_message"
         assert pkt1.message is not None and pkt1.message.text == "First."
 
         # Second run: existing state plus additional input messages should be appended to state
-        agen2 = execu.run(ExecRunInput(messages=[Message(role="user", text="More")], state=state1))
+        agen2 = execu.run(
+            ExecRunInput(messages=[Message(role="user", text="More")], state=state1)
+        )
         _, pkt2, _ = await drain_until_non_interim(agen2)
         assert pkt2.kind == "final_message"
         assert pkt2.message is not None and pkt2.message.text == "Second."
@@ -338,7 +373,11 @@ async def test_llm_executor_additional_messages_with_existing_state(monkeypatch,
         # Ensure the new user message is present and precedes the final assistant reply.
         assert {"role": "user", "content": "More"} in sent_msgs_2
         assert sent_msgs_2[-1] == {"role": "assistant", "content": "Second."}
-        user_idx = next(i for i, m in enumerate(sent_msgs_2) if m == {"role": "user", "content": "More"})
+        user_idx = next(
+            i
+            for i, m in enumerate(sent_msgs_2)
+            if m == {"role": "user", "content": "More"}
+        )
         assert user_idx < len(sent_msgs_2) - 1
 
 
@@ -362,6 +401,7 @@ async def test_llm_executor_tool_call_auto_approve_passthrough(monkeypatch, tmp_
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
+
         class _DummyWeatherTool:
             def openapi_spec(self):
                 return {
@@ -373,7 +413,9 @@ async def test_llm_executor_tool_call_auto_approve_passthrough(monkeypatch, tmp_
         project.tools["weather"] = _DummyWeatherTool()
 
         execu = LLMExecutor(cfg, project)
-        agen = execu.run(ExecRunInput(messages=[Message(role="user", text="Weather?")], state=None))
+        agen = execu.run(
+            ExecRunInput(messages=[Message(role="user", text="Weather?")], state=None)
+        )
 
         _, pkt, _ = await drain_until_non_interim(agen)
         assert pkt.kind == "tool_call"
@@ -382,7 +424,9 @@ async def test_llm_executor_tool_call_auto_approve_passthrough(monkeypatch, tmp_
 
 
 @pytest.mark.asyncio
-async def test_llm_executor_tool_call_auto_approve_global_overrides_node(monkeypatch, tmp_path):
+async def test_llm_executor_tool_call_auto_approve_global_overrides_node(
+    monkeypatch, tmp_path
+):
     # Node sets False, global sets True -> effective True
     cfg = LLMNode(
         name="LLM",
@@ -396,14 +440,24 @@ async def test_llm_executor_tool_call_auto_approve_global_overrides_node(monkeyp
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
+
         class _DummyWeatherTool:
             def openapi_spec(self):
-                return {"name": "weather", "description": "", "parameters": {"type": "object", "properties": {}}}
+                return {
+                    "name": "weather",
+                    "description": "",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+
         project.tools["weather"] = _DummyWeatherTool()
         # Set global auto_approve=True
-        project.settings.tools = [ToolSettings(name="weather", enabled=True, auto_approve=True)]
+        project.settings.tools = [
+            ToolSettings(name="weather", enabled=True, auto_approve=True)
+        ]
 
-        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Q")], state=None))
+        agen = LLMExecutor(cfg, project).run(
+            ExecRunInput(messages=[Message(role="user", text="Q")], state=None)
+        )
         _, pkt, _ = await drain_until_non_interim(agen)
         assert pkt.kind == "tool_call"
         assert pkt.tool_calls[0].name == "weather"
@@ -411,7 +465,9 @@ async def test_llm_executor_tool_call_auto_approve_global_overrides_node(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_llm_executor_tool_call_auto_approve_node_used_when_global_missing(monkeypatch, tmp_path):
+async def test_llm_executor_tool_call_auto_approve_node_used_when_global_missing(
+    monkeypatch, tmp_path
+):
     # No global, node sets True -> effective True
     cfg = LLMNode(
         name="LLM",
@@ -425,21 +481,31 @@ async def test_llm_executor_tool_call_auto_approve_node_used_when_global_missing
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
+
         class _DummyWeatherTool:
             def openapi_spec(self):
-                return {"name": "weather", "description": "", "parameters": {"type": "object", "properties": {}}}
+                return {
+                    "name": "weather",
+                    "description": "",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+
         project.tools["weather"] = _DummyWeatherTool()
         # No global setting for weather
         project.settings.tools = []
 
-        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Q")], state=None))
+        agen = LLMExecutor(cfg, project).run(
+            ExecRunInput(messages=[Message(role="user", text="Q")], state=None)
+        )
         _, pkt, _ = await drain_until_non_interim(agen)
         assert pkt.kind == "tool_call"
         assert pkt.tool_calls[0].auto_approve is True
 
 
 @pytest.mark.asyncio
-async def test_llm_executor_tool_call_auto_approve_none_when_unset(monkeypatch, tmp_path):
+async def test_llm_executor_tool_call_auto_approve_none_when_unset(
+    monkeypatch, tmp_path
+):
     # Neither global nor node set -> None
     cfg = LLMNode(
         name="LLM",
@@ -453,14 +519,22 @@ async def test_llm_executor_tool_call_auto_approve_none_when_unset(monkeypatch, 
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
+
         class _DummyWeatherTool:
             def openapi_spec(self):
-                return {"name": "weather", "description": "", "parameters": {"type": "object", "properties": {}}}
+                return {
+                    "name": "weather",
+                    "description": "",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+
         project.tools["weather"] = _DummyWeatherTool()
         # No global setting for weather
         project.settings.tools = []
 
-        agen = LLMExecutor(cfg, project).run(ExecRunInput(messages=[Message(role="user", text="Q")], state=None))
+        agen = LLMExecutor(cfg, project).run(
+            ExecRunInput(messages=[Message(role="user", text="Q")], state=None)
+        )
         _, pkt, _ = await drain_until_non_interim(agen)
         assert pkt.kind == "tool_call"
         assert pkt.tool_calls[0].auto_approve is None

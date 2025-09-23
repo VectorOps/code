@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional, Union, Dict, Any, TYPE_CHECKING, List
 from enum import Enum
 from pydantic import BaseModel
+
 if TYPE_CHECKING:
     from .tools import BaseTool
     from know.models import Repo
@@ -13,6 +14,7 @@ from .tools import get_all_tools
 from .settings import KnowProjectSettings, Settings, load_settings
 from .templates import write_default_config
 from vocode.runner.models import TokenUsageTotals
+
 
 class FileChangeType(str, Enum):
     CREATED = "created"
@@ -66,7 +68,11 @@ class Project:
         """Gracefully shut down project components."""
         await self.know.shutdown()
 
-    async def refresh(self, repo: Optional["Repo"] = None, files: Optional[List[FileChangeModel]] = None) -> None:
+    async def refresh(
+        self,
+        repo: Optional["Repo"] = None,
+        files: Optional[List[FileChangeModel]] = None,
+    ) -> None:
         """
         Asynchronously refresh the underlying 'know' project (optionally for a specific Repo).
         Note: The 'files' parameter is currently ignored since the 'know' backend
@@ -77,7 +83,9 @@ class Project:
     # ---------------
     # LLM usage totals
     # ---------------
-    def add_llm_usage(self, prompt_delta: int, completion_delta: int, cost_delta: float) -> None:
+    def add_llm_usage(
+        self, prompt_delta: int, completion_delta: int, cost_delta: float
+    ) -> None:
         """Increment aggregate LLM usage totals for this project."""
         self.llm_usage.prompt_tokens += int(prompt_delta or 0)
         self.llm_usage.completion_tokens += int(completion_delta or 0)
@@ -126,7 +134,9 @@ def init_project(
     config_path = None
 
     # 1) Search upwards for an existing config file (nearest ancestor)
-    found_base = _find_project_root_with_config(start_dir, rel) if search_ancestors else None
+    found_base = (
+        _find_project_root_with_config(start_dir, rel) if search_ancestors else None
+    )
     if found_base is not None:
         base = found_base
         config_path = base / rel
@@ -185,11 +195,19 @@ def init_project(
 
     # Tools are enabled by default; settings can disable them.
     all_tools = get_all_tools()
-    disabled_tool_names = {entry.name for entry in settings.tools or [] if entry.enabled is False}
+    disabled_tool_names = {
+        entry.name for entry in settings.tools or [] if entry.enabled is False
+    }
     tools = {
         name: tool_instance
         for name, tool_instance in all_tools.items()
         if name not in disabled_tool_names
     }
 
-    return Project(base_path=base, config_relpath=rel, settings=settings, tools=tools, know=know_project)
+    return Project(
+        base_path=base,
+        config_relpath=rel,
+        settings=settings,
+        tools=tools,
+        know=know_project,
+    )

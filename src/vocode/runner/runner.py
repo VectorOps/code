@@ -1,14 +1,33 @@
- 
-from typing import AsyncIterator, ClassVar, Dict, Optional, Type, List, TYPE_CHECKING, Any, Union
+from typing import (
+    AsyncIterator,
+    ClassVar,
+    Dict,
+    Optional,
+    Type,
+    List,
+    TYPE_CHECKING,
+    Any,
+    Union,
+)
 
 import asyncio
 from pydantic import BaseModel
 from dataclasses import dataclass
+
 if TYPE_CHECKING:
     from vocode.project import Project
 from vocode.models import Node, Confirmation, ResetPolicy, MessageMode
 from vocode.graph import RuntimeGraph
-from vocode.state import Message, RunnerStatus, Assignment, ToolCallStatus, Step, Activity, StepStatus, ActivityType
+from vocode.state import (
+    Message,
+    RunnerStatus,
+    Assignment,
+    ToolCallStatus,
+    Step,
+    Activity,
+    StepStatus,
+    ActivityType,
+)
 from vocode.runner.models import (
     ReqPacket,
     RespPacket,
@@ -29,8 +48,6 @@ from vocode.runner.models import (
     PACKET_FINAL_MESSAGE,
     PACKET_APPROVAL,
 )
-
-
 
 
 class Executor:
@@ -64,14 +81,18 @@ class Executor:
             raise ValueError(f"No executor registered for node type '{node.type}'")
         return sub(config=node, project=project)
 
-    async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
+    async def run(
+        self, inp: ExecRunInput
+    ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         """
         Async generator from Executor to Runner. Executors yield (packet, state) tuples:
         - may yield zero or more (PACKET_MESSAGE, state) interim messages,
         - must end a cycle by yielding a non-PACKET_MESSAGE packet as (packet, state).
         They DO NOT expect responses via .asend(); runner re-invokes run() with ExecRunInput(response=...) and state.
         """
-        raise NotImplementedError("Executor subclasses must implement 'run' as an async generator")
+        raise NotImplementedError(
+            "Executor subclasses must implement 'run' as an async generator"
+        )
 
 
 @dataclass
@@ -80,12 +101,14 @@ class HistoryStep:
     activity: Activity
     messages: List[Message]
     state: Optional[Any]
-    req: ReqPacket          # will hold only ReqFinalMessage for now
+    req: ReqPacket  # will hold only ReqFinalMessage for now
     response: Optional[RespPacket]
 
 
 class Runner:
-    def __init__(self, workflow, project: "Project", initial_message: Optional[Message] = None):
+    def __init__(
+        self, workflow, project: "Project", initial_message: Optional[Message] = None
+    ):
         """Prepare the runner with a graph, initial message, status flags, and per-node executors."""
         self.workflow = workflow
         self.runtime_graph = RuntimeGraph(self.workflow.graph)
@@ -94,7 +117,8 @@ class Runner:
         self.status: RunnerStatus = RunnerStatus.idle
         self._current_exec_task: Optional[asyncio.Task] = None
         self._executors: Dict[str, Executor] = {
-            n.name: Executor.create_for_node(n, project=self.project) for n in self.workflow.graph.nodes
+            n.name: Executor.create_for_node(n, project=self.project)
+            for n in self.workflow.graph.nodes
         }
         self._stop_requested: bool = False
         self._internal_cancel_requested: bool = False
@@ -117,7 +141,9 @@ class Runner:
             self._internal_cancel_requested = True
             self._current_exec_task.cancel()
 
-    def _compute_node_transition(self, current_runtime_node, exec_activity: Activity, step: Step):
+    def _compute_node_transition(
+        self, current_runtime_node, exec_activity: Activity, step: Step
+    ):
         """
         Decide the next runtime node and the input messages for it based on the executed node's result.
         Returns (next_runtime_node, next_input_messages, edge_reset_policy) or (None, None, None) if the flow should finish.
@@ -139,7 +165,9 @@ class Runner:
         else:
             if len(node_model.outcomes) == 1:
                 selected_outcome = node_model.outcomes[0].name
-                next_runtime_node = current_runtime_node.get_child_by_outcome(selected_outcome)
+                next_runtime_node = current_runtime_node.get_child_by_outcome(
+                    selected_outcome
+                )
                 if next_runtime_node is None:
                     raise ValueError(
                         f"No edge defined from node '{node_model.name}' via its only outcome"
@@ -171,7 +199,11 @@ class Runner:
                 parts.append(final_msg.text)
             combined_text = "\n".join(parts)
             if combined_text:
-                role = (final_msg.role if final_msg is not None else (input_msgs[-1].role if input_msgs else "agent"))
+                role = (
+                    final_msg.role
+                    if final_msg is not None
+                    else (input_msgs[-1].role if input_msgs else "agent")
+                )
                 msgs = [Message(role=role, text=combined_text)]
             else:
                 msgs = []
@@ -284,7 +316,11 @@ class Runner:
         for step in reversed(task.steps):
             if step.status == StepStatus.finished:
                 last_exec = next(
-                    (a for a in reversed(step.executions) if a.type == ActivityType.executor and a.is_complete),
+                    (
+                        a
+                        for a in reversed(step.executions)
+                        if a.type == ActivityType.executor and a.is_complete
+                    ),
                     None,
                 )
                 if last_exec is None:
@@ -292,7 +328,9 @@ class Runner:
                 cur_rn = self._find_runtime_node_by_name(step.node)
                 if cur_rn is None:
                     return None
-                next_rn, msgs, edge_policy = self._compute_node_transition(cur_rn, last_exec, step)
+                next_rn, msgs, edge_policy = self._compute_node_transition(
+                    cur_rn, last_exec, step
+                )
                 return next_rn, msgs, edge_policy
         return None
 
@@ -312,7 +350,9 @@ class Runner:
             )
         elif policy == ResetPolicy.keep_final:
             # Include only the immediately previous final accepted response for this node
-            last_final = self._get_last_final_message_for_node(task, node_name, exclude_step=step)
+            last_final = self._get_last_final_message_for_node(
+                task, node_name, exclude_step=step
+            )
             if last_final is not None:
                 # Avoid duplication if the transition already provided it as an input
                 if not any(m is last_final for m in initial_user_inputs):
@@ -339,7 +379,9 @@ class Runner:
         node_model: Node,
     ) -> "Executor":
         if policy == ResetPolicy.always_reset:
-            self._executors[node_name] = Executor.create_for_node(node_model, project=self.project)
+            self._executors[node_name] = Executor.create_for_node(
+                node_model, project=self.project
+            )
         return self._executors[node_name]
 
     def _is_input_requested(self, req: ReqPacket, node_conf: Confirmation) -> bool:
@@ -349,7 +391,11 @@ class Runner:
             # Request input if any tool call is not explicitly auto-approved (None or False)
             def _needs_approval(v: Any) -> bool:
                 return not (v is True)
-            return any(_needs_approval(getattr(tc, "auto_approve", None)) for tc in req.tool_calls)
+
+            return any(
+                _needs_approval(getattr(tc, "auto_approve", None))
+                for tc in req.tool_calls
+            )
         if req.kind == PACKET_FINAL_MESSAGE:
             return node_conf in (Confirmation.prompt, Confirmation.confirm)
         return False
@@ -357,7 +403,9 @@ class Runner:
     def _split_tool_calls(self, req: ReqToolCall):
         """Split tool calls into (auto_approved, manual) based on tc.auto_approve flag."""
         auto_calls = [tc for tc in req.tool_calls if getattr(tc, "auto_approve", False)]
-        manual_calls = [tc for tc in req.tool_calls if not getattr(tc, "auto_approve", False)]
+        manual_calls = [
+            tc for tc in req.tool_calls if not getattr(tc, "auto_approve", False)
+        ]
         return auto_calls, manual_calls
 
     async def _run_tools(
@@ -389,7 +437,9 @@ class Runner:
                 args_model = tool.input_model.model_validate(tc.arguments)
             except Exception as e:
                 tc.status = ToolCallStatus.rejected
-                tc.result = {"error": f"Invalid arguments for tool '{tc.name}': {str(e)}"}
+                tc.result = {
+                    "error": f"Invalid arguments for tool '{tc.name}': {str(e)}"
+                }
                 updated_tool_calls.append(tc.model_copy(deep=True))
                 continue
 
@@ -404,7 +454,6 @@ class Runner:
             updated_tool_calls.append(tc.model_copy(deep=True))
 
         return RespToolCall(tool_calls=updated_tool_calls)
-
 
     async def rewind(self, task: Assignment, n: int = 1) -> None:
         """
@@ -451,6 +500,7 @@ class Runner:
             if conf in (Confirmation.prompt, Confirmation.confirm):
                 return i
         return None
+
     def _find_last_history_with_user_input_index(self) -> Optional[int]:
         """
         Find the most recent history step that already has a recorded user response
@@ -461,6 +511,7 @@ class Runner:
             if h.response is not None:
                 return i
         return None
+
     def _find_last_user_input_step_index(self, task: Assignment) -> Optional[int]:
         """
         Find the most recent step that contains an actual user response (message.role == 'user').
@@ -470,11 +521,17 @@ class Runner:
         for i in range(len(task.steps) - 1, -1, -1):
             s = task.steps[i]
             for a in s.executions:
-                if a.type == ActivityType.user and a.message is not None and a.message.role == "user":
+                if (
+                    a.type == ActivityType.user
+                    and a.message is not None
+                    and a.message.role == "user"
+                ):
                     return i
         return None
 
-    def replace_last_user_input(self, task: Assignment, response: Union[RespMessage, RespApproval]) -> None:
+    def replace_last_user_input(
+        self, task: Assignment, response: Union[RespMessage, RespApproval]
+    ) -> None:
         """
         Prepare to replace the last user input:
         - If the last replaceable boundary is a final that required input (prompt/confirm),
@@ -484,7 +541,9 @@ class Runner:
         Leaves runner in stopped state ready to restart.
         """
         if self.status in (RunnerStatus.running, RunnerStatus.waiting_input):
-            raise RuntimeError(f"Cannot replace input while runner status is '{self.status}'")
+            raise RuntimeError(
+                f"Cannot replace input while runner status is '{self.status}'"
+            )
 
         # Case 1: last retriable final (prompt/confirm)
         hist_idx = self._find_last_retriable_history_index()
@@ -549,7 +608,10 @@ class Runner:
         preloaded_resp_default: Optional[RespPacket] = None
         resume_info = None
 
-        if prev_status == RunnerStatus.stopped and self._resume_history_step is not None:
+        if (
+            prev_status == RunnerStatus.stopped
+            and self._resume_history_step is not None
+        ):
             # Resume anchored at the saved history step (exact node+messages)
             rn = self._find_runtime_node_by_name(self._resume_history_step.node)
             if rn is None:
@@ -572,7 +634,9 @@ class Runner:
                 pending_input_messages = list(next_msgs or [])
             else:
                 current_runtime_node = self.runtime_graph.root
-                pending_input_messages = [self.initial_message] if self.initial_message is not None else []
+                pending_input_messages = (
+                    [self.initial_message] if self.initial_message is not None else []
+                )
 
         def _clear_resume_markers():
             nonlocal preloaded_req, preloaded_final_act, preloaded_resp_default
@@ -599,7 +663,8 @@ class Runner:
 
             # Collect initial inputs (added when the step was created)
             initial_user_inputs: List[Message] = [
-                a.message for a in step.executions
+                a.message
+                for a in step.executions
                 if a.message is not None and a.type == ActivityType.user
             ]
 
@@ -628,7 +693,9 @@ class Runner:
             resp: Optional[RespPacket] = None
             last_exec_activity: Optional[Activity] = None
             placeholder_exec = Activity(type=ActivityType.executor)
-            pass_messages = True  # Only pass base_input_messages on the first cycle for this node
+            pass_messages = (
+                True  # Only pass base_input_messages on the first cycle for this node
+            )
 
             while True:
                 # Optionally bypass executor execution when replaying a saved final from history
@@ -646,7 +713,11 @@ class Runner:
                 else:
                     # Invoke executor for one cycle
                     msgs_for_cycle = base_input_messages if pass_messages else []
-                    agen = executor.run(ExecRunInput(messages=msgs_for_cycle, state=current_state, response=resp))
+                    agen = executor.run(
+                        ExecRunInput(
+                            messages=msgs_for_cycle, state=current_state, response=resp
+                        )
+                    )
                     resp = None  # response is one-shot for each cycle
                     # After first invocation, do not pass messages again for this node
                     pass_messages = False
@@ -655,7 +726,9 @@ class Runner:
                     try:
                         while True:
                             try:
-                                self._current_exec_task = asyncio.create_task(anext(agen))
+                                self._current_exec_task = asyncio.create_task(
+                                    anext(agen)
+                                )
                                 pkt, yielded_state = await self._current_exec_task
                             finally:
                                 self._current_exec_task = None
@@ -669,7 +742,7 @@ class Runner:
                                     event=pkt,
                                     input_requested=False,
                                 )
-                                _ = (yield run_event)
+                                _ = yield run_event
                                 continue
 
                             # Non-message => end of this executor cycle
@@ -690,23 +763,36 @@ class Runner:
 
                     # Find last complete executor activity for transition (may be from previous cycles)
                     last_exec_activity = next(
-                        (a for a in reversed(step.executions) if a.type == ActivityType.executor and a.is_complete),
+                        (
+                            a
+                            for a in reversed(step.executions)
+                            if a.type == ActivityType.executor and a.is_complete
+                        ),
                         None,
                     )
                     if last_exec_activity is None:
                         # No explicit final; allow transition with last interim if any (message_mode may handle)
                         last_interim = next(
-                            (a for a in reversed(step.executions) if a.type == ActivityType.executor and a.message is not None),
+                            (
+                                a
+                                for a in reversed(step.executions)
+                                if a.type == ActivityType.executor
+                                and a.message is not None
+                            ),
                             None,
                         )
                         if last_interim is None:
-                            raise RuntimeError("Executor finished without emitting any messages")
+                            raise RuntimeError(
+                                "Executor finished without emitting any messages"
+                            )
                         last_exec_activity = last_interim.clone(is_complete=True)
                         step.executions.append(last_exec_activity)
 
                     # Compute next node/inputs
-                    next_runtime_node, next_input_messages, next_edge_policy = self._compute_node_transition(
-                        current_runtime_node, last_exec_activity, step
+                    next_runtime_node, next_input_messages, next_edge_policy = (
+                        self._compute_node_transition(
+                            current_runtime_node, last_exec_activity, step
+                        )
                     )
                     if next_runtime_node is None:
                         self.status = RunnerStatus.finished
@@ -730,7 +816,9 @@ class Runner:
                     input_requested=input_requested,
                 )
                 run_input: Optional[RunInput] = (yield run_event)
-                resp_packet: Optional[RespPacket] = run_input.response if run_input is not None else None
+                resp_packet: Optional[RespPacket] = (
+                    run_input.response if run_input is not None else None
+                )
 
                 # PACKET_FINAL_MESSAGE: finalize (with confirm/prompt)
                 if req.kind == PACKET_FINAL_MESSAGE:
@@ -773,7 +861,10 @@ class Runner:
                     if node_conf == Confirmation.confirm:
                         # Re-prompt until approval or stop on reject
                         while True:
-                            if resp_packet is not None and resp_packet.kind == PACKET_APPROVAL:
+                            if (
+                                resp_packet is not None
+                                and resp_packet.kind == PACKET_APPROVAL
+                            ):
                                 # Record final activity in step history (and mark response on hist)
                                 step.executions.append(final_act)
                                 hist.response = resp_packet
@@ -794,12 +885,17 @@ class Runner:
                                 event=req,
                                 input_requested=True,
                             )
-                            run_input = (yield run_event)
-                            resp_packet = run_input.response if run_input is not None else None
+                            run_input = yield run_event
+                            resp_packet = (
+                                run_input.response if run_input is not None else None
+                            )
 
                     # prompt: allow one more user message; if provided, run another cycle
                     elif node_conf == Confirmation.prompt:
-                        if resp_packet is not None and resp_packet.kind == PACKET_MESSAGE:
+                        if (
+                            resp_packet is not None
+                            and resp_packet.kind == PACKET_MESSAGE
+                        ):
                             # Record this final, store the response on hist, but continue same node with provided user message (not recorded)
                             step.executions.append(final_act)
                             hist.response = resp_packet
@@ -823,8 +919,10 @@ class Runner:
                     if replaying_history:
                         _clear_resume_markers()
 
-                    next_runtime_node, next_input_messages, next_edge_policy = self._compute_node_transition(
-                        current_runtime_node, last_exec_activity, step
+                    next_runtime_node, next_input_messages, next_edge_policy = (
+                        self._compute_node_transition(
+                            current_runtime_node, last_exec_activity, step
+                        )
                     )
                     if next_runtime_node is None:
                         self.status = RunnerStatus.finished
@@ -844,7 +942,10 @@ class Runner:
                     # Require a message; keep prompting until we get one
                     user_msg_packet: Optional[RespMessage] = None
                     while True:
-                        if resp_packet is not None and resp_packet.kind == PACKET_MESSAGE:
+                        if (
+                            resp_packet is not None
+                            and resp_packet.kind == PACKET_MESSAGE
+                        ):
                             user_msg_packet = resp_packet
                             break
                         self.status = RunnerStatus.waiting_input
@@ -854,14 +955,19 @@ class Runner:
                             event=req,
                             input_requested=True,
                         )
-                        run_input = (yield run_event)
-                        resp_packet = run_input.response if run_input is not None else None
+                        run_input = yield run_event
+                        resp_packet = (
+                            run_input.response if run_input is not None else None
+                        )
                     # Record user message in history
-                    step.executions.append(Activity(type=ActivityType.user, message=user_msg_packet.message))
+                    step.executions.append(
+                        Activity(
+                            type=ActivityType.user, message=user_msg_packet.message
+                        )
+                    )
                     # Set response for next executor cycle
                     resp = user_msg_packet
                     continue
 
                 # Any other packet kinds: no-op; continue outer loop
                 continue
-

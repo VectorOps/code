@@ -12,10 +12,12 @@ class OutcomeSlot(BaseModel):
     name: str
     description: Optional[str] = None
 
+
 class Confirmation(str, Enum):
     prompt = "prompt"
     auto = "auto"
     confirm = "confirm"  # require explicit Y/N approval
+
 
 class ResetPolicy(str, Enum):
     always_reset = "always_reset"
@@ -23,10 +25,12 @@ class ResetPolicy(str, Enum):
     keep_state = "keep_state"
     keep_final = "keep_final"
 
+
 class MessageMode(str, Enum):
     final_response = "final_response"
     all_messages = "all_messages"
     concatenate_final = "concatenate_final"
+
 
 class PreprocessorSpec(BaseModel):
     name: str
@@ -43,14 +47,20 @@ class PreprocessorSpec(BaseModel):
         if isinstance(v, dict):
             name = v.get("name")
             if not isinstance(name, str) or not name:
-                raise ValueError("Preprocessor spec mapping must include non-empty 'name'")
+                raise ValueError(
+                    "Preprocessor spec mapping must include non-empty 'name'"
+                )
             options = v.get("options", {})
             if options is None:
                 options = {}
             if not isinstance(options, dict):
-                raise TypeError("Preprocessor 'options' must be a mapping/dict if provided")
+                raise TypeError(
+                    "Preprocessor 'options' must be a mapping/dict if provided"
+                )
             return {"name": name, "options": options}
-        raise TypeError("Preprocessor spec must be a string or a mapping with 'name' and optional 'options'")
+        raise TypeError(
+            "Preprocessor spec must be a string or a mapping with 'name' and optional 'options'"
+        )
 
 
 class Node(BaseModel):
@@ -174,7 +184,9 @@ class Node(BaseModel):
         field = getattr(cls, "model_fields", {}).get("type")
         expected = getattr(field, "default", None)
         if isinstance(expected, str) and v != expected:
-            raise ValueError(f"Invalid type '{v}' for {cls.__name__}; expected '{expected}'")
+            raise ValueError(
+                f"Invalid type '{v}' for {cls.__name__}; expected '{expected}'"
+            )
         return v
 
     @classmethod
@@ -195,7 +207,9 @@ class OutcomeStrategy(str, Enum):
 
 class Edge(BaseModel):
     source_node: str = Field(..., description="Name of the source node")
-    source_outcome: str = Field(..., description="Name of the outcome slot on the source node")
+    source_outcome: str = Field(
+        ..., description="Name of the outcome slot on the source node"
+    )
     target_node: str = Field(..., description="Name of the target node")
     reset_policy: Optional[ResetPolicy] = Field(
         default=None,
@@ -255,9 +269,13 @@ class Graph(BaseModel):
         edges_by_source: Dict[Tuple[str, str], Edge] = {}
         for e in edges:
             if e.source_node not in node_by_name:
-                raise ValueError(f"Edge source_node '{e.source_node}' does not exist in graph.nodes")
+                raise ValueError(
+                    f"Edge source_node '{e.source_node}' does not exist in graph.nodes"
+                )
             if e.target_node not in node_by_name:
-                raise ValueError(f"Edge target_node\n'{e.target_node}' does not exist in graph.nodes")
+                raise ValueError(
+                    f"Edge target_node\n'{e.target_node}' does not exist in graph.nodes"
+                )
 
             source_node = node_by_name[e.source_node]
             if e.source_outcome not in {s.name for s in source_node.outcomes}:
@@ -281,93 +299,27 @@ class Graph(BaseModel):
             if missing:
                 msgs.append(
                     "Missing edges for declared outcome slots: "
-                    + ", ".join([f"{n}:{s}" for (n, s) in sorted(missing, key=lambda x: (x[0], x[1]))])
+                    + ", ".join(
+                        [
+                            f"{n}:{s}"
+                            for (n, s) in sorted(missing, key=lambda x: (x[0], x[1]))
+                        ]
+                    )
                 )
             if extra:
                 msgs.append(
                     "Edges originate from undeclared outcome slots: "
-                    + ", ".join([f"{n}:{s}" for (n, s) in sorted(extra, key=lambda x: (x[0], x[1]))])
+                    + ", ".join(
+                        [
+                            f"{n}:{s}"
+                            for (n, s) in sorted(extra, key=lambda x: (x[0], x[1]))
+                        ]
+                    )
                 )
             raise ValueError("; ".join(msgs))
 
         return self
 
-
-class LLMNode(Node):
-    type: str = "llm"
-    model: str
-    system: Optional[str] = None
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    outcome_strategy: OutcomeStrategy = Field(default=OutcomeStrategy.tag)
-    # Structured tool specs with short-hand coercion from strings
-    tools: List["LLMToolSpec"] = Field(
-        default_factory=list, description="Enabled tools (supports string or object spec)"
-    )
-    extra: Dict[str, Any] = Field(default_factory=dict)
-    preprocessors: List[PreprocessorSpec] = Field(
-        default_factory=list,
-        description="Pre-execution preprocessors applied to the LLM system prompt",
-    )
-    function_tokens_pct: Optional[int] = Field(
-        default=None,
-        ge=1,
-        le=100,
-        description=(
-            "Optional percent (1-100) of the model's total token limit to use as max_tokens "
-            "when tools are enabled (function-answer mode). "
-            "Requires extra['model_max_tokens'] to be set."
-        ),
-    )
-
-class LLMToolSpec(BaseModel):
-    name: str
-    auto_approve: Optional[bool] = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce(cls, v: Any) -> Any:
-        # Accept either:
-        # - "tool_name"
-        # - {"name": "tool_name", "auto_approve": bool|None}
-        if isinstance(v, str):
-            return {"name": v, "auto_approve": None}
-        if isinstance(v, dict):
-            name = v.get("name")
-            if not isinstance(name, str) or not name:
-                raise ValueError("Tool spec must include non-empty 'name'")
-            auto = v.get("auto_approve", None)
-            if auto is not None and not isinstance(auto, bool):
-                raise TypeError("LLMToolSpec.auto_approve must be a boolean if provided")
-            return {"name": name, "auto_approve": auto}
-        raise TypeError("Tool spec must be a string or mapping with 'name' and optional 'auto_approve'")
-
-class InputNode(Node):
-    type: str = "input"
-    message: str
-
-class MessageNode(Node):
-    type: str = "message"
-    message: str
-
-class NoopNode(Node):
-    type: str = "noop"
-    # Auto-skip without prompting for approval
-    confirmation: Confirmation = Field(default=Confirmation.auto, description="No-op auto confirmation")
-    # No-op defaults to passing all messages to the next node
-    message_mode: MessageMode = Field(
-        default=MessageMode.all_messages,
-        description="No-op defaults to passing all messages to the next node",
-    )
-    sleep_seconds: Optional[float] = Field(
-        default=None,
-        ge=0,
-        description="If set, sleep for this many seconds before producing the final response.",
-    )
- 
-class ApplyPatchNode(Node):
-    type: str = "apply_patch"
-    patch_format: str = Field(default="v4a", description="Patch format identifier (currently only 'v4a' is supported)")
 
 class Workflow(BaseModel):
     name: str

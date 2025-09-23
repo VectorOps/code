@@ -36,6 +36,7 @@ Concrete example: files that were read and already in context.
 ** [ ] Move preprocessors to llm/ and move llm.py to llm/__init__.py
 * [X] UI protocol
 ** [X] In-memory bidirectional stream implementation for TUI
+** [ ] Add syntax name hint to apply formatting
 * [ ] Terminal UI
 ** [ ] Print node transitions
 ** [ ] Format tool calls

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import AsyncIterator, Optional, Any
 
 from vocode.runner.runner import Executor
-from vocode.models import InputNode
+from vocode.models import Node
 from vocode.state import Message
 from vocode.runner.models import (
     ReqPacket,
@@ -13,6 +13,11 @@ from vocode.runner.models import (
     ExecRunInput,
     PACKET_MESSAGE,
 )
+
+
+class InputNode(Node):
+    type: str = "input"
+    message: str
 
 
 class InputExecutor(Executor):

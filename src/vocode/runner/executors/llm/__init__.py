@@ -5,19 +5,11 @@ import json
 import re
 import asyncio
 from vocode.runner.preprocessors.base import apply_preprocessors
-
-CHOOSE_OUTCOME_TOOL_NAME: Final[str] = "__choose_outcome__"
-OUTCOME_TAG_RE = re.compile(r"^\s*OUTCOME\s*:\s*([A-Za-z0-9_\-]+)\s*$")
-OUTCOME_LINE_PREFIX_RE = re.compile(r"^\s*OUTCOME\s*:\s*")
-MAX_ROUNDS = 32
-
 from litellm import acompletion, completion_cost
-
 from enum import Enum
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, Field, model_validator
 from vocode.runner.runner import Executor
-from vocode.models import LLMNode, OutcomeStrategy
+from vocode.models import Node, PreprocessorSpec, OutcomeStrategy
 from vocode.state import Message, ToolCall, LogLevel
 from vocode.runner.models import (
     ReqPacket,
@@ -34,10 +26,75 @@ from vocode.runner.models import (
 from vocode.settings import ToolSettings  # type: ignore
 
 
+CHOOSE_OUTCOME_TOOL_NAME: Final[str] = "__choose_outcome__"
+OUTCOME_TAG_RE = re.compile(r"^\s*OUTCOME\s*:\s*([A-Za-z0-9_\-]+)\s*$")
+OUTCOME_LINE_PREFIX_RE = re.compile(r"^\s*OUTCOME\s*:\s*")
+MAX_ROUNDS = 32
+
+
+# Node configuration
+class LLMToolSpec(BaseModel):
+    name: str
+    auto_approve: Optional[bool] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce(cls, v: Any) -> Any:
+        # Accept either:
+        # - "tool_name"
+        # - {"name": "tool_name", "auto_approve": bool|None}
+        if isinstance(v, str):
+            return {"name": v, "auto_approve": None}
+        if isinstance(v, dict):
+            name = v.get("name")
+            if not isinstance(name, str) or not name:
+                raise ValueError("Tool spec must include non-empty 'name'")
+            auto = v.get("auto_approve", None)
+            if auto is not None and not isinstance(auto, bool):
+                raise TypeError(
+                    "LLMToolSpec.auto_approve must be a boolean if provided"
+                )
+            return {"name": name, "auto_approve": auto}
+        raise TypeError(
+            "Tool spec must be a string or mapping with 'name' and optional 'auto_approve'"
+        )
+
+
+class LLMNode(Node):
+    type: str = "llm"
+    model: str
+    system: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    outcome_strategy: OutcomeStrategy = Field(default=OutcomeStrategy.tag)
+    # Structured tool specs with short-hand coercion from strings
+    tools: List[LLMToolSpec] = Field(
+        default_factory=list,
+        description="Enabled tools (supports string or object spec)",
+    )
+    extra: Dict[str, Any] = Field(default_factory=dict)
+    preprocessors: List[PreprocessorSpec] = Field(
+        default_factory=list,
+        description="Pre-execution preprocessors applied to the LLM system prompt",
+    )
+    function_tokens_pct: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=100,
+        description=(
+            "Optional percent (1-100) of the model's total token limit to use as max_tokens "
+            "when tools are enabled (function-answer mode). "
+            "Requires extra['model_max_tokens'] to be set."
+        ),
+    )
+
+
+# Internal LLM state
 class LLMExpect(str, Enum):
     none = "none"
     tools = "tools"
     post_final_user = "post_final_user"
+
 
 class LLMState(BaseModel):
     conv: List[Dict[str, Any]] = Field(default_factory=list)
@@ -45,6 +102,8 @@ class LLMState(BaseModel):
     pending_outcome_name: Optional[str] = None
     tool_rounds: int = 0
 
+
+# Executor
 class LLMExecutor(Executor):
     # Must match LLMNode.type
     type = "llm"
@@ -55,7 +114,9 @@ class LLMExecutor(Executor):
             # Allow base Node but prefer LLMNode
             raise TypeError("LLMExecutor requires config to be an LLMNode")
 
-    def _build_base_messages(self, cfg: LLMNode, history: List[Message]) -> List[Dict[str, Any]]:
+    def _build_base_messages(
+        self, cfg: LLMNode, history: List[Message]
+    ) -> List[Dict[str, Any]]:
         msgs: List[Dict[str, Any]] = []
         if cfg.system:
             sys_text = cfg.system
@@ -69,7 +130,9 @@ class LLMExecutor(Executor):
             msgs.append({"role": "user", "content": m.text})
         return msgs
 
-    def _parse_outcome_from_text(self, text: str, valid_outcomes: List[str]) -> Optional[str]:
+    def _parse_outcome_from_text(
+        self, text: str, valid_outcomes: List[str]
+    ) -> Optional[str]:
         # Look for a line like "OUTCOME: name"
         for line in text.splitlines()[::-1]:
             m = OUTCOME_TAG_RE.match(line.strip())
@@ -81,7 +144,11 @@ class LLMExecutor(Executor):
 
     def _strip_outcome_line(self, text: str) -> str:
         return "\n".join(
-            [ln for ln in text.splitlines() if not OUTCOME_LINE_PREFIX_RE.match(ln.strip())]
+            [
+                ln
+                for ln in text.splitlines()
+                if not OUTCOME_LINE_PREFIX_RE.match(ln.strip())
+            ]
         ).rstrip()
 
     def _build_choose_outcome_tool(
@@ -95,7 +162,7 @@ class LLMExecutor(Executor):
             "function": {
                 "name": CHOOSE_OUTCOME_TOOL_NAME,
                 "description": "Selects the conversation outcome to take next. Available outcomes:\n"
-                               + outcome_desc_bullets,
+                + outcome_desc_bullets,
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -128,19 +195,22 @@ class LLMExecutor(Executor):
 
     def _get_outcome_desc_bullets(self, cfg: LLMNode) -> str:
         lines: List[str] = []
-        for s in (cfg.outcomes or []):
+        for s in cfg.outcomes or []:
             desc = s.description or ""
             lines.append(f"- {s.name}: {desc}".rstrip())
         return "\n".join(lines)
 
     def _get_outcome_choice_desc(self, cfg: LLMNode, outcome_desc_bullets: str) -> str:
         if outcome_desc_bullets.strip():
-            return "Choose exactly one of the following outcomes:\n" + outcome_desc_bullets
+            return (
+                "Choose exactly one of the following outcomes:\n" + outcome_desc_bullets
+            )
         return "Choose the appropriate outcome."
 
     def _estimate_text_tokens(self, text: str, model: str) -> int:
         try:
             import tiktoken  # type: ignore
+
             try:
                 enc = tiktoken.encoding_for_model(model)
             except Exception:
@@ -160,11 +230,17 @@ class LLMExecutor(Executor):
 
     def _get_input_cost_per_1k(self, cfg: LLMNode) -> float:
         extra = cfg.extra or {}
-        return float(extra.get("input_cost_per_1k") or extra.get("prompt_cost_per_1k") or 0.0)
+        return float(
+            extra.get("input_cost_per_1k") or extra.get("prompt_cost_per_1k") or 0.0
+        )
 
     def _get_output_cost_per_1k(self, cfg: LLMNode) -> float:
         extra = cfg.extra or {}
-        return float(extra.get("output_cost_per_1k") or extra.get("completion_cost_per_1k") or 0.0)
+        return float(
+            extra.get("output_cost_per_1k")
+            or extra.get("completion_cost_per_1k")
+            or 0.0
+        )
 
     def _get_round_cost(self, stream: Any, model: str) -> float:
         """Get cost from litellm completion response. Pass model to help pricing map."""
@@ -194,7 +270,9 @@ class LLMExecutor(Executor):
                 pass  # Cost will be 0.0 if all methods fail
         return round_cost
 
-    async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
+    async def run(
+        self, inp: ExecRunInput
+    ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: LLMNode = self.config  # type: ignore[assignment]
 
         # Restore or initialize state
@@ -223,7 +301,9 @@ class LLMExecutor(Executor):
                         "role": "tool",
                         "tool_call_id": rcall.id or "",
                         "name": rcall.name,
-                        "content": json.dumps(rcall.result) if rcall.result is not None else "",
+                        "content": (
+                            json.dumps(rcall.result) if rcall.result is not None else ""
+                        ),
                     }
                 )
             state.expect = LLMExpect.none
@@ -240,13 +320,19 @@ class LLMExecutor(Executor):
         # Outcome handling strategy
         outcomes: List[str] = self._get_outcome_names(cfg)
         outcome_desc_bullets: str = self._get_outcome_desc_bullets(cfg)
-        outcome_choice_desc: str = self._get_outcome_choice_desc(cfg, outcome_desc_bullets)
+        outcome_choice_desc: str = self._get_outcome_choice_desc(
+            cfg, outcome_desc_bullets
+        )
         outcome_strategy: OutcomeStrategy = cfg.outcome_strategy
         outcome_name: Optional[str] = state.pending_outcome_name or None
         # Build global tool auto-approve map (name -> Optional[bool])
         global_auto: Dict[str, Optional[bool]] = {}
         try:
-            settings_tools = (self.project.settings.tools or []) if self.project and self.project.settings else []
+            settings_tools = (
+                (self.project.settings.tools or [])
+                if self.project and self.project.settings
+                else []
+            )
             for ts in settings_tools:
                 # ts is ToolSettings; may not include auto_approve when omitted
                 global_auto[ts.name] = getattr(ts, "auto_approve", None)
@@ -258,7 +344,7 @@ class LLMExecutor(Executor):
         external_tools: List[Dict[str, Any]] = []
         # Map tool name -> Optional[bool]
         tool_auto_approve: Dict[str, Optional[bool]] = {}
-        for spec in (cfg.tools or []):
+        for spec in cfg.tools or []:
             tool_name = spec.name
             node_auto = getattr(spec, "auto_approve", None)
             eff_auto: Optional[bool] = global_auto.get(tool_name, None)
@@ -298,7 +384,15 @@ class LLMExecutor(Executor):
             tool_calls_by_idx: Dict[int, Dict[str, Any]] = {}
             # Filter extra to avoid overriding explicit kwargs (e.g., 'tools')
             extra_args = dict(cfg.extra or {})
-            for k in ("tools", "tool_choice", "messages", "model", "stream", "temperature", "max_tokens"):
+            for k in (
+                "tools",
+                "tool_choice",
+                "messages",
+                "model",
+                "stream",
+                "temperature",
+                "max_tokens",
+            ):
                 extra_args.pop(k, None)
 
             # Compute effective max_tokens
@@ -311,7 +405,6 @@ class LLMExecutor(Executor):
                 if model_limit > 0:
                     pct = cfg.function_tokens_pct
                     effective_max_tokens = max(1, int(model_limit * pct / 100))
-
 
             # Log the full prompt at debug level before sending
             _ = yield (
@@ -347,7 +440,12 @@ class LLMExecutor(Executor):
                 if content_piece:
                     assistant_text_parts.append(content_piece)
                     # Emit an interim message with just this piece
-                    _ = yield (ReqInterimMessage(message=Message(role="agent", text=content_piece)), None)
+                    _ = yield (
+                        ReqInterimMessage(
+                            message=Message(role="agent", text=content_piece)
+                        ),
+                        None,
+                    )
 
                 # Accumulate streamed tool_calls (OpenAI-style deltas) by index, concatenating arguments
                 tc_deltas = delta.get("tool_calls") or []
@@ -362,7 +460,11 @@ class LLMExecutor(Executor):
 
                     entry = tool_calls_by_idx.get(idx)
                     if entry is None:
-                        entry = {"id": None, "type": "function", "function": {"name": None, "arguments": ""}}
+                        entry = {
+                            "id": None,
+                            "type": "function",
+                            "function": {"name": None, "arguments": ""},
+                        }
                         tool_calls_by_idx[idx] = entry
 
                     if _id:
@@ -390,12 +492,16 @@ class LLMExecutor(Executor):
             # Fallback to estimation if litellm data is missing
             if prompt_tokens == 0 and completion_tokens == 0:
                 prompt_tokens = self._estimate_messages_tokens(conv, cfg.model)
-                completion_tokens = self._estimate_text_tokens(assistant_text, cfg.model)
+                completion_tokens = self._estimate_text_tokens(
+                    assistant_text, cfg.model
+                )
 
             round_cost = self._get_round_cost(stream, cfg.model)
 
             self.project.add_llm_usage(
-                prompt_delta=prompt_tokens, completion_delta=completion_tokens, cost_delta=round_cost
+                prompt_delta=prompt_tokens,
+                completion_delta=completion_tokens,
+                cost_delta=round_cost,
             )
 
             # Build final assistant message dict and append to conversation
@@ -415,7 +521,10 @@ class LLMExecutor(Executor):
                     }
                 )
 
-            assistant_msg: Dict[str, Any] = {"role": "assistant", "content": assistant_text or None}
+            assistant_msg: Dict[str, Any] = {
+                "role": "assistant",
+                "content": assistant_text or None,
+            }
             if streamed_tool_calls:
                 assistant_msg["tool_calls"] = streamed_tool_calls
             conv.append(assistant_msg)
@@ -423,8 +532,8 @@ class LLMExecutor(Executor):
             # Separate outcome selection vs. external tool calls
             external_calls: List[ToolCall] = []
             for tc in streamed_tool_calls:
-                name = ((tc.get("function") or {}).get("name") or "")
-                arguments = ((tc.get("function") or {}).get("arguments") or "")
+                name = (tc.get("function") or {}).get("name") or ""
+                arguments = (tc.get("function") or {}).get("arguments") or ""
                 call_id = tc.get("id")
                 if name == CHOOSE_OUTCOME_TOOL_NAME:
                     try:
@@ -440,7 +549,11 @@ class LLMExecutor(Executor):
                 # Forward all other calls to the runner using our protocol
                 # Parse JSON arguments to a dict as ToolCall.arguments expects a mapping
                 try:
-                    args_obj = json.loads(arguments) if isinstance(arguments, str) and arguments else {}
+                    args_obj = (
+                        json.loads(arguments)
+                        if isinstance(arguments, str) and arguments
+                        else {}
+                    )
                 except Exception:
                     args_obj = {}
                 external_calls.append(
@@ -493,7 +606,9 @@ class LLMExecutor(Executor):
                 elif outcome_strategy == OutcomeStrategy.function_call:
                     # If model never called choose_outcome, try to infer from tag, else fallback
                     if outcome_name is None:
-                        selected = self._parse_outcome_from_text(assistant_text, outcomes)
+                        selected = self._parse_outcome_from_text(
+                            assistant_text, outcomes
+                        )
                         if selected:
                             outcome_name = selected
                             assistant_text = self._strip_outcome_line(assistant_text)
@@ -516,5 +631,8 @@ class LLMExecutor(Executor):
             selected_outcome = outcome_name
             state.pending_outcome_name = None
             state.expect = LLMExpect.post_final_user
-            yield (ReqFinalMessage(message=final_msg, outcome_name=selected_outcome), state)
+            yield (
+                ReqFinalMessage(message=final_msg, outcome_name=selected_outcome),
+                state,
+            )
             return
