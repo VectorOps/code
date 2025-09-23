@@ -2,7 +2,7 @@ import pytest
 import asyncio
 from pathlib import Path
 from vocode.testing import ProjectSandbox
-from vocode.graph import Graph, Node, Edge, OutcomeSlot, Workflow
+from vocode.graph.models import Graph, Node, Edge, OutcomeSlot, Workflow
 from vocode.runner.runner import Runner, Executor
 from vocode.runner.models import (
     ReqMessageRequest,
@@ -24,7 +24,7 @@ def msg(role: str, text: str) -> Message:
 async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
     # Executor emits a tool call with auto_approve=True; runner should not prompt
     nodes = [{"name": "Tool", "type": "tool_auto", "outcomes": []}]
-    g = Graph.build(nodes=nodes, edges=[])
+    g = Graph(nodes=nodes, edges=[])
     workflow = Workflow(name="workflow", graph=g)
 
     class ToolAutoExec(Executor):
@@ -52,7 +52,7 @@ async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
 async def test_message_request_reprompt_and_finish(tmp_path: Path):
     # Single-node graph with type 'ask'
     nodes = [{"name": "Ask", "type": "ask", "outcomes": [], "confirmation": "confirm"}]
-    g = Graph.build(nodes=nodes, edges=[])
+    g = Graph(nodes=nodes, edges=[])
     workflow = Workflow(name="workflow", graph=g)
 
     # Executor that requires a message, then emits interim and final
@@ -125,7 +125,7 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
         {"name": "B", "type": "b", "outcomes": []},
     ]
     edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
-    g = Graph.build(nodes=nodes, edges=edges)
+    g = Graph(nodes=nodes, edges=edges)
     workflow = Workflow(name="workflow", graph=g)
 
     class AExec(Executor):
@@ -165,7 +165,7 @@ async def test_reset_policy_keep_final_self_loop_only_final_carried(tmp_path: Pa
         Edge(source_node="K", source_outcome="again", target_node="K"),
         Edge(source_node="K", source_outcome="done", target_node="End"),
     ]
-    g = Graph.build(nodes=nodes, edges=edges)
+    g = Graph(nodes=nodes, edges=edges)
     workflow = Workflow(name="workflow", graph=g)
 
     class KeepFinalExec(Executor):
@@ -230,7 +230,7 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
         Edge(source_node="B", source_outcome="toA", target_node="A"),
         Edge(source_node="A", source_outcome="toC", target_node="C"),
     ]
-    g = Graph.build(nodes=nodes, edges=edges)
+    g = Graph(nodes=nodes, edges=edges)
     workflow = Workflow(name="workflow", graph=g)
 
     class AExec(Executor):
@@ -319,7 +319,7 @@ async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
         Edge(source_node="A", source_outcome="toB", target_node="B"),
         Edge(source_node="B", source_outcome="toC", target_node="C"),
     ]
-    g = Graph.build(nodes=nodes, edges=edges)
+    g = Graph(nodes=nodes, edges=edges)
     workflow = Workflow(name="workflow", graph=g)
 
     class AExec(Executor):
@@ -377,7 +377,7 @@ async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_tool_call_approved_and_rejected(tmp_path: Path):
     nodes = [{"name": "Tool", "type": "tool", "outcomes": []}]
-    g = Graph.build(nodes=nodes, edges=[])
+    g = Graph(nodes=nodes, edges=[])
     workflow = Workflow(name="workflow", graph=g)
 
     class ToolExecutor(Executor):
@@ -436,7 +436,7 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
     nodes = [{"name": "Echo", "type": "echo", "outcomes": [], "confirmation": "prompt"}]
-    g = Graph.build(nodes=nodes, edges=[])
+    g = Graph(nodes=nodes, edges=[])
     workflow = Workflow(name="workflow", graph=g)
 
     class EchoExecutor(Executor):
@@ -484,7 +484,7 @@ async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Pat
         {"name": "B", "type": "b", "outcomes": []},
     ]
     edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
-    g = Graph.build(nodes=nodes, edges=edges)
+    g = Graph(nodes=nodes, edges=edges)
     workflow = Workflow(name="workflow", graph=g)
 
     class AExec(Executor):
@@ -561,7 +561,7 @@ async def test_error_multiple_outcomes_without_outcome_name(tmp_path: Path):
         Edge(source_node="A", source_outcome="x", target_node="Bx"),
         Edge(source_node="A", source_outcome="y", target_node="By"),
     ]
-    g = Graph.build(nodes=nodes, edges=edges)
+    g = Graph(nodes=nodes, edges=edges)
     workflow = Workflow(name="workflow", graph=g)
 
     class ErrExecA(Executor):
@@ -600,7 +600,7 @@ async def test_error_unknown_outcome_name(tmp_path: Path):
         {"name": "B", "type": "b", "outcomes": []},
     ]
     edges = [Edge(source_node="A", source_outcome="go", target_node="B")]
-    g = Graph.build(nodes=nodes, edges=edges)
+    g = Graph(nodes=nodes, edges=edges)
     workflow = Workflow(name="workflow", graph=g)
 
     class Err2Exec(Executor):
@@ -632,7 +632,7 @@ async def test_error_unknown_outcome_name(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_run_disallowed_when_running(tmp_path: Path):
     nodes = [{"name": "Block", "type": "block", "outcomes": []}]
-    g = Graph.build(nodes=nodes, edges=[])
+    g = Graph(nodes=nodes, edges=[])
     workflow = Workflow(name="workflow", graph=g)
 
     class BlockExecutor(Executor):
@@ -688,7 +688,7 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_
         Edge(source_node="B", source_outcome="toA", target_node="A"),
         Edge(source_node="A", source_outcome="toC", target_node="C"),
     ]
-    g = Graph.build(nodes=nodes, edges=edges)
+    g = Graph(nodes=nodes, edges=edges)
     workflow = Workflow(name="workflow", graph=g)
 
     class AExec(Executor):
@@ -785,7 +785,7 @@ async def test_edge_reset_policy_override_short_syntax(tmp_path: Path):
         "B.again -> B:always_reset",  # short syntax override
         "B.done -> C",
     ]
-    g = Graph.build(nodes=nodes, edges=edges)
+    g = Graph(nodes=nodes, edges=edges)
     workflow = Workflow(name="workflow", graph=g)
 
     class BShortExec(Executor):
@@ -840,7 +840,7 @@ async def test_edge_reset_policy_override_short_syntax(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_log_stream_then_final(tmp_path: Path):
     nodes = [{"name": "Log", "type": "logg", "outcomes": []}]
-    g = Graph.build(nodes=nodes, edges=[])
+    g = Graph(nodes=nodes, edges=[])
     workflow = Workflow(name="workflow", graph=g)
 
     class LogExec(Executor):
@@ -885,7 +885,7 @@ async def test_log_stream_then_final(tmp_path: Path):
 async def test_final_message_confirm_requires_explicit_approval_and_reprompts(tmp_path: Path):
     # Single-node graph with confirmation=confirm
     nodes = [{"name": "C", "type": "conf", "outcomes": [], "confirmation": "confirm"}]
-    g = Graph.build(nodes=nodes, edges=[])
+    g = Graph(nodes=nodes, edges=[])
     workflow = Workflow(name="workflow", graph=g)
 
     class ConfirmExec(Executor):
@@ -931,7 +931,7 @@ async def test_final_message_confirm_requires_explicit_approval_and_reprompts(tm
 @pytest.mark.asyncio
 async def test_final_message_confirm_reject_stops_runner(tmp_path: Path):
     nodes = [{"name": "C", "type": "conf", "outcomes": [], "confirmation": "confirm"}]
-    g = Graph.build(nodes=nodes, edges=[])
+    g = Graph(nodes=nodes, edges=[])
     workflow = Workflow(name="workflow", graph=g)
 
     class ConfirmExec(Executor):
@@ -987,7 +987,7 @@ async def test_edge_reset_policy_override_full_syntax(tmp_path: Path):
         Edge(source_node="B", source_outcome="again", target_node="B", reset_policy="keep_state"),
         Edge(source_node="B", source_outcome="done", target_node="C"),
     ]
-    g = Graph.build(nodes=nodes, edges=edges)
+    g = Graph(nodes=nodes, edges=edges)
     workflow = Workflow(name="workflow", graph=g)
 
     class AFullExec(Executor):

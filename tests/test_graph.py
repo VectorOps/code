@@ -1,6 +1,7 @@
 import pytest
 
-from vocode.graph import Graph, Node
+from vocode.graph.graph import build
+from vocode.graph.models import Node
 
 
 # Register two simple plugin node types via default "type" values
@@ -20,22 +21,22 @@ def test_build_simple_graph_ok():
     edges = [
         {"source_node": "A", "source_outcome": "toB", "target_node": "B"},
     ]
-    g = Graph.build(nodes=nodes, edges=edges)
+    rg = build(nodes=nodes, edges=edges)
 
     # Root and wiring
-    assert g.root.model.name == "A"
-    assert len(g.root.children) == 1
-    assert g.root.get_child_by_outcome("toB").model.name == "B"
-    assert g.root.get_child_by_outcome("missing") is None
+    assert rg.root.model.name == "A"
+    assert len(rg.root.children) == 1
+    assert rg.root.get_child_by_outcome("toB").model.name == "B"
+    assert rg.root.get_child_by_outcome("missing") is None
 
     # Node lookup helpers
-    assert set(g.node_by_name.keys()) == {"A", "B"}
-    assert g._children_names("A") == ["B"]
+    assert set(rg.graph.node_by_name.keys()) == {"A", "B"}
+    assert rg.graph._children_names("A") == ["B"]
 
     # Plugin dispatch to subclasses
-    print(g.nodes, repr(RootNode), "!", repr(g.nodes[0]))
-    assert isinstance(g.nodes[0], RootNode)
-    assert isinstance(g.nodes[1], ChildNode)
+    print(rg.graph.nodes, repr(RootNode), "!", repr(rg.graph.nodes[0]))
+    assert isinstance(rg.graph.nodes[0], RootNode)
+    assert isinstance(rg.graph.nodes[1], ChildNode)
 
 
 def test_duplicate_node_names_error():
@@ -44,14 +45,14 @@ def test_duplicate_node_names_error():
         {"name": "A", "type": "child", "outcomes": []},
     ]
     with pytest.raises(ValueError, match="Duplicate node names"):
-        Graph.build(nodes=nodes, edges=[])
+        build(nodes=nodes, edges=[])
 
 
 def test_edge_to_unknown_node_error():
     nodes = [{"name": "A", "type": "root", "outcomes": []}]
     edges = [{"source_node": "A", "source_outcome": "x", "target_node": "B"}]
     with pytest.raises(ValueError, match="target_node\n'B' does not exist"):
-        Graph.build(nodes=nodes, edges=edges)
+        build(nodes=nodes, edges=edges)
 
 
 def test_edge_unknown_source_outcome_error():
@@ -61,7 +62,7 @@ def test_edge_unknown_source_outcome_error():
     ]
     edges = [{"source_node": "A", "source_outcome": "y", "target_node": "B"}]
     with pytest.raises(ValueError, match="unknown source_outcome 'y'"):
-        Graph.build(nodes=nodes, edges=edges)
+        build(nodes=nodes, edges=edges)
 
 
 def test_duplicate_edges_from_same_slot_error():
@@ -75,7 +76,7 @@ def test_duplicate_edges_from_same_slot_error():
         {"source_node": "A", "source_outcome": "x", "target_node": "B2"},
     ]
     with pytest.raises(ValueError, match="Multiple edges found from the same outcome slot"):
-        Graph.build(nodes=nodes, edges=edges)
+        build(nodes=nodes, edges=edges)
 
 
 def test_missing_edges_for_declared_outcome_slot_error():
@@ -85,4 +86,4 @@ def test_missing_edges_for_declared_outcome_slot_error():
     ]
     edges = [{"source_node": "A", "source_outcome": "x", "target_node": "B"}]
     with pytest.raises(ValueError, match=r"Missing edges for declared outcome slots: A:y"):
-        Graph.build(nodes=nodes, edges=edges)
+        build(nodes=nodes, edges=edges)

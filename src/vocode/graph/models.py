@@ -228,6 +228,71 @@ class Edge(BaseModel):
         return v
 
 
+class Graph(BaseModel):
+    nodes: List[Node] = Field(default_factory=list)
+    edges: List[Edge] = Field(default_factory=list)
+
+    @property
+    def node_by_name(self) -> Dict[str, "Node"]:
+        return {n.name: n for n in self.nodes}
+
+    def _children_names(self, node_name: str) -> List[str]:
+        return [e.target_node for e in self.edges if e.source_node == node_name]
+
+    @model_validator(mode="after")
+    def _validate_graph(self) -> "Graph":
+        nodes: List[Node] = self.nodes or []
+        edges: List[Edge] = self.edges or []
+
+        node_by_name: Dict[str, Node] = {n.name: n for n in nodes}
+        if len(node_by_name) != len(nodes):
+            raise ValueError("Duplicate node names detected in graph.nodes")
+
+        declared_outcomes: Set[Tuple[str, str]] = {
+            (n.name, slot.name) for n in nodes for slot in n.outcomes
+        }
+
+        edges_by_source: Dict[Tuple[str, str], Edge] = {}
+        for e in edges:
+            if e.source_node not in node_by_name:
+                raise ValueError(f"Edge source_node '{e.source_node}' does not exist in graph.nodes")
+            if e.target_node not in node_by_name:
+                raise ValueError(f"Edge target_node\n'{e.target_node}' does not exist in graph.nodes")
+
+            source_node = node_by_name[e.source_node]
+            if e.source_outcome not in {s.name for s in source_node.outcomes}:
+                raise ValueError(
+                    f"Edge references unknown source_outcome '{e.source_outcome}' on node '{e.source_node}'"
+                )
+
+            key = (e.source_node, e.source_outcome)
+            if key in edges_by_source:
+                raise ValueError(
+                    f"Multiple edges found from the same outcome slot: node='{e.source_node}', slot='{e.source_outcome}'"
+                )
+            edges_by_source[key] = e
+
+        sources_with_edges = set(edges_by_source.keys())
+        missing = declared_outcomes - sources_with_edges
+        extra = sources_with_edges - declared_outcomes
+
+        if missing or extra:
+            msgs = []
+            if missing:
+                msgs.append(
+                    "Missing edges for declared outcome slots: "
+                    + ", ".join([f"{n}:{s}" for (n, s) in sorted(missing, key=lambda x: (x[0], x[1]))])
+                )
+            if extra:
+                msgs.append(
+                    "Edges originate from undeclared outcome slots: "
+                    + ", ".join([f"{n}:{s}" for (n, s) in sorted(extra, key=lambda x: (x[0], x[1]))])
+                )
+            raise ValueError("; ".join(msgs))
+
+        return self
+
+
 class LLMNode(Node):
     type: str = "llm"
     model: str
@@ -299,7 +364,11 @@ class NoopNode(Node):
         ge=0,
         description="If set, sleep for this many seconds before producing the final response.",
     )
-
+ 
 class ApplyPatchNode(Node):
     type: str = "apply_patch"
     patch_format: str = Field(default="v4a", description="Patch format identifier (currently only 'v4a' is supported)")
+
+class Workflow(BaseModel):
+    name: str
+    graph: Graph

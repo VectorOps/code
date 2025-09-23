@@ -1,2 +1,1 @@
-from .graph import Graph, Workflow
-from .models import Node, Edge, OutcomeSlot
+from .models import Workflow, Graph, Node, Edge, OutcomeSlot

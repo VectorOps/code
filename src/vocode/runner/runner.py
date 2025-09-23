@@ -6,8 +6,8 @@ from pydantic import BaseModel
 from dataclasses import dataclass
 if TYPE_CHECKING:
     from vocode.project import Project
-from vocode.graph import Node
-from vocode.graph.models import Confirmation, ResetPolicy, MessageMode
+from vocode.graph.models import Node, Confirmation, ResetPolicy, MessageMode
+from vocode.graph.graph import RuntimeGraph
 from vocode.state import Message, RunnerStatus, Assignment, ToolCallStatus, Step, Activity, StepStatus, ActivityType
 from vocode.runner.models import (
     ReqPacket,
@@ -88,6 +88,7 @@ class Runner:
     def __init__(self, workflow, project: "Project", initial_message: Optional[Message] = None):
         """Prepare the runner with a graph, initial message, status flags, and per-node executors."""
         self.workflow = workflow
+        self.runtime_graph = RuntimeGraph(self.workflow.graph)
         self.project = project
         self.initial_message: Optional[Message] = initial_message
         self.status: RunnerStatus = RunnerStatus.idle
@@ -200,7 +201,7 @@ class Runner:
 
     def _find_runtime_node_by_name(self, name: str):
         """Locate the RuntimeNode by name using Graph's runtime map."""
-        return self.workflow.graph.get_runtime_node_by_name(name)
+        return self.runtime_graph.get_runtime_node_by_name(name)
 
     def _get_previous_node_messages(
         self,
@@ -540,7 +541,6 @@ class Runner:
             )
         prev_status = self.status
         self.status = RunnerStatus.running
-        graph = self.workflow.graph
         incoming_policy_override: Optional[ResetPolicy] = None
         # Runner resuming
         pending_input_messages: List[Message] = []
@@ -571,7 +571,7 @@ class Runner:
                 current_runtime_node = next_rn
                 pending_input_messages = list(next_msgs or [])
             else:
-                current_runtime_node = graph.root
+                current_runtime_node = self.runtime_graph.root
                 pending_input_messages = [self.initial_message] if self.initial_message is not None else []
 
         def _clear_resume_markers():
