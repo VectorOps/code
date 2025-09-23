@@ -7,7 +7,7 @@ from vocode.testing import ProjectSandbox
 
 from vocode.runner.executors import llm as llm_mod
 from vocode.runner.executors.llm import LLMExecutor, CHOOSE_OUTCOME_TOOL_NAME
-from vocode.graph.models import LLMNode, OutcomeStrategy, OutcomeSlot, LLMToolSpec
+from vocode.models import LLMNode, OutcomeStrategy, OutcomeSlot, LLMToolSpec
 from vocode.state import Message, ToolCall
 from vocode.runner.models import (
     ReqInterimMessage,

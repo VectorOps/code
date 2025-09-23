@@ -2,6 +2,7 @@ import asyncio
 from typing import Optional, TYPE_CHECKING, List, Union
 import contextlib
 from vocode.settings import build_model_from_settings
+from vocode.graph import build
 
 from vocode.logger import logger
 from vocode.runner.runner import Runner
@@ -15,7 +16,7 @@ from vocode.runner.models import (
     PACKET_FINAL_MESSAGE,
 )
 from vocode.state import Assignment, Message, RunnerStatus
-from vocode.graph import Graph, Workflow
+from vocode.models import Graph, Workflow
 from .proto import (
     UIRequest,
     UIReqRunEvent,
@@ -162,7 +163,7 @@ class UIState:
             raise KeyError(f"Unknown workflow: {name}")
         wf_cfg = self.project.settings.workflows[name]
 
-        graph = Graph.build(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
+        graph = build(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
         wf = Workflow(name=name, graph=graph)
 
         self._selected_workflow_name = name

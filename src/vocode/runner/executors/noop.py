@@ -4,7 +4,7 @@ from typing import AsyncIterator, Optional, Any
 import asyncio
 
 from vocode.runner.runner import Executor
-from vocode.graph.models import NoopNode
+from vocode.models import NoopNode
 from vocode.state import Message
 from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 

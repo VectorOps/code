@@ -17,7 +17,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from vocode.runner.runner import Executor
-from vocode.graph.models import LLMNode, OutcomeStrategy
+from vocode.models import LLMNode, OutcomeStrategy
 from vocode.state import Message, ToolCall, LogLevel
 from vocode.runner.models import (
     ReqPacket,

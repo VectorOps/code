@@ -11,7 +11,7 @@ from vocode.runner.models import (
     PACKET_TOOL_CALL,
     PACKET_FINAL_MESSAGE,
 )
-from vocode.graph.models import Confirmation
+from vocode.models import Confirmation
 
 
 def _abbr_int(n: int) -> str:

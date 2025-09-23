@@ -1,7 +1,7 @@
 import pytest
 
-from vocode.graph.graph import build
-from vocode.graph.models import Node
+from vocode.graph import build
+from vocode.models import Node
 
 
 # Register two simple plugin node types via default "type" values

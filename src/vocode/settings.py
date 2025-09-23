@@ -7,7 +7,7 @@ import json
 from pydantic import BaseModel, Field, model_validator
 import yaml
 import json5  # type: ignore
-from .graph.models import Node, Edge
+from .models import Node, Edge
 from .state import LogLevel
 
 from know.settings import ProjectSettings as KnowProjectSettings

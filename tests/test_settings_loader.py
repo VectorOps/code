@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 
 from vocode.settings import load_settings
-from vocode.graph.models import LLMNode
+from vocode.models import LLMNode
 
 
 def _w(tmp_path: Path, name: str, content: str) -> Path:

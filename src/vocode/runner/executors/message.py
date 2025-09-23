@@ -1,7 +1,7 @@
 from typing import AsyncIterator, List, Optional, Any
 
 from vocode.runner.runner import Executor
-from vocode.graph.models import MessageNode
+from vocode.models import MessageNode
 from vocode.state import Message
 from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 

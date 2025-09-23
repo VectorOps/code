@@ -6,8 +6,8 @@ from pydantic import BaseModel
 from dataclasses import dataclass
 if TYPE_CHECKING:
     from vocode.project import Project
-from vocode.graph.models import Node, Confirmation, ResetPolicy, MessageMode
-from vocode.graph.graph import RuntimeGraph
+from vocode.models import Node, Confirmation, ResetPolicy, MessageMode
+from vocode.graph import RuntimeGraph
 from vocode.state import Message, RunnerStatus, Assignment, ToolCallStatus, Step, Activity, StepStatus, ActivityType
 from vocode.runner.models import (
     ReqPacket,

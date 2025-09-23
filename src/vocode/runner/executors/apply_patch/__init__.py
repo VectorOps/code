@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import asyncio
 
 from vocode.runner.runner import Executor
-from vocode.graph.models import ApplyPatchNode, ResetPolicy
+from vocode.models import ApplyPatchNode, ResetPolicy
 from vocode.state import Message
 from vocode.runner.models import (
     ReqPacket,

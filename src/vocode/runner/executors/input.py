@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import AsyncIterator, Optional, Any
 
 from vocode.runner.runner import Executor
-from vocode.graph.models import InputNode
+from vocode.models import InputNode
 from vocode.state import Message
 from vocode.runner.models import (
     ReqPacket,

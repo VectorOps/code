@@ -37,7 +37,7 @@ from vocode.runner.models import (
 )
 from vocode.state import Message, RunnerStatus, LogLevel
 from vocode.ui.terminal.toolbar import build_prompt, build_toolbar, _current_node_confirmation
-from vocode.graph.models import Confirmation
+from vocode.models import Confirmation
 from vocode.ui.terminal.commands import CommandContext, run as run_command
 
 # ANSI escape sequence for carriage return and clearing from cursor to the end of the line.

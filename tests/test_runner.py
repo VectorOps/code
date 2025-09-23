@@ -2,7 +2,7 @@ import pytest
 import asyncio
 from pathlib import Path
 from vocode.testing import ProjectSandbox
-from vocode.graph.models import Graph, Node, Edge, OutcomeSlot, Workflow
+from vocode.models import Graph, Node, Edge, OutcomeSlot, Workflow
 from vocode.runner.runner import Runner, Executor
 from vocode.runner.models import (
     ReqMessageRequest,
