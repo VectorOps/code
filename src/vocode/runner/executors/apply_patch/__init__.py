@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import pathlib
-from typing import AsyncIterator, List, Optional, Any, Dict
+from typing import AsyncIterator, List, Optional, Any, Dict, Callable, Tuple
+from dataclasses import dataclass
 import asyncio
 
 from vocode.runner.runner import Executor
@@ -15,8 +16,37 @@ from vocode.runner.models import (
     PACKET_MESSAGE,
 )
 
-from .v4a import process_patch as v4a_process_patch, DiffError
-from .patch import process_patch as sr_process_patch
+from .v4a import (
+    process_patch as v4a_process_patch,
+    DiffError,
+    DIFF_SYSTEM_INSTRUCTION as V4A_SYSTEM_PROMPT,
+)
+from .patch import (
+    process_patch as sr_process_patch,
+    DIFF_PATCH_SYSTEM_INSTRUCTION as PATCH_SYSTEM_PROMPT,
+)
+
+@dataclass(frozen=True)
+class PatchFormat:
+    name: str
+    system_prompt: str
+    handler: Callable[
+        [str, Callable[[str], str], Callable[[str, str], None], Callable[[str], None]],
+        Tuple[Dict[str, "FileApplyStatus"], List[Any]],
+    ]
+
+SUPPORTED_PATCH_FORMATS: Dict[str, PatchFormat] = {
+    "v4a": PatchFormat(
+        name="v4a",
+        system_prompt=V4A_SYSTEM_PROMPT,
+        handler=v4a_process_patch,
+    ),
+    "patch": PatchFormat(
+        name="patch",
+        system_prompt=PATCH_SYSTEM_PROMPT,
+        handler=sr_process_patch,
+    ),
+}
 from .models import FileApplyStatus
 
 
@@ -71,8 +101,13 @@ class ApplyPatchExecutor(Executor):
 
         # Enforce supported patch formats
         fmt = (cfg.patch_format or "v4a").lower()
-        if fmt not in ("v4a", "patch"):
-            final = Message(role="agent", text=f"Unsupported patch format: {cfg.patch_format}")
+        fmt_entry = SUPPORTED_PATCH_FORMATS.get(fmt)
+        if fmt_entry is None:
+            supported = ", ".join(sorted(SUPPORTED_PATCH_FORMATS.keys()))
+            final = Message(
+                role="agent",
+                text=f"Unsupported patch format: {cfg.patch_format}. Supported formats: {supported}",
+            )
             yield (ReqFinalMessage(message=final, outcome_name="fail"), inp.state)
             return
 
@@ -123,20 +158,13 @@ class ApplyPatchExecutor(Executor):
                 self._remove_file(rel)
                 _record(rel, FileChangeType.DELETED)
 
-            if fmt == "v4a":
-                statuses, errs = v4a_process_patch(
-                    source_text,
-                    open_fn=self._open_file,
-                    write_fn=tracking_write,
-                    delete_fn=tracking_remove,
-                )
-            else:
-                statuses, errs = sr_process_patch(
-                    source_text,
-                    open_fn=self._open_file,
-                    write_fn=tracking_write,
-                    delete_fn=tracking_remove,
-                )
+            handler = fmt_entry.handler
+            statuses, errs = handler(
+                source_text,
+                open_fn=self._open_file,
+                write_fn=tracking_write,
+                delete_fn=tracking_remove,
+            )
             # Compose result message based on statuses and errors
             created = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Create])
             updated_full = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Update])
