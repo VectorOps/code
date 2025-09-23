@@ -31,9 +31,9 @@ Concrete example: files that were read and already in context.
 ** [ ] Tool calling timeouts and failures
 ** [ ] Add a way for human to unblock failures by retrying last operation
 * [ ] Cleanup all dependencies
-** [ ] Move graph models out of graph, move runtime graph generation out of Graph class
-** [ ] Move executor/models.py out to root
-** [ ] Move preprocessors to llm/ and move llm.py to llm/__init__.py
+** [X] Move graph models out of graph, move runtime graph generation out of Graph class
+** [X] Move executor/models.py out to root
+** [X] Move preprocessors to llm/ and move llm.py to llm/__init__.py
 * [X] UI protocol
 ** [X] In-memory bidirectional stream implementation for TUI
 ** [ ] Add syntax name hint to apply formatting
@@ -103,13 +103,13 @@ Concrete example: files that were read and already in context.
 *** [ ] Auto-retry when throttled
 *** [X] For some reason tokens are not accumulated for tool calls
 *** [ ] Figure out why pricing estimates are all zeroes
-** [ ] Diff apply node
+** [X] Diff apply node
 *** [X] Base parser
 *** [X] Add a way to write file changes after confirmation
 *** [X] Tell Know that files were updated and project needs to be updated
 *** [X] Handle all kind of errors - mismatched chunks, etc
 *** [X] Add patch tool mode for V4A specifically. It double-escapes everything quoted.
-*** [ ] Move prompts to patcher implementations
+*** [X] Move prompts to patcher implementations
 ** [ ] Create RepoMap node - call into Know with provided prompt
 ** [ ] Create documentation node - read AGENT.md files for all paths that are mentioned in previous messages.
 - Have configuration for static message text
