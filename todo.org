@@ -101,6 +101,7 @@ Concrete example: files that were read and already in context.
      except Exception as e:
          ctx.out(f"Failed to start workflow '{name}': {e}")
 **** [ ] Add support for multiple patch blocks or provide better instructions
+**** [ ] Allow multiple patches in a single request
 *** [X] Fenced diff format
 *** [ ] Unified Diff format
 * [X] Settings

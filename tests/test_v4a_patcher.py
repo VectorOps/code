@@ -506,3 +506,37 @@ def test_handles_missing_empty_line_in_context():
     assert errs == []
     assert writes["src/missing_blank.py"] == "header1\n\n new\nfooter1\n"
     assert statuses == {"src/missing_blank.py": FileApplyStatus.Update}
+
+
+def test_interleaved_additions_deletions_single_block_requires_anchor():
+    """
+    Verifies multiple interleaved additions and deletions in a single block without @@
+    are rejected as ambiguous, and no changes are applied.
+    Example pattern:
+      @@
+       A
+      - B
+      + C
+       D
+      - E
+      + F
+       G
+    """
+    patch_text = """*** Begin Patch
+*** Update File: src/inter.txt
+ A
+- B
++ C
+ D
+- E
++ F
+ G
+*** End Patch"""
+    initial = {"src/inter.txt": " A\n B\n D\n E\n G\n"}
+    statuses, errs, writes, deletes, _ = run_patch(patch_text, initial_files=initial)
+    # Should be flagged as ambiguous (missing @@ between change blocks)
+    assert any("Ambiguous or overlapping blocks" in e.msg for e in errs)
+    # No writes/deletes should occur; no statuses
+    assert writes == {}
+    assert deletes == []
+    assert statuses == {}

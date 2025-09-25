@@ -29,6 +29,8 @@ Allowed section headers per file:
 - `*** Add File: <relative/path>`
 - `*** Update File: <relative/path>`
 - `*** Delete File: <relative/path>`
+For Update sections, you may optionally add a move directive before the first change:
+- `*** Move to: <relative/new/path>`
 
 For Update/Add files, changes are expressed with context blocks:
 
@@ -81,6 +83,7 @@ Rules:
  * Include each file path once. Merge all changes for that file into its single section.
  * Within a file, order context blocks top-to-bottom by their occurrence in the file.
  * Across files, sort sections lexicographically by path (recommended).
+ * For Update sections, if moving/renaming the file, add a line `*** Move to: <relative/new/path>` directly after the Update header and before any changes.
 
 6. Newlines:
  * Preserve each line’s trailing newline semantics.
@@ -160,18 +163,32 @@ class ActionType(Enum):
     DELETE = auto()
 
 
-class LineType(Enum):
+class NeedleType(Enum):
+    ANCHOR = auto()
     CONTEXT = auto()
     DELETE = auto()
 
 
 @dataclass
-class Chunk:
-    anchors: List[str] = field(default_factory=list)
-    prefix: List[str] = field(default_factory=list)
-    suffix: List[str] = field(default_factory=list)
-    deletions: List[str] = field(default_factory=list)
+class NeedleItem:
+    type: NeedleType
+    text: str
+
+
+@dataclass
+class EditGroup:
+    # Position in the CONTEXT/DELETE-only pattern where insert should happen.
+    # For del_count > 0, insertion occurs immediately after the last delete.
+    # For del_count == 0, insertion occurs at this position without consuming any file lines.
+    start_pat_index: int
+    del_count: int = 0
     additions: List[str] = field(default_factory=list)
+
+
+@dataclass
+class Chunk:
+    items: List[NeedleItem] = field(default_factory=list)
+    edits: List[EditGroup] = field(default_factory=list)
     start_line: Optional[int] = None
 
 
@@ -179,6 +196,7 @@ class Chunk:
 class PatchAction:
     type: ActionType = ActionType.UPDATE
     chunks: List[Chunk] = field(default_factory=list)
+    move_path: Optional[str] = None
 
 
 @dataclass
@@ -215,31 +233,16 @@ ANCHOR_PREFIX = "@@"
 DELETE_PREFIX = "-"
 ADD_PREFIX = "+"
 CONTEXT_PREFIX = " "
+MOVE_TO_PREFIX = "*** Move to:"
+
 
 @dataclass
 class PartialMatch:
     matched: int = -1
     start: Optional[int] = None
-    phase: str = ""
     expected: str = ""
     actual: str = ""
     fail_line: Optional[int] = None
-    prefix_matched: int = 0
-    deletions_matched: int = 0
-    suffix_matched: int = 0
-    double_escape_hint: Optional[str] = None
-
-@dataclass
-class MatchResult:
-    ok: bool
-    start: int
-    matched: int
-    expected: str
-    actual: str
-    fail_index: int  # 0-based index into file_lines where the mismatch/EOF occurred
-    prefix_matched: int
-    deletions_matched: int
-    suffix_matched: int
     double_escape_hint: Optional[str] = None
 
 
@@ -286,28 +289,49 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
         errors.append(PatchError(msg=msg, line=line, hint=hint, filename=filename))
 
     if not begin_idxs:
-        return Patch(), [PatchError("Missing *** Begin Patch", line=None, hint="Ensure patch is wrapped with *** Begin Patch / *** End Patch")]
+        return Patch(), [
+            PatchError(
+                "Missing *** Begin Patch",
+                line=None,
+                hint="Ensure patch is wrapped with *** Begin Patch / *** End Patch",
+            )
+        ]
+
     if not end_idxs:
-        return Patch(), [PatchError("Missing *** End Patch", line=None, hint="Ensure patch is wrapped with *** Begin Patch / *** End Patch")]
+        return Patch(), [
+            PatchError(
+                "Missing *** End Patch",
+                line=None,
+                hint="Ensure patch is wrapped with *** Begin Patch / *** End Patch",
+            )
+        ]
+
     if len(begin_idxs) > 1:
         extra_begins = [str(i + 1) for i in begin_idxs[1:]]
-        add_error("Multiple *** Begin Patch markers found; using the first",
-                  line=begin_idxs[1] + 1,
-                  hint=f"Extra BEGIN markers at lines: {', '.join(extra_begins)}")
+        add_error(
+            "Multiple *** Begin Patch markers found; using the first, others will be ignored.",
+            line=begin_idxs[1] + 1,
+            hint=f"Extra BEGIN markers at lines: {', '.join(extra_begins)}",
+        )
+
     # Choose the first end after the first begin; if none, error
     first_begin = begin_idxs[0]
     ends_after_begin = [i for i in end_idxs if i > first_begin]
     if not ends_after_begin:
-        add_error("No *** End Patch after *** Begin Patch",
-                  line=first_begin + 1,
-                  hint="Add *** End Patch after this line")
+        add_error(
+            "No *** End Patch after *** Begin Patch",
+            line=first_begin + 1,
+            hint="Add *** End Patch after this line",
+        )
         return Patch(), errors
     if len(end_idxs) > 1:
         first_end_after_begin = ends_after_begin[0]
         extras = [i for i in end_idxs if i != first_end_after_begin]
-        add_error("Multiple *** End Patch markers found; using the first after begin",
-                  line=(extras[0] + 1) if extras else (first_end_after_begin + 1),
-                  hint=f"Extra END markers at lines: {', '.join(str(i + 1) for i in extras)}")
+        add_error(
+            "Multiple *** End Patch markers found; using the first after begin",
+            line=(extras[0] + 1) if extras else (first_end_after_begin + 1),
+            hint=f"Extra END markers at lines: {', '.join(str(i + 1) for i in extras)}",
+        )
     first_end = ends_after_begin[0]
 
     content = lines[first_begin + 1 : first_end]
@@ -323,46 +347,72 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
     pending_anchors: List[str] = []
     current_chunk: Optional[Chunk] = None
     chunk_has_mods: bool = False  # any +/- seen in current_chunk
+    seen_ctx_after_mods: bool = False
+    current_group: Optional[EditGroup] = None
+    # Number of CONTEXT/DELETE items already added to the current chunk (used for start_pat_index)
+    pat_index_in_chunk: int = 0
+
+    def _append_anchor_items(chunk: Chunk) -> None:
+        nonlocal pending_anchors
+        if pending_anchors:
+            for a in pending_anchors:
+                chunk.items.append(NeedleItem(NeedleType.ANCHOR, a))
+            pending_anchors = []
 
     def finish_chunk_if_any():
-        nonlocal current_chunk, chunk_has_mods, pending_anchors
+        nonlocal current_chunk, chunk_has_mods, pending_anchors, seen_ctx_after_mods, current_group, pat_index_in_chunk
         if current_chunk is None:
-            # Drop stray anchors if never used
             pending_anchors = []
             return
-        # Validate chunk has actual modifications
-        if not (current_chunk.additions or current_chunk.deletions):
+        has_context = any(it.type == NeedleType.CONTEXT for it in current_chunk.items)
+        if not chunk_has_mods:
             # Special case: for Add sections, treat context-only block as file content
-            if current_action is not None and current_action.type == ActionType.ADD and (current_chunk.prefix or current_chunk.suffix):
-                # Move context lines into additions preserving order
-                current_chunk.additions = list(current_chunk.prefix) + list(current_chunk.suffix)
-                current_chunk.prefix.clear()
-                current_chunk.suffix.clear()
-                if current_action is not None:
-                    current_action.chunks.append(current_chunk)
-            # Otherwise, ignore empty chunk (no +/- lines)
+            if (
+                current_action is not None
+                and current_action.type == ActionType.ADD
+                and has_context
+            ):
+                # Convert all context lines into a single edit group of additions
+                additions = [
+                    it.text
+                    for it in current_chunk.items
+                    if it.type == NeedleType.CONTEXT
+                ]
+                current_chunk.edits.append(
+                    EditGroup(start_pat_index=0, del_count=0, additions=additions)
+                )
+                current_action.chunks.append(current_chunk)
+            # Otherwise, ignore empty chunk for Update (no +/- lines)
         else:
-            # Add action must not include prefix/suffix context
-            if current_action is not None and current_action.type == ActionType.ADD:
-                if current_chunk.prefix or current_chunk.suffix:
-                    add_error(
-                        f"Add file section for {current_path} must not contain context",
-                        line=current_chunk.start_line,
-                        hint="Remove context lines for Add sections; only use + lines",
-                        filename=current_path,
-                    )
+            # Add action must not include context when there are +/- lines
+            if (
+                current_action is not None
+                and current_action.type == ActionType.ADD
+                and has_context
+            ):
+                add_error(
+                    f"Add file section for {current_path} must not contain context",
+                    line=current_chunk.start_line,
+                    hint="Remove context lines for Add sections; only use + lines",
+                    filename=current_path,
+                )
             if current_action is not None:
                 current_action.chunks.append(current_chunk)
         current_chunk = None
         chunk_has_mods = False
-        pending_anchors = []
+        seen_ctx_after_mods = False
+        current_group = None
+        pat_index_in_chunk = 0
 
     def start_chunk_if_needed():
-        nonlocal current_chunk, chunk_has_mods, pending_anchors
+        nonlocal current_chunk, chunk_has_mods, pending_anchors, seen_ctx_after_mods, current_group, pat_index_in_chunk
         if current_chunk is None:
-            current_chunk = Chunk(anchors=list(pending_anchors), start_line=current_line_num)
-            pending_anchors = []
+            current_chunk = Chunk(items=[], edits=[], start_line=current_line_num)
+            _append_anchor_items(current_chunk)
             chunk_has_mods = False
+            seen_ctx_after_mods = False
+            current_group = None
+            pat_index_in_chunk = 0
 
     for current_line_num, raw_line in enumerate(content, start=first_begin + 2):
         # Detect new file header
@@ -426,26 +476,55 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
         if current_path is None or current_action is None or skip_current_file:
             continue
 
-        # Handle Delete action: it must not have content
-        if current_action.type == ActionType.DELETE:
-            if raw_line.startswith(DELETE_PREFIX) or raw_line.startswith(ADD_PREFIX) or raw_line.startswith(ANCHOR_PREFIX):
+        # Handle optional Move for Update: only allowed before any chunk content
+        if raw_line.startswith(MOVE_TO_PREFIX):
+            move_to = raw_line[len(MOVE_TO_PREFIX) :].strip()
+            if current_action.type != ActionType.UPDATE:
                 add_error(
-                    f"Delete file section for {current_path} must not contain changes",
+                    f"Move directive is only valid in Update sections: {current_path}",
                     line=current_line_num,
-                    hint="Delete sections must not include anchors or +/- lines",
                     filename=current_path,
                 )
-            # Otherwise ignore lines inside delete section
+            elif current_chunk is not None or current_action.chunks:
+                add_error(
+                    f"Move directive must appear before any change blocks in {current_path}",
+                    line=current_line_num,
+                    filename=current_path,
+                )
+            elif current_action.move_path is not None:
+                add_error(
+                    f"Duplicate Move directive in {current_path}",
+                    line=current_line_num,
+                    filename=current_path,
+                )
+            elif not _is_relative_path(move_to):
+                add_error(
+                    f"Path must be relative: {move_to!r}",
+                    line=current_line_num,
+                    hint="Use a relative path for Move to",
+                    filename=current_path,
+                )
+            else:
+                current_action.move_path = move_to
+            continue
+
+        # Handle Delete action: it must not have content
+        if current_action.type == ActionType.DELETE:
+            # No anchors, +/- or any other non-empty content allowed
+            if raw_line.strip() != "":
+                add_error(
+                    f"Delete file section for {current_path} must not contain changes or content",
+                    line=current_line_num,
+                    hint="Delete sections must not include anchors, +/- lines, or context/content",
+                    filename=current_path,
+                )
             continue
 
         # Non-delete: Update/Add have content blocks
         if raw_line.startswith(ANCHOR_PREFIX):
-            # Starting a new chunk or setting anchors for the next chunk
-            # If there is an open chunk, finish it before starting a new one
-            if current_chunk is not None:
-                finish_chunk_if_any()
-            anchor_text = raw_line[len(ANCHOR_PREFIX):]
-            # Normalize: remove one leading space if present
+            # Treat @@ as a chunk breaker; collect anchors to be placed at the top of the next chunk.
+            finish_chunk_if_any()
+            anchor_text = raw_line[len(ANCHOR_PREFIX) :]
             if anchor_text.startswith(" "):
                 anchor_text = anchor_text[1:]
             pending_anchors.append(anchor_text)
@@ -454,8 +533,8 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
         # Diff lines
         if raw_line.startswith(DELETE_PREFIX) or raw_line.startswith(ADD_PREFIX):
             # If we are inside a chunk and have already recorded modifications,
-            # and we encounter new +/- without an intervening anchor, treat as ambiguous multi-chunk.
-            if current_chunk is not None and chunk_has_mods and current_chunk.suffix:
+            # and we encounter new +/- after context without an intervening anchor -> ambiguous multi-chunk.
+            if current_chunk is not None and chunk_has_mods and seen_ctx_after_mods:
                 add_error(
                     f"Ambiguous or overlapping blocks in {current_path}: missing @@ between chunks",
                     line=current_line_num,
@@ -463,14 +542,31 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
                     filename=current_path,
                 )
                 finish_chunk_if_any()
-
-            start_chunk_if_needed()
+                start_chunk_if_needed()
+            else:
+                start_chunk_if_needed()
 
             if raw_line.startswith(DELETE_PREFIX):
-                current_chunk.deletions.append(raw_line[len(DELETE_PREFIX):])
+                # Open/continue current edit group for deletions
+                if current_group is None:
+                    current_group = EditGroup(
+                        start_pat_index=pat_index_in_chunk, del_count=0, additions=[]
+                    )
+                    current_chunk.edits.append(current_group)
+                current_chunk.items.append(
+                    NeedleItem(NeedleType.DELETE, raw_line[len(DELETE_PREFIX) :])
+                )
+                current_group.del_count += 1
+                pat_index_in_chunk += 1
                 chunk_has_mods = True
             else:
-                current_chunk.additions.append(raw_line[len(ADD_PREFIX):])
+                # Addition belongs to the current edit group; if none, create an insertion-only group.
+                if current_group is None:
+                    current_group = EditGroup(
+                        start_pat_index=pat_index_in_chunk, del_count=0, additions=[]
+                    )
+                    current_chunk.edits.append(current_group)
+                current_group.additions.append(raw_line[len(ADD_PREFIX) :])
                 chunk_has_mods = True
             continue
 
@@ -478,35 +574,32 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
         # Allow blank lines as empty context; otherwise require a single leading space.
         if raw_line.strip() == "":
             # Blank line -> empty context
-            if current_chunk is None and pending_anchors:
-                start_chunk_if_needed()
-            if current_chunk is None:
-                start_chunk_if_needed()
+            start_chunk_if_needed()
             ctx_line = ""
-            if not chunk_has_mods:
-                current_chunk.prefix.append(ctx_line)
-            else:
-                current_chunk.suffix.append(ctx_line)
+            current_chunk.items.append(NeedleItem(NeedleType.CONTEXT, ctx_line))
+            pat_index_in_chunk += 1
+            if chunk_has_mods:
+                seen_ctx_after_mods = True
             continue
         if raw_line.startswith(CONTEXT_PREFIX):
-            if current_chunk is None and pending_anchors:
-                start_chunk_if_needed()
-            if current_chunk is None:
-                start_chunk_if_needed()
-            ctx_line = raw_line[len(CONTEXT_PREFIX):]
-            if not chunk_has_mods:
-                current_chunk.prefix.append(ctx_line)
-            else:
-                current_chunk.suffix.append(ctx_line)
+            start_chunk_if_needed()
+            ctx_line = raw_line[len(CONTEXT_PREFIX) :]
+            current_chunk.items.append(NeedleItem(NeedleType.CONTEXT, ctx_line))
+            pat_index_in_chunk += 1
+            if chunk_has_mods:
+                seen_ctx_after_mods = True
             continue
         # Any other non-blank line is invalid inside a file section
         # For Add sections, treat such lines as implicit additions to be permissive.
         if current_action.type == ActionType.ADD:
-            if current_chunk is None and pending_anchors:
-                start_chunk_if_needed()
-            if current_chunk is None:
-                start_chunk_if_needed()
-            current_chunk.additions.append(raw_line)
+            start_chunk_if_needed()
+            # Treat as file content to add
+            if current_group is None:
+                current_group = EditGroup(
+                    start_pat_index=pat_index_in_chunk, del_count=0, additions=[]
+                )
+                current_chunk.edits.append(current_group)
+            current_group.additions.append(raw_line)
             chunk_has_mods = True
             continue
 
@@ -525,7 +618,9 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
     return patch, errors
 
 
-def load_files(paths: List[str], open_fn: Callable[[str], str]) -> Tuple[Dict[str, str], List[PatchError]]:
+def load_files(
+    paths: List[str], open_fn: Callable[[str], str]
+) -> Tuple[Dict[str, str], List[PatchError]]:
     """
     Read a set of files, returning a (files, errors) tuple.
     files: mapping path -> content for successfully read files
@@ -548,7 +643,9 @@ def load_files(paths: List[str], open_fn: Callable[[str], str]) -> Tuple[Dict[st
     return files, errs
 
 
-def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], List[PatchError], Dict[str, FileApplyStatus]]:
+def build_commits(
+    patch: Patch, files: Dict[str, str]
+) -> Tuple[List["Commit"], List[PatchError], Dict[str, FileApplyStatus]]:
     """
     Produce a list of Commit objects describing concrete file changes
     from a parsed Patch and a mapping of already loaded file contents.
@@ -572,130 +669,99 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
         s = "\n".join(lines)
         return s + ("\n" if eol else "")
 
-    def find_block(
+    def find_chunk_linear(
         file_lines: List[str],
         chunk: Chunk,
-    ) -> Tuple[Optional[int], Optional[str]]:
+    ) -> Tuple[Optional[int], Optional[int], Optional[List[str]], Optional[str]]:
         """
-        Try to find a contiguous block equal to prefix + deletions + suffix.
-        Returns (start_index, None) on success.
-        Returns (None, hint) on failure with a detailed human-readable hint.
-        Preference: if anchors are provided, search candidates closest to anchor lines first.
+        Linear, anchor-aware search for a chunk.
+        Anchors act as forward skips (labeled anchors advance to next line containing the label).
+        Pattern is the sequence of CONTEXT and DELETE items; additions are not part of the needle.
+        Fuzzy matching allows insertion of empty CONTEXT lines when file contains additional blanks.
+        Returns (start_idx, end_idx, replacement_lines, hint) where replacement_lines is the
+        buffer to substitute for the matched pattern region (i.e. with additions applied).
         """
-        # Extract pattern components from the chunk
-        prefix, deletions, suffix = chunk.prefix, chunk.deletions, chunk.suffix
-        pre_len, del_len, suf_len = len(prefix), len(deletions), len(suffix)
-        pattern_typed: List[Tuple[LineType, str]] = (
-            [(LineType.CONTEXT, s) for s in prefix]
-            + [(LineType.DELETE, s) for s in deletions]
-            + [(LineType.CONTEXT, s) for s in suffix]
-        )
-        pat_len = len(pattern_typed)
+        # Build pattern from items (exclude anchors)
+        items = chunk.items
+        pat_items_idx: List[int] = []
+        pat_types: List[NeedleType] = []
+        pat_texts: List[str] = []
+        for idx, it in enumerate(items):
+            if it.type == NeedleType.ANCHOR:
+                continue
+            pat_items_idx.append(idx)
+            pat_types.append(it.type)
+            pat_texts.append(it.text)
+        pat_len = len(pat_texts)
         n_lines = len(file_lines)
-
-        # Candidate starts: align on first token of the pattern
         if pat_len == 0:
-            return None, "Empty change block (no prefix/deletions/suffix)"
-        first_token = pattern_typed[0][1]
-        candidate_starts: List[int] = [
-            i for i in range(0, max(0, n_lines - pat_len + 1)) if file_lines[i] == first_token
-        ]
-        if not candidate_starts:
-            # No direct anchor match; scan whole feasible range
-            candidate_starts = list(range(0, max(0, n_lines - pat_len + 1)))
+            return None, None, None, "Empty change block (no context/deletions)"
 
-        # If anchors are provided and non-empty, prioritize candidate starts near lines containing anchor text
+        # Candidate starts: consider all feasible positions
+        candidate_starts: List[int] = list(range(0, max(0, n_lines - pat_len + 1)))
+
         anchor_idxs: List[int] = []
-        for a in chunk.anchors:
-            if a:
+        for it in items:
+            if it.type == NeedleType.ANCHOR and it.text:
                 for i, line in enumerate(file_lines):
-                    if a in line:
+                    if it.text in line:
                         anchor_idxs.append(i)
         if anchor_idxs:
-            # Try candidates closest to any anchor line first
-            def _dist_to_anchors(i: int) -> int:
-                return min(abs(i - ai) for ai in anchor_idxs)
-            candidate_starts.sort(key=lambda i: (_dist_to_anchors(i), i))
+            # Start matching at or after the earliest labeled anchor occurrence
+            min_anchor = min(anchor_idxs)
+            candidate_starts = [i for i in candidate_starts if i >= min_anchor]
 
         best_partial = PartialMatch()
+        partial_results: List[Tuple[int, int, str, str, Optional[str]]] = []
 
-        def try_match_at(start: int) -> MatchResult:
-            i = start  # index into file_lines
-            j = 0      # index into pattern_typed
+        def try_match_at(start: int) -> Tuple[bool, int, Optional[str], List[int], Optional[List[str]], Optional[int]]:
+            i = start
+            j = 0
             matched = 0
-            p_matched = d_matched = s_matched = 0
-
-            # Track whether the previously matched line was a CONTEXT line:
-            # True => prefix, False => suffix, None => not a context match
-            prev_context_region: Optional[bool] = None
-
-            # Remember where we virtually inserted blanks, to mutate chunk on success
-            insert_prefix_pos: List[int] = []
-            insert_suffix_pos: List[int] = []
+            prev_was_context: Optional[bool] = None
+            insert_pat_positions: List[int] = []
 
             while j < pat_len:
                 if i >= n_lines:
-                    return MatchResult(
-                        ok=False,
-                        start=start,
-                        matched=matched,
-                        expected=pattern_typed[j][1],
-                        actual="<EOF>",
-                        fail_index=i,
-                        prefix_matched=p_matched,
-                        deletions_matched=d_matched,
-                        suffix_matched=s_matched,
-                        double_escape_hint=None,
-                    )
+                    expected = pat_texts[j]
+                    partial_results.append((start, matched, expected, "<EOF>", None))
+                    if matched > best_partial.matched:
+                        best_partial.matched = matched
+                        best_partial.start = start
+                        best_partial.expected = expected
+                        best_partial.actual = "<EOF>"
+                        best_partial.fail_line = i + 1
+                    return False, matched, None, insert_pat_positions, None, None
 
-                lt, expected_line = pattern_typed[j]
+                expected_line = pat_texts[j]
                 actual_line = file_lines[i]
+                lt = pat_types[j]
 
-                in_prefix = j < pre_len
-
-                # First try exact match
                 if actual_line == expected_line:
                     matched += 1
-                    if j < pre_len:
-                        p_matched += 1
-                        prev_context_region = True
-                    elif j < pre_len + del_len:
-                        d_matched += 1
-                        prev_context_region = None
-                    else:
-                        s_matched += 1
-                        prev_context_region = False
+                    prev_was_context = lt == NeedleType.CONTEXT
                     i += 1
                     j += 1
                     continue
 
-                # Fuzzy matching on mismatch:
-                # 1) Treat an empty file line as an inserted empty CONTEXT when expecting non-empty CONTEXT.
-                # 2) Treat an empty file line at a deletion boundary as an empty CONTEXT if previous match was context.
-                handled = False
+                # Fuzzy: treat an empty file line as an inserted empty CONTEXT where reasonable
                 if actual_line == "":
-                    # 1) Missing blank before a non-empty CONTEXT line
-                    if lt is LineType.CONTEXT and expected_line != "":
-                        if j < pre_len:
-                            insert_prefix_pos.append(j)  # before the j-th prefix line
-                            prev_context_region = True
-                        else:
-                            insert_suffix_pos.append(j - pre_len - del_len)  # before the (j-pre-len-del_len)-th suffix line
-                            prev_context_region = False
+                    # Missing blank before a non-empty CONTEXT line
+                    if lt == NeedleType.CONTEXT and expected_line != "":
+                        insert_pat_positions.append(
+                            j
+                        )  # insert before current pattern position
                         i += 1
-                        handled = True
-                    # 2) Extra blank at deletion boundary, immediately after a context match
-                    elif lt is LineType.DELETE and prev_context_region is not None:
-                        if prev_context_region:
-                            insert_prefix_pos.append(pre_len)  # at prefix/deletions boundary
-                        else:
-                            insert_suffix_pos.append(0)        # at deletions/suffix boundary
+                        prev_was_context = True
+                        continue
+                    # Extra blank at deletion boundary (immediately after a context match)
+                    if lt == NeedleType.DELETE and prev_was_context is not None:
+                        insert_pat_positions.append(
+                            j
+                        )  # insert a blank CONTEXT at this boundary
                         i += 1
-                        handled = True
-                if handled:
-                    continue
+                        continue
 
-                # Hard mismatch (include double-escape hint if applicable)
                 hint_str: Optional[str] = None
                 if expected_line and actual_line:
                     unescaped_once = re.sub(r"\\\\", r"\\", expected_line)
@@ -704,95 +770,101 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
                             "Line appears to be double-escaped in the patch. "
                             "Do NOT escape characters in the patch; write raw file text (no JSON/Markdown escaping)."
                         )
-                return MatchResult(
-                    ok=False,
-                    start=start,
-                    matched=matched,
-                    expected=expected_line,
-                    actual=actual_line,
-                    fail_index=i,
-                    prefix_matched=p_matched,
-                    deletions_matched=d_matched,
-                    suffix_matched=s_matched,
-                    double_escape_hint=hint_str,
+                partial_results.append(
+                    (start, matched, expected_line, actual_line, hint_str)
                 )
+                if matched > best_partial.matched:
+                    best_partial.matched = matched
+                    best_partial.start = start
+                    best_partial.expected = expected_line
+                    best_partial.actual = actual_line
+                    best_partial.fail_line = i + 1
+                    best_partial.double_escape_hint = hint_str
+                return False, matched, hint_str, insert_pat_positions, None, None
 
-                i += 1
-                j += 1
-
-            # Success: mutate chunk to include inserted blanks so later phases align
-            if insert_prefix_pos or insert_suffix_pos:
-                for pos in sorted(insert_prefix_pos):
-                    chunk.prefix.insert(pos, "")
-                for pos in sorted(insert_suffix_pos):
-                    chunk.suffix.insert(pos, "")
-
-            return MatchResult(
-                ok=True,
-                start=start,
-                matched=matched,
-                expected="",
-                actual="",
-                fail_index=start + (len(chunk.prefix) + len(chunk.deletions) + len(chunk.suffix)) - 1,
-                prefix_matched=p_matched,
-                deletions_matched=d_matched,
-                suffix_matched=s_matched,
-                double_escape_hint=None,
-            )
-
-        partial_results: List[MatchResult] = []
+            # Success: mutate chunk items to include inserted blanks at the recorded pat indices
+            if insert_pat_positions:
+                # Map pat index -> items index
+                items_idx_for_pat = list(pat_items_idx)
+                for pos in sorted(insert_pat_positions):
+                    insert_at_items_idx = items_idx_for_pat[pos]
+                    chunk.items.insert(
+                        insert_at_items_idx, NeedleItem(NeedleType.CONTEXT, "")
+                    )
+                    # When we insert, subsequent item indices shift by +1 for >= insert_at_items_idx
+                    for k in range(pos, len(items_idx_for_pat)):
+                        items_idx_for_pat[k] += 1
+                    # Also shift edit groups whose start index is at or after this insertion
+                    for g in chunk.edits:
+                        if g.start_pat_index >= pos:
+                            g.start_pat_index += 1
+            # Build replacement buffer now that we have a complete match
+            pat_built: List[tuple[NeedleType, str]] = [
+                (it.type, it.text) for it in chunk.items if it.type != NeedleType.ANCHOR
+            ]
+            replacement: List[str] = []
+            group_progress: Dict[int, int] = {}
+            inserted_group: Dict[int, bool] = {}
+            k = start
+            for jj, (lt2, _t2) in enumerate(pat_built):
+                # Insert zero-delete additions at this position
+                for gi, g in enumerate(chunk.edits):
+                    if g.del_count == 0 and g.start_pat_index == jj and not inserted_group.get(gi, False):
+                        replacement.extend(g.additions)
+                        inserted_group[gi] = True
+                if lt2 == NeedleType.CONTEXT:
+                    replacement.append(file_lines[k])
+                    k += 1
+                elif lt2 == NeedleType.DELETE:
+                    k += 1
+                    for gi, g in enumerate(chunk.edits):
+                        if g.del_count > 0 and g.start_pat_index <= jj < g.start_pat_index + g.del_count:
+                            group_progress[gi] = group_progress.get(gi, 0) + 1
+                            if group_progress[gi] == g.del_count and not inserted_group.get(gi, False):
+                                replacement.extend(g.additions)
+                                inserted_group[gi] = True
+            # Tail insertions (groups at end)
+            pat_len_now = len(pat_built)
+            for gi, g in enumerate(chunk.edits):
+                if g.start_pat_index == pat_len_now and not inserted_group.get(gi, False):
+                    replacement.extend(g.additions)
+                    inserted_group[gi] = True
+            end_idx = start + len(pat_built)
+            return True, matched, None, [], replacement, end_idx
 
         for start in candidate_starts:
-            res = try_match_at(start)
-            if res.ok:
-                return start, None
-            partial_results.append(res)
-            if res.matched > best_partial.matched:
-                best_partial.matched = res.matched
-                best_partial.start = res.start
-                # Derive phase from how many were matched in each section
-                if res.prefix_matched < pre_len:
-                    best_partial.phase = "prefix"
-                elif res.deletions_matched < del_len:
-                    best_partial.phase = "deletions"
-                else:
-                    best_partial.phase = "suffix"
-                best_partial.expected = res.expected
-                best_partial.actual = res.actual
-                best_partial.fail_line = res.fail_index + 1  # human lines
-                best_partial.prefix_matched = res.prefix_matched
-                best_partial.deletions_matched = res.deletions_matched
-                best_partial.suffix_matched = res.suffix_matched
-                best_partial.double_escape_hint = res.double_escape_hint
+            ok, matched, _hint, _ins, replacement, end_idx = try_match_at(start)
+            if ok:
+                return start, end_idx, replacement, None
 
-        # Build human-readable hint describing where it failed, including all partial variants
-        bp = best_partial
+        # Hint construction
         hint_lines: List[str] = []
-        hint_lines.append(f"No exact match. Evaluated {len(candidate_starts)} candidate positions.")
-        if bp.start is not None:
-            hint_lines.append(f"Best partial match at L{bp.start + 1}: matched {bp.matched}/{pat_len} lines.")
-
+        hint_lines.append(
+            f"No exact match. Evaluated {len(candidate_starts)} candidate positions."
+        )
+        if best_partial.start is not None:
+            hint_lines.append(
+                f"Best partial match at L{best_partial.start + 1}: matched {best_partial.matched}/{pat_len} lines."
+            )
         if partial_results:
             hint_lines.append("Possible variants from partial matches:")
             # Sort: highest matched first, then by start line; show top 3 only
-            partial_sorted = sorted(partial_results, key=lambda r: (-r.matched, r.start))
-            for r in partial_sorted[:3]:
-                hint_lines.append(f"- L{r.start + 1}: matched {r.matched}/{pat_len}")
-                if r.matched > 0:
+            partial_sorted = sorted(partial_results, key=lambda r: (-r[1], r[0]))
+            for st, m, exp, act, _hs in partial_sorted[:3]:
+                hint_lines.append(f"- L{st + 1}: matched {m}/{pat_len}")
+                if m > 0:
                     hint_lines.append("  Matched source lines (from file):")
-                    for s in file_lines[r.start : r.start + r.matched]:
-                        hint_lines.append(f"    {s!r}")
-                if r.expected != "" or r.actual != "":
-                    hint_lines.append(f"  Next expected line: {r.expected!r}")
-                    hint_lines.append(f"  File has: {r.actual!r}")
-
-        # Extra guidance if we detected likely double-escaping
-        if bp.double_escape_hint:
-            hint_lines.append(bp.double_escape_hint)
-        hint_lines.append("Tips: ensure exact whitespace and blank lines match; remove escaping; do not trim indentation.")
-        return None, "\n".join(hint_lines)
-
-        # End find_block
+                    # Show the matched prefix (bounded)
+                    hint_lines.append("    ...")
+                if exp != "" or act != "":
+                    hint_lines.append(f"  Next expected line: {exp!r}")
+                    hint_lines.append(f"  File has: {act!r}")
+        if best_partial.double_escape_hint:
+            hint_lines.append(best_partial.double_escape_hint)
+        hint_lines.append(
+            "Tips: ensure exact whitespace and blank lines match; remove escaping; do not trim indentation."
+        )
+        return None, None, None, "\n".join(hint_lines)
 
     # Process actions (compute all matches first per file, then check overlaps, then apply)
     for path, action in patch.actions.items():
@@ -815,7 +887,8 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
             # Build content from additions across all chunks
             add_lines: List[str] = []
             for ch in action.chunks:
-                add_lines.extend(ch.additions)
+                for g in ch.edits:
+                    add_lines.extend(g.additions)
             new_content = join_lines(add_lines, eol=False)
             changes[path] = FileChange(type=ActionType.ADD, new_content=new_content)
             status_map[path] = FileApplyStatus.Create
@@ -840,11 +913,12 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
         lines = original.splitlines()
 
         # Phase 1: locate all blocks for this file
-        located: List[Tuple[int, int, Chunk]] = []
+        located: List[Tuple[int, int, List[str], Optional[int]]] = []
         any_failed = False
+        last_start_idx: Optional[int] = None
         for ch in action.chunks:
-            start_idx, hint = find_block(lines, ch)
-            if start_idx is None:
+            start_idx, end_idx, replacement, hint = find_chunk_linear(lines, ch)
+            if start_idx is None or end_idx is None or replacement is None:
                 add_error(
                     f"Failed to locate change block in {path}",
                     line=ch.start_line,
@@ -854,10 +928,18 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
                 any_failed = True
                 # Do not break; collect all failures for better reporting
                 continue
-            pre_len, del_len, suf_len = len(ch.prefix), len(ch.deletions), len(ch.suffix)
-            pattern_len = pre_len + del_len + suf_len
-            end_idx = start_idx + pattern_len
-            located.append((start_idx, end_idx, ch))
+            # Order check: ensure non-decreasing positions
+            if last_start_idx is not None and start_idx < last_start_idx:
+                add_error(
+                    f"Out-of-order change block in {path}",
+                    line=ch.start_line,
+                    hint="Ensure blocks are ordered top-to-bottom as they appear in the file, or add @@ anchors to disambiguate.",
+                    filename=path,
+                )
+                any_failed = True
+                continue
+            last_start_idx = start_idx
+            located.append((start_idx, end_idx, replacement, ch.start_line))
 
         # If some chunks could not be found, still apply the ones we did find.
         # If none located, skip updating this file.
@@ -867,12 +949,12 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
         # Phase 2: detect overlaps (using original file indices)
         located.sort(key=lambda t: t[0])
         overlaps_found = False
-        for (s1, e1, ch1), (s2, e2, ch2) in zip(located, located[1:]):
+        for (s1, e1, _r1, l1), (s2, e2, _r2, l2) in zip(located, located[1:]):
             if not (e1 <= s2):  # overlap if e1 > s2
                 overlaps_found = True
                 add_error(
                     f"Overlapping change blocks detected in {path}",
-                    line=min((ch1.start_line or 0), (ch2.start_line or 0)) or None,
+                    line=min((l1 or 0), (l2 or 0)) or None,
                     hint=(
                         "Two change blocks overlap in their context/deletion ranges. "
                         f"First block covers [{s1}, {e1}), second covers [{s2}, {e2}). "
@@ -887,16 +969,11 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
         # Phase 3: apply non-overlapping blocks to produce new content
         result: List[str] = []
         cursor = 0
-        for start_idx, end_idx, ch in located:
-            pre_len, del_len, suf_len = len(ch.prefix), len(ch.deletions), len(ch.suffix)
+        for start_idx, end_idx, replacement, _lno in located:
             # Copy up to the block start
             result.extend(lines[cursor:start_idx])
-            # Keep prefix as-is from original
-            result.extend(lines[start_idx : start_idx + pre_len])
-            # Replace deletions with additions
-            result.extend(ch.additions)
-            # Keep suffix as-is from original
-            result.extend(lines[start_idx + pre_len + del_len : start_idx + pre_len + del_len + suf_len])
+            # Use precomputed replacement buffer
+            result.extend(replacement)
             cursor = end_idx
         # Append remainder of file
         result.extend(lines[cursor:])
@@ -907,9 +984,12 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
             type=ActionType.UPDATE,
             old_content=original,
             new_content=new_content,
+            move_path=action.move_path,
         )
         # Mark status based on whether any chunks for this file failed to locate
-        status_map[path] = FileApplyStatus.PartialUpdate if any_failed else FileApplyStatus.Update
+        status_map[path] = (
+            FileApplyStatus.PartialUpdate if any_failed else FileApplyStatus.Update
+        )
 
     if changes:
         commits.append(Commit(changes=changes))
@@ -932,7 +1012,10 @@ def apply_commits(
         for path, change in commit.changes.items():
             try:
                 if change.type == ActionType.ADD or change.type == ActionType.UPDATE:
-                    write_fn(path, change.new_content or "")
+                    target = change.move_path or path
+                    write_fn(target, change.new_content or "")
+                    if change.type == ActionType.UPDATE and change.move_path:
+                        delete_fn(path)
                 elif change.type == ActionType.DELETE:
                     delete_fn(path)
                 else:
