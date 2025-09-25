@@ -21,7 +21,12 @@ from vocode.ui.terminal import colors
 from vocode.project import Project
 from vocode.ui.terminal.buf import MessageBuffer
 from vocode.ui.base import UIState
-from vocode.ui.proto import UIReqRunEvent, UIReqStatus, UI_PACKET_RUN_EVENT, UI_PACKET_STATUS
+from vocode.ui.proto import (
+    UIReqRunEvent,
+    UIReqStatus,
+    UI_PACKET_RUN_EVENT,
+    UI_PACKET_STATUS,
+)
 from vocode.runner.models import (
     ReqMessageRequest,
     ReqToolCall,
@@ -36,9 +41,17 @@ from vocode.runner.models import (
     PACKET_LOG,
 )
 from vocode.state import Message, RunnerStatus, LogLevel
-from vocode.ui.terminal.toolbar import build_prompt, build_toolbar, _current_node_confirmation
+from vocode.ui.terminal.toolbar import (
+    build_prompt,
+    build_toolbar,
+    _current_node_confirmation,
+)
 from vocode.models import Confirmation
-from vocode.ui.terminal.commands import CommandContext, run as run_command
+from vocode.ui.terminal.commands import (
+    CommandContext,
+    Commands,
+    register_default_commands,
+)
 
 # ANSI escape sequence for carriage return and clearing from cursor to the end of the line.
 # This is used for overwriting the current line during streaming output.
@@ -56,10 +69,10 @@ LOG_LEVEL_ORDER = {
 }
 
 
-
 def out(*args, **kwargs):
     def _p():
         print(*args, **kwargs, flush=True)
+
     try:
         run_in_terminal(_p)
     except Exception:
@@ -70,8 +83,10 @@ def out_fmt(ft):
     """
     Print prompt_toolkit AnyFormattedText with our console style.
     """
+
     def _p():
         print_formatted_text(to_formatted_text(ft), style=colors.get_console_style())
+
     try:
         run_in_terminal(_p)
     except Exception:
@@ -110,7 +125,9 @@ def out_fmt_stream(ft):
 
     # Print the last line without a trailing newline (to keep streaming).
     if last_line:
-        print_formatted_text(to_formatted_text(last_line), style=colors.get_console_style(), end="")
+        print_formatted_text(
+            to_formatted_text(last_line), style=colors.get_console_style(), end=""
+        )
 
     # If the last line wrapped, move the cursor back up so the next update
     # will overwrite from the first visual line of this wrapped block.
@@ -151,6 +168,7 @@ async def run_terminal(project: Project) -> None:
     change_event = asyncio.Event()
 
     interrupt_count = {"n": 0}
+
     def reset_interrupt():
         interrupt_count["n"] = 0
 
@@ -169,10 +187,20 @@ async def run_terminal(project: Project) -> None:
     old_sigint = None
     try:
         old_sigint = signal.getsignal(signal.SIGINT)
+
         def _sigint_handler(signum, frame):
             import asyncio, traceback
+
             for t in asyncio.all_tasks():
-                print(t, t.get_coro(), "".join(traceback.format_stack(sys._current_frames()[t.get_loop()._thread_id])))
+                print(
+                    t,
+                    t.get_coro(),
+                    "".join(
+                        traceback.format_stack(
+                            sys._current_frames()[t.get_loop()._thread_id]
+                        )
+                    ),
+                )
 
             try:
                 loop = asyncio.get_running_loop()
@@ -183,6 +211,7 @@ async def run_terminal(project: Project) -> None:
                     asyncio.create_task(stop_toggle())
                 except Exception:
                     pass
+
         signal.signal(signal.SIGINT, _sigint_handler)
     except Exception:
         old_sigint = None
@@ -194,7 +223,10 @@ async def run_terminal(project: Project) -> None:
             # End the current prompt gracefully
             session.app.exit(result="")
 
-    ctx = CommandContext(ui=ui, out=lambda s: out(s), stop_toggle=stop_toggle, request_exit=request_exit)
+    ctx = CommandContext(
+        ui=ui, out=lambda s: out(s), stop_toggle=stop_toggle, request_exit=request_exit
+    )
+    commands = register_default_commands(Commands())
 
     pending_req: Optional[UIReqRunEvent] = None
     queued_resp: Optional[Union[RespMessage, RespApproval]] = None
@@ -206,8 +238,6 @@ async def run_terminal(project: Project) -> None:
         if stream_buffer:
             out("")  # Newline to finish the streamed line
             stream_buffer = None
-
-
 
     async def handle_run_event(req: UIReqRunEvent) -> None:
         nonlocal pending_req, stream_buffer, queued_resp
@@ -318,7 +348,7 @@ async def run_terminal(project: Project) -> None:
             text = line.rstrip("\n")
 
             if text.startswith("/"):
-                handled = await run_command(text, ctx)
+                handled = await commands.run(text, ctx)
                 if should_exit:
                     break
                 if not handled:
@@ -364,7 +394,9 @@ async def run_terminal(project: Project) -> None:
                     if text == "":
                         await ui.respond_packet(req_id, None)
                     else:
-                        await ui.respond_message(req_id, Message(role="user", text=text))
+                        await ui.respond_message(
+                            req_id, Message(role="user", text=text)
+                        )
                     pending_req = None
                     continue
 
@@ -395,7 +427,9 @@ async def run_terminal(project: Project) -> None:
                     if text.strip() == "":
                         await ui.respond_approval(req_id, True)
                     else:
-                        await ui.respond_message(req_id, Message(role="user", text=text))
+                        await ui.respond_message(
+                            req_id, Message(role="user", text=text)
+                        )
                     pending_req = None
                     continue
 
@@ -414,14 +448,19 @@ async def run_terminal(project: Project) -> None:
         with contextlib.suppress(asyncio.CancelledError):
             await consumer_task
 
+
 @click.command()
-@click.argument("project_path", type=click.Path(exists=True, file_okay=False, path_type=str))
+@click.argument(
+    "project_path", type=click.Path(exists=True, file_okay=False, path_type=str)
+)
 def main(project_path: str) -> None:
     project = Project.from_base_path(project_path)
     asyncio.run(run_terminal(project))
 
+
 if __name__ == "__main__":
     import faulthandler, signal, sys
+
     faulthandler.enable(sys.stderr)  # or just faulthandler.enable()
     faulthandler.register(signal.SIGUSR1)
 

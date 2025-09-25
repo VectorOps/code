@@ -26,9 +26,9 @@ class FakeRunner:
 
     def __init__(self, workflow, project, initial_message=None):
         self.status: RunnerStatus = RunnerStatus.idle
-        self.script: List[
-            Tuple[str, object, bool, RunnerStatus]
-        ] = getattr(workflow, "script", [])
+        self.script: List[Tuple[str, object, bool, RunnerStatus]] = getattr(
+            workflow, "script", []
+        )
         self.received_inputs: List[Optional[RunInput]] = []
         self.rewound: Optional[int] = None
         self.replaced_input = None
@@ -219,7 +219,9 @@ def test_ui_state_replace_input_guard(monkeypatch):
 
         # Attempt replacing last user input while waiting for input should fail
         with pytest.raises(RuntimeError):
-            await ui.replace_last_user_input(RespMessage(message=Message(role="user", text="new")))
+            await ui.replace_last_user_input(
+                RespMessage(message=Message(role="user", text="new"))
+            )
 
         # Cleanup: cancel the driver to avoid leaks
         await ui.cancel()
@@ -227,5 +229,72 @@ def test_ui_state_replace_input_guard(monkeypatch):
         s = await ui.recv()
         assert isinstance(s, UIReqStatus)
         assert s.curr == RunnerStatus.canceled
+
+    asyncio.run(scenario())
+
+
+def test_project_state_reset_clears(monkeypatch):
+    class FakeProjectState:
+        def __init__(self):
+            self._d = {}
+
+        def set(self, k, v):
+            self._d[k] = v
+
+        def get(self, k, default=None):
+            return self._d.get(k, default)
+
+        def delete(self, k):
+            self._d.pop(k, None)
+
+        def clear(self):
+            self._d.clear()
+
+    class FakeProject:
+        def __init__(self):
+            # Provide minimal settings so start_by_name in reset() can work
+            wf_name = "wf-project-state"
+            wf_cfg = SimpleNamespace(nodes=[], edges=[])
+            self.settings = SimpleNamespace(workflows={wf_name: wf_cfg})
+            self.project_state = FakeProjectState()
+
+    async def scenario():
+        from vocode.ui import base as ui_base
+
+        monkeypatch.setattr(ui_base, "Runner", FakeRunner)
+
+        # Use a workflow stub with a single final; reset will rebuild from settings via start_by_name
+        wf_name = "wf-project-state"
+        script = [
+            ("node1", _mk_final("done"), False, RunnerStatus.running),
+        ]
+        wf = SimpleNamespace(name=wf_name, script=script)
+        project = FakeProject()
+        ui = UIState(project)
+
+        await ui.start(wf)
+
+        # Drain first status to ensure driver started
+        s = await ui.recv()
+        assert isinstance(s, UIReqStatus)
+
+        # Basic set/get/delete
+        ps = ui.project.project_state
+        ps.set("k1", {"v": 1})
+        assert ps.get("k1") == {"v": 1}
+        ps.delete("k1")
+        assert ps.get("k1") is None
+        # Set again to test clearing on reset
+        ps.set("k2", "persist-me")
+        assert ps.get("k2") == "persist-me"
+
+        # Reset should clear project-level state
+        await ui.reset()
+        assert ps.get("k2") is None
+
+        # Cleanup: cancel the restarted driver to avoid leaks
+        await ui.cancel()
+        s_end = await ui.recv()
+        assert isinstance(s_end, UIReqStatus)
 
     asyncio.run(scenario())

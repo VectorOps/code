@@ -117,6 +117,14 @@ class LLMExecutor(Executor):
     def _build_base_messages(
         self, cfg: LLMNode, history: List[Message]
     ) -> List[Dict[str, Any]]:
+        def map_role(m: Message) -> Dict[str, Any]:
+            role = (m.role or "user")
+            if role == "agent":
+                role = "assistant"
+            elif role not in ("user", "assistant", "system", "tool"):
+                role = "user"
+            return {"role": role, "content": m.text}
+
         msgs: List[Dict[str, Any]] = []
         if cfg.system:
             sys_text = cfg.system
@@ -127,7 +135,7 @@ class LLMExecutor(Executor):
                 sys_text = apply_preprocessors(preproc_names, sys_text)
             msgs.append({"role": "system", "content": sys_text})
         for m in history:
-            msgs.append({"role": "user", "content": m.text})
+            msgs.append(map_role(m))
         return msgs
 
     def _parse_outcome_from_text(
@@ -287,9 +295,13 @@ class LLMExecutor(Executor):
         # (typical when re-entering node with keep_state).
         if inp.state is not None and inp.messages:
             for m in inp.messages:
-                # Additional app-originated messages (e.g., errors from previous node)
-                # should always be presented to the LLM as user inputs.
-                state.conv.append({"role": "user", "content": m.text})
+                # Preserve original roles; map 'agent' -> 'assistant'
+                role = (m.role or "user")
+                if role == "agent":
+                    role = "assistant"
+                elif role not in ("user", "assistant", "system", "tool"):
+                    role = "user"
+                state.conv.append({"role": role, "content": m.text})
             state.expect = LLMExpect.none
 
         # Integrate incoming response into conversation

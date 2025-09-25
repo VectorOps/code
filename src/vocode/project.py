@@ -16,6 +16,28 @@ from .templates import write_default_config
 from vocode.runner.models import TokenUsageTotals
 
 
+class ProjectState:
+    """
+    Ephemeral, process-local project-level state shared across executors.
+    Not persisted across runs.
+    """
+
+    def __init__(self) -> None:
+        self._data: Dict[str, Any] = {}
+
+    def set(self, key: str, value: Any) -> None:
+        self._data[key] = value
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+    def delete(self, key: str) -> None:
+        self._data.pop(key, None)
+
+    def clear(self) -> None:
+        self._data.clear()
+
+
 class FileChangeType(str, Enum):
     CREATED = "created"
     UPDATED = "updated"
@@ -42,6 +64,8 @@ class Project:
         self.settings: Optional[Settings] = settings
         self.tools: Dict[str, "BaseTool"] = tools
         self.know: KnowProject = know
+        # Project-level shared state for executors
+        self.project_state: ProjectState = ProjectState()
         # Ephemeral (per-process) LLM usage totals
         self.llm_usage: TokenUsageTotals = TokenUsageTotals()
 

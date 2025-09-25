@@ -24,7 +24,6 @@ workflows:
           template: nodes/discovery.yaml
         function_tokens_pct: 25
         confirmation: auto
-        reset_policy: keep_results
       - $include:
           template: nodes/architect.yaml
         function_tokens_pct: 25

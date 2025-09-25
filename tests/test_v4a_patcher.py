@@ -708,6 +708,49 @@ def test_update_chunk_with_no_modifications_is_ignored():
     # The chunk has only context and no +/- lines, so it should be ignored.
     assert len(act.chunks) == 0
 
+def test_build_commits_update_with_no_modifications_errors():
+    patch_text = """*** Begin Patch
+*** Update File: src/empty.py
+@@ anchor only
+ ctx1
+ ctx2
+ ctx3
+*** End Patch"""
+    # File exists but the update contains no +/- lines
+    original = "ctx1\nctx2\nctx3\n"
+    patch, perrs = parse_v4a_patch(patch_text)
+    assert perrs == []
+    commits, errs, status_map = build_commits(patch, {"src/empty.py": original})
+    # Should report a clear error and skip generating any commit/status for this file
+    assert commits == []
+    assert any("No change lines (+/-) provided for file: src/empty.py" in e.msg for e in errs)
+    assert "src/empty.py" not in status_map
+
+def test_process_patch_update_with_no_mods_reports_error():
+    text = """*** Begin Patch
+*** Update File: src/empty.py
+@@
+ ctx1
+ ctx2
+ ctx3
+*** End Patch"""
+    writes: dict[str, str] = {}
+    deletes: list[str] = []
+
+    statuses, errs = process_patch(
+        text,
+        open_fn=lambda p: "ctx1\nctx2\nctx3\n",
+        write_fn=lambda p, c: writes.__setitem__(p, c),
+        delete_fn=lambda p: deletes.append(p),
+    )
+    # No IO should occur and an explicit error should be returned
+    assert writes == {}
+    assert deletes == []
+    assert statuses == {}
+    assert len(errs) == 1
+    assert "No change lines (+/-) provided for file: src/empty.py" in errs[0].msg
+    assert errs[0].filename == "src/empty.py"
+
 
 def test_build_commits_handles_missing_empty_line_in_context():
     patch_text = """*** Begin Patch

@@ -1,6 +1,7 @@
 #+title: Code ToDo
 * [ ] Runner
-** [ ] ctrl+c after providing looping llm answer did not continue from that step - it started from initial step.
+** [ ] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
+** [X] ctrl+c after providing looping llm answer did not continue from that step - it started from initial step.
 ** [X] Change executors to have explicit state
 ** [X] Stop/Resume should work off activities
 ** [X] Rewind should work off activities
@@ -38,6 +39,10 @@ Concrete example: files that were read and already in context.
 ** [X] In-memory bidirectional stream implementation for TUI
 ** [ ] Add syntax name hint to apply formatting
 * [ ] Terminal UI
+** [ ] Simple styling
+*** [ ] Color usage
+*** [ ] Separate tool calls from outputs
+*** [ ] Remove Agent: prefix
 ** [ ] Print node transitions
 ** [ ] Format tool calls
 ** [ ] Assume markdown as default formatter
@@ -54,24 +59,48 @@ Concrete example: files that were read and already in context.
 - If workflow is canceled, then workflow should start new workflow
 ** [X] ctrl+c when runner is active does nothing - should stop the runner (verify, might not be the case)
 ** [ ] We might have deadlock somewhere that does not break with ctrl+c
+- Added debugging stacktraces for now
 ** [X] Add file context management once corresponding node is created
 ** [ ] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
-** [ ] Add approximate cost calculator and output
+** [X] Add approximate cost calculator and output
 ** [X] Add toolbar that shows current cost and mode of operation
 ** [ ] Fix estimated cost calculation
 ** [ ] Highlighting does not work if ``` opener is not in the beginning of the line
 * [ ] Tools
-** [X] Integrate Know
+** [ ] Integrate Know
 *** [X] Needs a separate execution thread and simple async API wrapper RPC, as it is synchronous
 - Take callable function as a parameter, run it in Know thread, return results back
+*** [ ] Add progress report
 ** [X] Add a way to auto-approve tool calls
 ** [ ] Add pattern matching rules to auto-approve rule calls
 * [ ] Block parsers
 ** [X] Code parsers
 ** [ ] Diff parsers
-*** [X] GPT V4A diff format
+*** [ ] GPT V4A diff format
 **** [X] Better error reporting and verify apply patch cycle
 **** [X] When multiple chunks match, but we can't match any of the chunks - return all possible lines
+**** [ ] Add support for multi-blocks where multiple things are getting deleted and added.
+-@register("/workflows", "List available workflows")
++async def _workflows(ctx: CommandContext, args: List[str]) -> None:
+     names = ctx.ui.list_workflows()
+     if not names:
+         ctx.out("No workflows configured.")
+         return
+     for n in names:
+         ctx.out(f"- {n}")
+
+
+-@register("/use", "Select and start a workflow", "<workflow>")
++async def _use(ctx: CommandContext, args: List[str]) -> None:
+     if not args:
+         ctx.out("Usage: /use <workflow>")
+         return
+     name = args[0]
+     try:
+         await ctx.ui.use(name)
+     except Exception as e:
+         ctx.out(f"Failed to start workflow '{name}': {e}")
+**** [ ] Add support for multiple patch blocks or provide better instructions
 *** [X] Fenced diff format
 *** [ ] Unified Diff format
 * [X] Settings
@@ -81,6 +110,8 @@ Concrete example: files that were read and already in context.
 * [ ] Nodes
 ** [X] Add project as a parameter to executor
 ** [ ] Add a node that injects files in context. Add file manager.
+*** [ ] Add file context manager
+*** [ ] Add UI support for file context management
 ** [X] [#A] Think how to manage state for a run
 ** [X] Base node runner class
 ** [ ] LLM node

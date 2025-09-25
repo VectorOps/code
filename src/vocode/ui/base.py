@@ -2,7 +2,6 @@ import asyncio
 from typing import Optional, TYPE_CHECKING, List, Union
 import contextlib
 from vocode.settings import build_model_from_settings
-from vocode.graph import build
 
 from vocode.logger import logger
 from vocode.runner.runner import Runner
@@ -71,9 +70,10 @@ class UIState:
         await self._incoming.put(resp)
 
     # Convenience helpers to build and send responses
-
     async def respond_packet(self, req_id: int, packet: Optional[RespPacket]) -> None:
-        inp = RunInput(response=packet) if packet is not None else RunInput(response=None)
+        inp = (
+            RunInput(response=packet) if packet is not None else RunInput(response=None)
+        )
         await self.send(UIRespRunInput(req_id=req_id, input=inp))
 
     async def respond_message(self, req_id: int, message: Message) -> None:
@@ -86,7 +86,13 @@ class UIState:
     # Runner lifecycle control
     # ------------------------
 
-    async def start(self, workflow: Workflow, *, initial_message: Optional[Message] = None, assignment: Optional[Assignment] = None) -> None:
+    async def start(
+        self,
+        workflow: Workflow,
+        *,
+        initial_message: Optional[Message] = None,
+        assignment: Optional[Assignment] = None,
+    ) -> None:
         """
         Start a new runner for the given workflow. If a runner is already active, raises RuntimeError.
         """
@@ -95,10 +101,14 @@ class UIState:
                 raise RuntimeError("Runner is already active")
 
             self.workflow = workflow
-            self._selected_workflow_name = getattr(workflow, "name", self._selected_workflow_name)
+            self._selected_workflow_name = getattr(
+                workflow, "name", self._selected_workflow_name
+            )
             self.assignment = assignment or Assignment()
             self._initial_message = initial_message
-            self.runner = Runner(workflow=workflow, project=self.project, initial_message=initial_message)
+            self.runner = Runner(
+                workflow=workflow, project=self.project, initial_message=initial_message
+            )
             self._req_counter = 0
             self._last_status = None
             self._stop_signal.clear()
@@ -134,8 +144,15 @@ class UIState:
                 raise RuntimeError("No workflow available to restart")
 
             # If there's no runner, or it finished/canceled, create a new one
-            if self.runner is None or self.runner.status in (RunnerStatus.finished, RunnerStatus.canceled):
-                self.runner = Runner(workflow=self.workflow, project=self.project, initial_message=self._initial_message)
+            if self.runner is None or self.runner.status in (
+                RunnerStatus.finished,
+                RunnerStatus.canceled,
+            ):
+                self.runner = Runner(
+                    workflow=self.workflow,
+                    project=self.project,
+                    initial_message=self._initial_message,
+                )
 
             # Re-drive the same assignment (resume if stopped)
             if self.assignment is None:
@@ -152,18 +169,24 @@ class UIState:
     # ------------------------
     # Workflow helpers and accessors
     # ------------------------
-
     def list_workflows(self) -> List[str]:
         if not self.project.settings or not self.project.settings.workflows:
             return []
         return list(self.project.settings.workflows.keys())
 
-    async def start_by_name(self, name: str, *, initial_message: Optional[Message] = None) -> None:
-        if not self.project.settings or name not in (self.project.settings.workflows or {}):
+    async def start_by_name(
+        self, name: str, *, initial_message: Optional[Message] = None
+    ) -> None:
+        # Clear project-level state when switching to a different workflow
+        if self._selected_workflow_name is not None and name != self._selected_workflow_name:
+            self.project.project_state.clear()
+        if not self.project.settings or name not in (
+            self.project.settings.workflows or {}
+        ):
             raise KeyError(f"Unknown workflow: {name}")
         wf_cfg = self.project.settings.workflows[name]
 
-        graph = build(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
+        graph = Graph(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
         wf = Workflow(name=name, graph=graph)
 
         self._selected_workflow_name = name
@@ -187,8 +210,17 @@ class UIState:
             self.runner = None
             self._last_status = None
             self._current_node_name = None
+            # Drain any leftover outbound requests and inbound responses from the previous run
+            with contextlib.suppress(asyncio.QueueEmpty):
+                while True:
+                    self._outgoing.get_nowait()
+            with contextlib.suppress(asyncio.QueueEmpty):
+                while True:
+                    self._incoming.get_nowait()
 
-    async def use(self, name: str, *, initial_message: Optional[Message] = None) -> None:
+    async def use(
+        self, name: str, *, initial_message: Optional[Message] = None
+    ) -> None:
         await self._shutdown_current_runner(cancel=False)
         await self.start_by_name(name, initial_message=initial_message)
 
@@ -196,7 +228,11 @@ class UIState:
         if not self._selected_workflow_name:
             raise RuntimeError("No workflow selected to reset")
         await self._shutdown_current_runner(cancel=False)
-        await self.start_by_name(self._selected_workflow_name, initial_message=self._initial_message)
+        # Clear project-level state on reset
+        self.project.project_state.clear()
+        await self.start_by_name(
+            self._selected_workflow_name, initial_message=self._initial_message
+        )
 
     def is_active(self) -> bool:
         return self._drive_task is not None and not self._drive_task.done()
@@ -233,10 +269,14 @@ class UIState:
             if self.runner is None or self.assignment is None:
                 raise RuntimeError("No runner/assignment to rewind")
             if self.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
-                raise RuntimeError("Cannot rewind while runner is running or waiting for input")
+                raise RuntimeError(
+                    "Cannot rewind while runner is running or waiting for input"
+                )
             await self.runner.rewind(self.assignment, n)
 
-    async def replace_last_user_input(self, resp: Union[RespMessage, RespApproval]) -> None:
+    async def replace_last_user_input(
+        self, resp: Union[RespMessage, RespApproval]
+    ) -> None:
         """
         Replace the last user input (final prompt/confirm or prior message_request) and prepare resume.
         """
@@ -244,7 +284,9 @@ class UIState:
             if self.runner is None or self.assignment is None:
                 raise RuntimeError("No runner/assignment available")
             if self.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
-                raise RuntimeError("Cannot replace input while runner is running or waiting for input")
+                raise RuntimeError(
+                    "Cannot replace input while runner is running or waiting for input"
+                )
             self.runner.replace_last_user_input(self.assignment, resp)
 
     # ------------------------
@@ -302,7 +344,9 @@ class UIState:
                         graph = getattr(self.workflow, "graph", None)
                         if graph is not None:
                             rn = graph.get_runtime_node_by_name(req.node)
-                            if rn is not None and getattr(rn.model, "hide_final_output", False):
+                            if rn is not None and getattr(
+                                rn.model, "hide_final_output", False
+                            ):
                                 suppress_event = True
                     except Exception:
                         # Be conservative: if we cannot resolve the node, do not suppress.
@@ -324,7 +368,9 @@ class UIState:
                     while True:
                         resp_task = asyncio.create_task(self._incoming.get())
                         stop_task = asyncio.create_task(self._stop_signal.wait())
-                        done, pending = await asyncio.wait({resp_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
+                        done, pending = await asyncio.wait(
+                            {resp_task, stop_task}, return_when=asyncio.FIRST_COMPLETED
+                        )
                         # If stop signal fired, close the runner generator and exit promptly.
                         if stop_task in done:
                             for t in pending:
@@ -337,11 +383,16 @@ class UIState:
                         ui_resp = resp_task.result()
                         for t in pending:
                             t.cancel()
-                        if ui_resp.kind == UI_PACKET_RUN_INPUT and ui_resp.req_id == req_id:
+                        if (
+                            ui_resp.kind == UI_PACKET_RUN_INPUT
+                            and ui_resp.req_id == req_id
+                        ):
                             to_send = ui_resp.input
                             break
                         else:
-                            logger.warning("UIState: Ignored mismatched response", expected=req_id)
+                            logger.warning(
+                                "UIState: Ignored mismatched response", expected=req_id
+                            )
 
                 else:
                     to_send = None

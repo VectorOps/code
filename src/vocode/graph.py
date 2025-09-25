@@ -32,13 +32,14 @@ class RuntimeNode:
         return self._children
 
 
-
 class RuntimeGraph:
     def __init__(self, graph: "Graph"):
         if not graph.nodes:
             raise ValueError("RuntimeGraph requires a Graph with at least one node")
         self._graph = graph
-        self._runtime_nodes: Dict[str, RuntimeNode] = {n.name: RuntimeNode(n) for n in graph.nodes}
+        self._runtime_nodes: Dict[str, RuntimeNode] = {
+            n.name: RuntimeNode(n) for n in graph.nodes
+        }
         # Wire direct children references
         for e in graph.edges:
             parent = self._runtime_nodes[e.source_node]
@@ -64,4 +65,3 @@ def build(nodes: List["Node"], edges: List["Edge"]) -> RuntimeGraph:
     coerced_nodes = [Node.from_obj(n) for n in nodes]
     graph = Graph(nodes=coerced_nodes, edges=edges)  # triggers Pydantic validation
     return RuntimeGraph(graph)
-

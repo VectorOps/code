@@ -22,45 +22,35 @@ class Command:
     handler: Callable[[CommandContext, List[str]], Awaitable[None]]
 
 
-_registry: Dict[str, Command] = {}
+class Commands:
+    def __init__(self) -> None:
+        self._registry: Dict[str, Command] = {}
 
+    def register(self, name: str, help: str, usage: Optional[str] = None):
+        def deco(func: Callable[[CommandContext, List[str]], Awaitable[None]]):
+            self._registry[name] = Command(
+                name=name, help=help, usage=usage, handler=func
+            )
+            return func
+        return deco
 
-def register(name: str, help: str, usage: Optional[str] = None):
-    def deco(func: Callable[[CommandContext, List[str]], Awaitable[None]]):
-        _registry[name] = Command(name=name, help=help, usage=usage, handler=func)
-        return func
-    return deco
+    def list_commands(self) -> List[Command]:
+        return sorted(self._registry.values(), key=lambda c: c.name)
 
-
-def list_commands() -> List[Command]:
-    return sorted(_registry.values(), key=lambda c: c.name)
-
-
-async def run(line: str, ctx: CommandContext) -> bool:
-    parts = line.strip().split()
-    if not parts:
+    async def run(self, line: str, ctx: CommandContext) -> bool:
+        parts = line.strip().split()
+        if not parts:
+            return True
+        name = parts[0]
+        cmd = self._registry.get(name)
+        if cmd is None:
+            return False
+        await cmd.handler(ctx, parts[1:])
         return True
-    name = parts[0]
-    cmd = _registry.get(name)
-    if cmd is None:
-        return False
-    await cmd.handler(ctx, parts[1:])
-    return True
 
 
-# Built-in commands
+# Built-in command handlers (registration happens via register_default_commands)
 
-@register("/help", "Show available commands")
-async def _help(ctx: CommandContext, args: List[str]) -> None:
-    ctx.out("Commands:")
-    for c in list_commands():
-        if c.usage:
-            ctx.out(f"  {c.name} {c.usage} - {c.help}")
-        else:
-            ctx.out(f"  {c.name} - {c.help}")
-
-
-@register("/workflows", "List available workflows")
 async def _workflows(ctx: CommandContext, args: List[str]) -> None:
     names = ctx.ui.list_workflows()
     if not names:
@@ -70,7 +60,6 @@ async def _workflows(ctx: CommandContext, args: List[str]) -> None:
         ctx.out(f"- {n}")
 
 
-@register("/use", "Select and start a workflow", "<workflow>")
 async def _use(ctx: CommandContext, args: List[str]) -> None:
     if not args:
         ctx.out("Usage: /use <workflow>")
@@ -82,7 +71,6 @@ async def _use(ctx: CommandContext, args: List[str]) -> None:
         ctx.out(f"Failed to start workflow '{name}': {e}")
 
 
-@register("/reset", "Reset current workflow from the beginning")
 async def _reset(ctx: CommandContext, args: List[str]) -> None:
     try:
         await ctx.ui.reset()
@@ -90,17 +78,14 @@ async def _reset(ctx: CommandContext, args: List[str]) -> None:
         ctx.out(f"Failed to reset: {e}")
 
 
-@register("/stop", "Stop current run (Ctrl+C). Press twice to cancel.")
 async def _stop(ctx: CommandContext, args: List[str]) -> None:
     await ctx.stop_toggle()
 
 
-@register("/quit", "Exit the CLI")
 async def _quit(ctx: CommandContext, args: List[str]) -> None:
     ctx.request_exit()
 
 
-@register("/continue", "Continue execution if the runner is stopped")
 async def _continue(ctx: CommandContext, args: List[str]) -> None:
     status = ctx.ui.status
     if status != RunnerStatus.stopped:
@@ -115,3 +100,24 @@ async def _continue(ctx: CommandContext, args: List[str]) -> None:
         await ctx.ui.restart()
     except Exception as e:
         ctx.out(f"Failed to continue: {e}")
+
+
+def register_default_commands(commands: Commands) -> Commands:
+    # Help must access the instance to list commands; define it in this scope.
+    @commands.register("/help", "Show available commands")
+    async def _help(ctx: CommandContext, args: List[str]) -> None:
+        ctx.out("Commands:")
+        for c in commands.list_commands():
+            if c.usage:
+                ctx.out(f"  {c.name} {c.usage} - {c.help}")
+            else:
+                ctx.out(f"  {c.name} - {c.help}")
+
+    # Register the rest of the built-ins against this instance.
+    commands.register("/workflows", "List available workflows")(_workflows)
+    commands.register("/use", "Select and start a workflow", "<workflow>")(_use)
+    commands.register("/reset", "Reset current workflow from the beginning")(_reset)
+    commands.register("/stop", "Stop current run (Ctrl+C). Press twice to cancel.")(_stop)
+    commands.register("/quit", "Exit the CLI")(_quit)
+    commands.register("/continue", "Continue execution if the runner is stopped")(_continue)
+    return commands

@@ -796,6 +796,21 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List["Commit"], 
 
     # Process actions (compute all matches first per file, then check overlaps, then apply)
     for path, action in patch.actions.items():
+        # Guard: Update sections must include '+' and/or '-' change lines.
+        # Context-only chunks in Update are ignored during parsing, which otherwise makes the file silently no-op.
+        if action.type == ActionType.UPDATE and not action.chunks:
+            add_error(
+                f"No change lines (+/-) provided for file: {path}",
+                hint=(
+                    "Update sections must include '-' for removed lines and '+' for added lines, "
+                    "with surrounding context lines that start with a single space. "
+                    "Pure context blocks are ignored for Update."
+                ),
+                filename=path,
+            )
+            # Skip this file; other files can still be applied.
+            continue
+
         if action.type == ActionType.ADD:
             # Build content from additions across all chunks
             add_lines: List[str] = []
