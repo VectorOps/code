@@ -153,7 +153,7 @@ def test_missing_envelope_markers():
     assert any("Multiple *** End Patch" in e.msg for e in errors)
 
 
-def test_ambiguous_chunks_without_anchor_is_error():
+def test_interleaved_without_anchor_is_allowed_but_must_match():
     text = """*** Begin Patch
 *** Update File: src/x.py
  ctx1
@@ -167,8 +167,9 @@ def test_ambiguous_chunks_without_anchor_is_error():
 - c
 + d
 *** End Patch"""
+    # Empty file cannot match context; should report a normal locate failure (not ambiguity).
     statuses, errors, *_ = run_patch(text, initial_files={"src/x.py": ""})
-    assert any("Ambiguous or overlapping blocks" in e.msg for e in errors)
+    assert any("Failed to locate change block" in e.msg for e in errors)
 
 
 def test_process_patch_reads_update_only_and_ignores_add_delete():
@@ -508,19 +509,9 @@ def test_handles_missing_empty_line_in_context():
     assert statuses == {"src/missing_blank.py": FileApplyStatus.Update}
 
 
-def test_interleaved_additions_deletions_single_block_requires_anchor():
+def test_interleaved_additions_deletions_single_block_applies():
     """
-    Verifies multiple interleaved additions and deletions in a single block without @@
-    are rejected as ambiguous, and no changes are applied.
-    Example pattern:
-      @@
-       A
-      - B
-      + C
-       D
-      - E
-      + F
-       G
+    Multiple interleaved deletions and additions within a single chunk (no @@) should apply.
     """
     patch_text = """*** Begin Patch
 *** Update File: src/inter.txt
@@ -532,11 +523,62 @@ def test_interleaved_additions_deletions_single_block_requires_anchor():
 + F
  G
 *** End Patch"""
-    initial = {"src/inter.txt": " A\n B\n D\n E\n G\n"}
+    # Context lines A, D, G are literal file content without extra indentation.
+    # Deleted/added lines B, E include a leading space as part of their file content.
+    initial = {"src/inter.txt": "A\n B\nD\n E\nG\n"}
     statuses, errs, writes, deletes, _ = run_patch(patch_text, initial_files=initial)
-    # Should be flagged as ambiguous (missing @@ between change blocks)
-    assert any("Ambiguous or overlapping blocks" in e.msg for e in errs)
-    # No writes/deletes should occur; no statuses
-    assert writes == {}
+    assert errs == []
     assert deletes == []
-    assert statuses == {}
+    assert writes["src/inter.txt"] == "A\n C\nD\n F\nG\n"
+    assert statuses == {"src/inter.txt": FileApplyStatus.Update}
+
+
+def test_out_of_order_chunks_reports_error_and_partial_update():
+    patch_text = """*** Begin Patch
+*** Update File: src/order.txt
+ L3
+- B
++ Y
+ L5
+@@
+ L1
+- A
++ X
+ L3
+*** End Patch"""
+    # Context lines L1, L3, L5 are literal file content without extra indentation.
+    # Deleted/added lines A, B include a leading space as part of their file content.
+    initial = {"src/order.txt": "L1\n A\nL3\n B\nL5\n"}
+    statuses, errs, writes, deletes, opened = run_patch(patch_text, initial_files=initial)
+    # Should open the file once
+    assert opened == ["src/order.txt"]
+    # Should report out-of-order error
+    assert any("Out-of-order change block" in e.msg for e in errs)
+    # Only the first (later) chunk should be applied; the second (earlier) one skipped
+    assert writes["src/order.txt"] == "L1\n A\nL3\n Y\nL5\n"
+    # Status should be PartialUpdate due to the skipped out-of-order chunk
+    assert statuses == {"src/order.txt": FileApplyStatus.PartialUpdate}
+
+
+def test_update_with_move_renames_file_and_writes_new_content():
+    patch_text = """*** Begin Patch
+*** Update File: src/a.txt
+*** Move to: src/renamed.txt
+ pre
+- old
++ new
+ post
+*** End Patch"""
+    initial = {"src/a.txt": "pre\n old\npost\n"}
+    statuses, errs, writes, deletes, opened = run_patch(patch_text, initial_files=initial)
+    # No errors expected
+    assert errs == []
+    # Old path should be opened, new path written, old path deleted
+    assert opened == ["src/a.txt"]
+    assert "src/renamed.txt" in writes
+    assert "src/a.txt" not in writes
+    assert deletes == ["src/a.txt"]
+    # Content updated and written to the new path, preserving newline
+    assert writes["src/renamed.txt"] == "pre\n new\npost\n"
+    # Status reported under the original path
+    assert statuses == {"src/a.txt": FileApplyStatus.Update}

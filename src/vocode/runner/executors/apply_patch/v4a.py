@@ -532,19 +532,8 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
 
         # Diff lines
         if raw_line.startswith(DELETE_PREFIX) or raw_line.startswith(ADD_PREFIX):
-            # If we are inside a chunk and have already recorded modifications,
-            # and we encounter new +/- after context without an intervening anchor -> ambiguous multi-chunk.
-            if current_chunk is not None and chunk_has_mods and seen_ctx_after_mods:
-                add_error(
-                    f"Ambiguous or overlapping blocks in {current_path}: missing @@ between chunks",
-                    line=current_line_num,
-                    hint="Separate adjacent change blocks with an @@ anchor",
-                    filename=current_path,
-                )
-                finish_chunk_if_any()
-                start_chunk_if_needed()
-            else:
-                start_chunk_if_needed()
+            # Allow interleaved +/- groups within a single chunk (no @@ required).
+            start_chunk_if_needed()
 
             if raw_line.startswith(DELETE_PREFIX):
                 # Open/continue current edit group for deletions
@@ -578,6 +567,8 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
             ctx_line = ""
             current_chunk.items.append(NeedleItem(NeedleType.CONTEXT, ctx_line))
             pat_index_in_chunk += 1
+            # Seeing context separates edit groups; next +/- opens a new group.
+            current_group = None
             if chunk_has_mods:
                 seen_ctx_after_mods = True
             continue
@@ -586,6 +577,8 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
             ctx_line = raw_line[len(CONTEXT_PREFIX) :]
             current_chunk.items.append(NeedleItem(NeedleType.CONTEXT, ctx_line))
             pat_index_in_chunk += 1
+            # Seeing context separates edit groups; next +/- opens a new group.
+            current_group = None
             if chunk_has_mods:
                 seen_ctx_after_mods = True
             continue
@@ -945,6 +938,16 @@ def build_commits(
         # If none located, skip updating this file.
         if not located:
             continue
+
+        # Secondary order check: ensure start indices are non-decreasing in parse order.
+        starts_in_parse_order = [s for (s, _e, _r, _lno) in located]
+        if any(starts_in_parse_order[i] > starts_in_parse_order[i + 1] for i in range(len(starts_in_parse_order) - 1)):
+            add_error(
+                f"Out-of-order change block in {path}",
+                line=None,
+                hint="Ensure blocks are ordered top-to-bottom as they appear in the file, or add @@ anchors to disambiguate.",
+                filename=path,
+            )
 
         # Phase 2: detect overlaps (using original file indices)
         located.sort(key=lambda t: t[0])
