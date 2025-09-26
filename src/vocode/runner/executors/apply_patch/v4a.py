@@ -10,7 +10,7 @@ from .models import FileApplyStatus
 
 
 DIFF_SYSTEM_INSTRUCTION = r"""# Rules
-* You must output *exactly one* fenced code block labeled patch for *all* changes.
+* You must output *exactly one* fenced code block labeled patch for all changes of all files.
 * No prose before or after.
 * Do not wrap the patch in JSON/YAML/strings.
 * Do not add backslash-escapes (\n, \t, \") or html-escapes (&quot; and similar) unless they *literally* present in the source file.
@@ -46,7 +46,7 @@ Update/Add blocks: exact context and edits
 - Preserve blank lines in context. Represent a blank context line as a completely empty line (no leading space).
 - For non-blank context lines, start with a single space, then the exact text.
 - Include at least one line of pre- and post-context; add more if helpful. Be conservative, do not include whole file.
-- Use @@ anchor to separate multiple changes when needed:
+- Use @@ anchor to separate multiple changes within a single file:
   @@
 - If insufficient to disambiguate, add an @@ anchor naming the class or function:
   @@ class BaseClass
@@ -91,25 +91,12 @@ Rules:
 -old
 +new
  footer1
-*** End Patch
-```
-
-## Add + Update + Delete together:
-```patch
-*** Begin Patch
-*** Update File: src/core/runner.py
- class Runner:
--    def run(self):
-+    def run(self) -> None:
-         self._init()
-@@     def _init(self):
--        setup()
-+        setup(verbose=True)
-*** Add File: tests/test_runner.py
-+import pytest
-+
-+def test_runner_smoke():
-+    assert True
+*** Update File: pkg/foo.txt
+@@
+ test
+-foo
++bar
+ test
 *** Delete File: scripts/old_tool.py
 *** End Patch
 ```

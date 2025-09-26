@@ -1,6 +1,6 @@
 # Default Vocode configuration
 ui:
-  #log_level: debug
+  log_level: debug
 tools:
   - name: vectorops_read_files
     auto_approve: true
@@ -118,3 +118,21 @@ workflows:
       - coder.done -> apply
       - apply.success -> prompt
       - apply.fail -> coder:keep_state
+  apply:
+    nodes:
+      - name: prompt
+        type: input
+        message: Enter your request
+        confirmation: auto
+        hide_final_output: true
+        outcomes:
+          - name: done
+      - $include:
+          template: nodes/apply_patch.yaml
+        confirmation: auto
+      - name: finish
+        type: noop
+    edges:
+      - prompt.done -> apply
+      - apply.success -> prompt
+      - apply.fail -> prompt

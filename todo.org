@@ -29,6 +29,9 @@
 * [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 Concrete example: files that were read and already in context.
 * [ ] Error handling
+** [ ] Add exception handlers
+*** [ ] Runner
+*** [ ] UI
 ** [ ] Tool calling timeouts and failures
 ** [ ] Add a way for human to unblock failures by retrying last operation
 * [ ] Cleanup all dependencies

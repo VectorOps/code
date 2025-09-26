@@ -309,6 +309,7 @@ async def run_terminal(project: Project) -> None:
                 out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
 
             pending_req = req if req.event.input_requested else None
+
             # Auto-respond if we have a queued response (approval or user message)
             if pending_req is not None and queued_resp is not None:
                 await ui.respond_packet(pending_req.req_id, queued_resp)
@@ -319,15 +320,21 @@ async def run_terminal(project: Project) -> None:
     async def event_consumer():
         nonlocal pending_req
         while True:
-            msg = await ui.recv()
-            if msg.kind == UI_PACKET_STATUS:
-                reset_interrupt()
-                change_event.set()
-                continue
-            if msg.kind == UI_PACKET_RUN_EVENT:
-                await handle_run_event(msg)  # type: ignore[arg-type]
-                change_event.set()
-                continue
+            try:
+                msg = await ui.recv()
+                if msg.kind == UI_PACKET_STATUS:
+                    reset_interrupt()
+                    change_event.set()
+                    continue
+                if msg.kind == UI_PACKET_RUN_EVENT:
+                    await handle_run_event(msg)  # type: ignore[arg-type]
+                    change_event.set()
+                    continue
+            except Exception as ex:
+                import traceback
+
+                # TODO: Propagate up
+                print("Exception", traceback.format_exc())
 
     consumer_task = asyncio.create_task(event_consumer())
 

@@ -178,7 +178,10 @@ class UIState:
         self, name: str, *, initial_message: Optional[Message] = None
     ) -> None:
         # Clear project-level state when switching to a different workflow
-        if self._selected_workflow_name is not None and name != self._selected_workflow_name:
+        if (
+            self._selected_workflow_name is not None
+            and name != self._selected_workflow_name
+        ):
             self.project.project_state.clear()
         if not self.project.settings or name not in (
             self.project.settings.workflows or {}

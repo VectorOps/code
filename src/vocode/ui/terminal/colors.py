@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 from enum import Enum
 import re
-from html import escape as html_escape
+from pygments.lexers.markup import MarkdownLexer
 
 from prompt_toolkit.formatted_text import (
     AnyFormattedText,
@@ -35,28 +35,20 @@ class MarkdownBlockType(str, Enum):
     CODE = "code"
 
 
-def _md_inline_to_html(text: str) -> str:
+def _md_inline_to_html(text: str) -> PygmentsTokens:
     """
-    Convert a subset of inline markdown to prompt_toolkit HTML.
-    - **bold** => <b>...</b>
-    - *italic* => <i>...</i>
-    - `code`   => styled code span
+    Tokenize a subset of inline markdown using pygments' MarkdownLexer and
+    return PygmentsTokens for prompt_toolkit rendering.
+    Handles emphasis, strong, and inline code spans.
     """
-    # Escape first to avoid HTML injection
-    s = html_escape(text)
-
-    # Inline code: soft-styled using fg/bg (avoid 'ansi*' tags as requested)
-    def repl_code(m: re.Match) -> str:
-        code = m.group(1)
-        return f'<style fg="#00dd88" bg="#1e1e1e">{html_escape(code)}</style>'
-
-    s = _INLINE_CODE_RE.sub(repl_code, s)
-    s = _BOLD_RE.sub(r"<b>\1</b>", s)
-    s = _ITALIC_RE.sub(r"<i>\1</i>", s)
-    return s
+    lexer = MarkdownLexer()
+    tokens = list(pygments.lex(text, lexer))
+    return PygmentsTokens(tokens)
 
 
-def _split_markdown_blocks(text: str) -> List[Tuple[MarkdownBlockType, Optional[str], str]]:
+def _split_markdown_blocks(
+    text: str,
+) -> List[Tuple[MarkdownBlockType, Optional[str], str]]:
     """
     Split markdown into blocks: list of tuples (kind, lang, content)
     kind is a MarkdownBlockType, lang is None for non-code.
@@ -107,10 +99,9 @@ def _split_markdown_blocks(text: str) -> List[Tuple[MarkdownBlockType, Optional[
 
 def render_markdown(text: str, prefix: Optional[str] = None) -> AnyFormattedText:
     """
-    Render a markdown string into prompt_toolkit formatted fragments.
-    - Code fences ```lang ... ``` highlighted via Pygments and wrapped as PygmentsTokens.
-    - Inline markdown (bold/italic/`code`) mapped to HTML tags/styles.
-    - No ANSI escapes are produced.
+    Render markdown into prompt_toolkit formatted fragments without using HTML.
+    - Code fences ```lang ... ``` highlighted via Pygments (PygmentsTokens).
+    - Inline markdown (bold/italic/`code`) via Pygments MarkdownLexer.
     If prefix is provided, it is prepended as plain text at the beginning.
     """
     blocks = _split_markdown_blocks(text or "")
@@ -123,12 +114,11 @@ def render_markdown(text: str, prefix: Optional[str] = None) -> AnyFormattedText
             if prefix and not prefixed:
                 s = f"{prefix}{s}"
                 prefixed = True
-            html = _md_inline_to_html(s)
-            parts.append(HTML(html))
+            parts.append(_md_inline_to_html(s))
         else:
             # code block
             if prefix and not prefixed:
-                parts.append(HTML(html_escape(prefix)))
+                parts.append(prefix)
                 prefixed = True
             lexer = None
             if lang:
@@ -142,15 +132,15 @@ def render_markdown(text: str, prefix: Optional[str] = None) -> AnyFormattedText
                 tokens = list(pygments.lex(content, lexer))
             except Exception:
                 # Fallback: treat as plain text if lexing fails
-                parts.append(HTML(html_escape(content)))
+                parts.append(content)
             else:
                 parts.append(PygmentsTokens(tokens))
 
     if not parts:
         # Empty content, still show prefix if provided
         if prefix:
-            return HTML(html_escape(prefix))
-        return HTML("")
+            return prefix
+        return ""
 
     return merge_formatted_text(parts)
 
