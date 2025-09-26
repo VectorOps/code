@@ -1,6 +1,6 @@
 #+title: Code ToDo
 * [ ] Runner
-** [ ] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
+** [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
 ** [X] ctrl+c after providing looping llm answer did not continue from that step - it started from initial step.
 ** [X] Change executors to have explicit state
 ** [X] Stop/Resume should work off activities
@@ -46,6 +46,7 @@ Concrete example: files that were read and already in context.
 ** [ ] Print node transitions
 ** [ ] Format tool calls
 ** [ ] Assume markdown as default formatter
+** [ ] Wrapped lines don't move caret down correctly - next line overwrites it.
 ** [X] Add way to show log messages (inline? out of process?)
 ** [X] Fix line breaks - if line is naturally too long, then moving caret to the beginning of the line does not work, we need to go one line up.
 ** [X] Fix intermediate response streaming
@@ -79,28 +80,8 @@ Concrete example: files that were read and already in context.
 *** [ ] GPT V4A diff format
 **** [X] Better error reporting and verify apply patch cycle
 **** [X] When multiple chunks match, but we can't match any of the chunks - return all possible lines
-**** [ ] Add support for multi-blocks where multiple things are getting deleted and added.
--@register("/workflows", "List available workflows")
-+async def _workflows(ctx: CommandContext, args: List[str]) -> None:
-     names = ctx.ui.list_workflows()
-     if not names:
-         ctx.out("No workflows configured.")
-         return
-     for n in names:
-         ctx.out(f"- {n}")
-
-
--@register("/use", "Select and start a workflow", "<workflow>")
-+async def _use(ctx: CommandContext, args: List[str]) -> None:
-     if not args:
-         ctx.out("Usage: /use <workflow>")
-         return
-     name = args[0]
-     try:
-         await ctx.ui.use(name)
-     except Exception as e:
-         ctx.out(f"Failed to start workflow '{name}': {e}")
-**** [ ] Add support for multiple patch blocks or provide better instructions
+**** [X] Add support for multi-blocks where multiple things are getting deleted and added.
+**** [X] Add support for multiple patch blocks or provide better instructions
 **** [ ] Allow multiple patches in a single request
 *** [X] Fenced diff format
 *** [ ] Unified Diff format

@@ -150,7 +150,6 @@ def test_missing_envelope_markers():
 *** End Patch"""
     statuses, errors, *_ = run_patch(multi, initial_files={"a.txt": " a\n"})
     assert any("Multiple *** Begin Patch" in e.msg for e in errors)
-    assert any("Multiple *** End Patch" in e.msg for e in errors)
 
 
 def test_interleaved_without_anchor_is_allowed_but_must_match():

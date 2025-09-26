@@ -9,11 +9,12 @@ import os
 from .models import FileApplyStatus
 
 
-DIFF_SYSTEM_INSTRUCTION = r"""You must output *exactly one* fenced code block labeled patch.
-No prose before or after.
-Do not wrap the patch in JSON/YAML/strings.
-Do not add backslash-escapes (\n, \t, \") or html-escapes (&quot; and similar) unless they *literally* present in the source file.
-*Never* double-escape.
+DIFF_SYSTEM_INSTRUCTION = r"""# Rules
+* You must output *exactly one* fenced code block labeled patch for *all* changes.
+* No prose before or after.
+* Do not wrap the patch in JSON/YAML/strings.
+* Do not add backslash-escapes (\n, \t, \") or html-escapes (&quot; and similar) unless they *literally* present in the source file.
+* *Never* double-escape.
 
 Required envelope:
 ```patch
@@ -57,7 +58,7 @@ Change lines:
 
 Rules:
 
-1. Literal text only. Emit the file’s exact bytes as text lines.
+1. Literal text only. Emit the file's exact bytes as text lines.
  * Do not add Markdown/JSON escaping.
  * Preserve quotes, backslashes, tabs, Unicode, and blank lines exactly.
 
@@ -69,29 +70,17 @@ Rules:
 3. Context must match the current file character for character.
  * Provide at least one line of pre- and post-context when updating. Add up to 3 lines if it helps disambiguate.
 
-4. Multiple changes in the same file: separate blocks with a line containing exactly:
-```patch
-@@
-```
- Optionally disambiguate with a labeled anchor on its own line:
-```patch
-@@ class ClassName
-@@     def method_name(...):
-```
-
-5. Ordering & uniqueness:
+4. Ordering & uniqueness:
  * Include each file path once. Merge all changes for that file into its single section.
  * Within a file, order context blocks top-to-bottom by their occurrence in the file.
- * Across files, sort sections lexicographically by path (recommended).
  * For Update sections, if moving/renaming the file, add a line `*** Move to: <relative/new/path>` directly after the Update header and before any changes.
+ * For multiple patches, make sure they're all added to a single fenced patch envelope.
 
-6. Newlines:
+5. Newlines:
  * Preserve each line’s trailing newline semantics.
  * If the file ends without a trailing newline, represent the last line exactly as it exists (no extra newline).
 
 7. Tabs & spaces: Preserve indentation exactly; do not convert tabs to spaces or vice versa.
-
-8. Binary or non-text files: Do not attempt to inline binary data. Omit such files unless your toolchain supports textual diffs for them.
 
 ## Minimal example:
 ```patch
@@ -113,7 +102,6 @@ Rules:
 -    def run(self):
 +    def run(self) -> None:
          self._init()
-@@
 @@     def _init(self):
 -        setup()
 +        setup(verbose=True)
@@ -137,8 +125,6 @@ Source contains assert s == "a\\b\n"
 +        assert s == "a\\c\n"
 *** End Patch
 ```
-
-(Incorrect/double-escaped forms like \\n or \\\\ are forbidden unless they exist in the source.)
 
 # Self-Check (must pass before you output)
 
@@ -308,11 +294,17 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
 
     if len(begin_idxs) > 1:
         extra_begins = [str(i + 1) for i in begin_idxs[1:]]
-        add_error(
-            "Multiple *** Begin Patch markers found; using the first, others will be ignored.",
-            line=begin_idxs[1] + 1,
-            hint=f"Extra BEGIN markers at lines: {', '.join(extra_begins)}",
-        )
+        return Patch(), [
+            PatchError(
+                msg="Multiple *** Begin Patch markers found",
+                line=begin_idxs[1] + 1,
+                hint=(
+                    "Merge all changes into a single fenced patch block enclosed by one "
+                    "*** Begin Patch and one *** End Patch. "
+                    f"Extra BEGIN markers at lines: {', '.join(extra_begins)}"
+                ),
+            )
+        ]
 
     # Choose the first end after the first begin; if none, error
     first_begin = begin_idxs[0]
@@ -707,7 +699,11 @@ def build_commits(
         best_partial = PartialMatch()
         partial_results: List[Tuple[int, int, str, str, Optional[str]]] = []
 
-        def try_match_at(start: int) -> Tuple[bool, int, Optional[str], List[int], Optional[List[str]], Optional[int]]:
+        def try_match_at(
+            start: int,
+        ) -> Tuple[
+            bool, int, Optional[str], List[int], Optional[List[str]], Optional[int]
+        ]:
             i = start
             j = 0
             matched = 0
@@ -802,7 +798,11 @@ def build_commits(
             for jj, (lt2, _t2) in enumerate(pat_built):
                 # Insert zero-delete additions at this position
                 for gi, g in enumerate(chunk.edits):
-                    if g.del_count == 0 and g.start_pat_index == jj and not inserted_group.get(gi, False):
+                    if (
+                        g.del_count == 0
+                        and g.start_pat_index == jj
+                        and not inserted_group.get(gi, False)
+                    ):
                         replacement.extend(g.additions)
                         inserted_group[gi] = True
                 if lt2 == NeedleType.CONTEXT:
@@ -811,15 +811,24 @@ def build_commits(
                 elif lt2 == NeedleType.DELETE:
                     k += 1
                     for gi, g in enumerate(chunk.edits):
-                        if g.del_count > 0 and g.start_pat_index <= jj < g.start_pat_index + g.del_count:
+                        if (
+                            g.del_count > 0
+                            and g.start_pat_index
+                            <= jj
+                            < g.start_pat_index + g.del_count
+                        ):
                             group_progress[gi] = group_progress.get(gi, 0) + 1
-                            if group_progress[gi] == g.del_count and not inserted_group.get(gi, False):
+                            if group_progress[
+                                gi
+                            ] == g.del_count and not inserted_group.get(gi, False):
                                 replacement.extend(g.additions)
                                 inserted_group[gi] = True
             # Tail insertions (groups at end)
             pat_len_now = len(pat_built)
             for gi, g in enumerate(chunk.edits):
-                if g.start_pat_index == pat_len_now and not inserted_group.get(gi, False):
+                if g.start_pat_index == pat_len_now and not inserted_group.get(
+                    gi, False
+                ):
                     replacement.extend(g.additions)
                     inserted_group[gi] = True
             end_idx = start + len(pat_built)
@@ -941,7 +950,10 @@ def build_commits(
 
         # Secondary order check: ensure start indices are non-decreasing in parse order.
         starts_in_parse_order = [s for (s, _e, _r, _lno) in located]
-        if any(starts_in_parse_order[i] > starts_in_parse_order[i + 1] for i in range(len(starts_in_parse_order) - 1)):
+        if any(
+            starts_in_parse_order[i] > starts_in_parse_order[i + 1]
+            for i in range(len(starts_in_parse_order) - 1)
+        ):
             add_error(
                 f"Out-of-order change block in {path}",
                 line=None,
