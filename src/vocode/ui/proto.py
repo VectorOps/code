@@ -64,7 +64,7 @@ class UIRespRunInput(BaseModel):
 class UIRespRunCommand(BaseModel):
     kind: Literal["run_command"] = UI_PACKET_RUN_COMMAND
     name: str
-    input: str = ""
+    input: list[str] = ""
 
 class UIReqCommandResult(BaseModel):
     kind: Literal["command_result"] = UI_PACKET_COMMAND_RESULT

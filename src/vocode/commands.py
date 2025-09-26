@@ -20,7 +20,7 @@ class CommandDef:
     name: str
     help: str
     usage: Optional[str]
-    handler: Callable[[CommandContext, str], Awaitable[Optional[str]]]
+    handler: Callable[[CommandContext, List[str]], Awaitable[Optional[str]]]
 
 
 @dataclass
@@ -38,7 +38,7 @@ class CommandManager:
         self,
         name: str,
         help: str,
-        handler: Callable[[CommandContext, str], Awaitable[Optional[str]]],
+        handler: Callable[[CommandContext, List[str]], Awaitable[Optional[str]]],
         usage: Optional[str] = None,
     ) -> None:
         # If replacing, emit as remove + add
@@ -90,9 +90,9 @@ class CommandManager:
                     self._listeners.remove(q)
 
     async def execute(
-        self, name: str, ctx: CommandContext, input_str: str
+        self, name: str, ctx: CommandContext, args: List[str]
     ) -> Optional[str]:
         cmd = self._registry.get(name)
         if cmd is None:
             raise KeyError(f"Unknown command '{name}'")
-        return await cmd.handler(ctx, input_str)
+        return await cmd.handler(ctx, args)

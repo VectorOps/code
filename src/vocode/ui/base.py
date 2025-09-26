@@ -462,13 +462,13 @@ class UIState:
             while True:
                 rc = await self._incoming_cmds.get()
                 name = rc.name
-                input_str = rc.input or ""
+                args: List[str] = list(rc.input or [])
                 ctx = ExecCommandContext(project=self.project, ui=self)  # type: ignore[arg-type]
                 ok = True
                 output: Optional[str] = None
                 error: Optional[str] = None
                 try:
-                    output = await self.project.commands.execute(name, ctx, input_str)
+                    output = await self.project.commands.execute(name, ctx, args)
                 except Exception as ex:
                     ok = False
                     error = str(ex)
