@@ -89,6 +89,7 @@ Concrete example: files that were read and already in context.
 **** [X] Add support for multi-blocks where multiple things are getting deleted and added.
 **** [X] Add support for multiple patch blocks or provide better instructions
 **** [ ] Allow multiple patches in a single request
+**** [ ] Better error instructions when blocks overlap
 *** [X] Fenced diff format
 *** [ ] Unified Diff format
 * [X] Settings
