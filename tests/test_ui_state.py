@@ -5,7 +5,12 @@ from typing import List, Optional, Tuple
 import pytest
 
 from vocode.ui.base import UIState
-from vocode.ui.proto import UIReqRunEvent, UIReqStatus, UIRespRunInput
+from vocode.ui.proto import (
+    UIPacketEnvelope,
+    UIPacketRunEvent,
+    UIPacketStatus,
+    UIPacketRunInput,
+)
 from vocode.runner.models import (
     ReqMessageRequest,
     ReqInterimMessage,
@@ -98,57 +103,59 @@ def test_ui_state_basic_flow(monkeypatch):
         await ui.start(wf)
 
         # 1) First status emitted on entering running
-        msg1 = await ui.recv()
-        assert isinstance(msg1, UIReqStatus)
-        assert msg1.prev is None
-        assert msg1.curr == RunnerStatus.running
+        msg1_env = await ui.recv()
+        assert isinstance(msg1_env.payload, UIPacketStatus)
+        assert msg1_env.payload.prev is None
+        assert msg1_env.payload.curr == RunnerStatus.running
 
         # 2) First run event (node1, no input)
-        req1 = await ui.recv()
-        assert isinstance(req1, UIReqRunEvent)
-        assert req1.event.node == "node1"
-        assert req1.req_id == 1
-        assert req1.event.input_requested is False
+        req1_env = await ui.recv()
+        assert isinstance(req1_env.payload, UIPacketRunEvent)
+        assert req1_env.payload.event.node == "node1"
+        assert req1_env.msg_id == 2
+        assert req1_env.payload.event.input_requested is False
 
         # 3) Status waiting_input before next event
-        msg2 = await ui.recv()
-        assert isinstance(msg2, UIReqStatus)
-        assert msg2.prev == RunnerStatus.running
-        assert msg2.curr == RunnerStatus.waiting_input
+        msg2_env = await ui.recv()
+        assert isinstance(msg2_env.payload, UIPacketStatus)
+        assert msg2_env.payload.prev == RunnerStatus.running
+        assert msg2_env.payload.curr == RunnerStatus.waiting_input
 
         # 4) Second run event (node2, input requested)
-        req2 = await ui.recv()
-        assert isinstance(req2, UIReqRunEvent)
-        assert req2.event.node == "node2"
-        assert req2.req_id == 2
-        assert req2.event.input_requested is True
+        req2_env = await ui.recv()
+        assert isinstance(req2_env.payload, UIPacketRunEvent)
+        assert req2_env.payload.event.node == "node2"
+        assert req2_env.msg_id == 4
+        assert req2_env.payload.event.input_requested is True
         # While waiting for input, the driver is blocked; current_node_name is stable.
         # This avoids the race present for non-input events.
         assert ui.current_node_name == "node2"
 
         # Send a mismatched response; UIState should ignore it and keep waiting
-        await ui.send(UIRespRunInput(req_id=999, input=RunInput()))
+        await ui.send(
+            UIPacketEnvelope(msg_id=999, payload=UIPacketRunInput(input=RunInput()))
+        )
         # Now send the proper response using helper
-        await ui.respond_message(req2.req_id, Message(role="user", text="ok"))
+        await ui.respond_message(req2_env.msg_id, Message(role="user", text="ok"))
 
         # 5) Back to running before final event
-        msg3 = await ui.recv()
-        assert isinstance(msg3, UIReqStatus)
-        assert msg3.prev == RunnerStatus.waiting_input
-        assert msg3.curr == RunnerStatus.running
+        msg3_env = await ui.recv()
+        assert isinstance(msg3_env.payload, UIPacketStatus)
+        assert msg3_env.payload.prev == RunnerStatus.waiting_input
+        assert msg3_env.payload.curr == RunnerStatus.running
 
         # 6) Third run event (node3, final)
-        req3 = await ui.recv()
-        assert isinstance(req3, UIReqRunEvent)
-        assert req3.event.node == "node3"
-        assert req3.req_id == 3
-        assert req3.event.input_requested is False
+        req3_env = await ui.recv()
+        assert isinstance(req3_env.payload, UIPacketRunEvent)
+        assert req3_env.payload.event.node == "node3"
+        assert req3_env.msg_id == 6
+        assert req3_env.payload.event.input_requested is False
 
         # 7) Final status finished
-        msg4 = await ui.recv()
-        assert isinstance(msg4, UIReqStatus)
-        assert msg4.prev == RunnerStatus.running
-        assert msg4.curr == RunnerStatus.finished
+        msg4_env = await ui.recv()
+        assert isinstance(msg4_env.payload, UIPacketStatus)
+        assert msg4_env.payload.prev == RunnerStatus.running
+        assert msg4_env.payload.curr == RunnerStatus.finished
         assert ui.is_active() is False
 
         # Verify FakeRunner captured the input
@@ -177,21 +184,21 @@ def test_ui_state_stop_while_waiting(monkeypatch):
         await ui.start(wf)
 
         # First status is waiting_input (no prior running step)
-        s1 = await ui.recv()
-        assert isinstance(s1, UIReqStatus)
-        assert s1.prev is None
-        assert s1.curr == RunnerStatus.waiting_input
+        s1_env = await ui.recv()
+        assert isinstance(s1_env.payload, UIPacketStatus)
+        assert s1_env.payload.prev is None
+        assert s1_env.payload.curr == RunnerStatus.waiting_input
 
-        ev1 = await ui.recv()
-        assert isinstance(ev1, UIReqRunEvent)
-        assert ev1.event.input_requested is True
+        ev1_env = await ui.recv()
+        assert isinstance(ev1_env.payload, UIPacketRunEvent)
+        assert ev1_env.payload.event.input_requested is True
 
         # Issue stop; driver should emit stopped and exit
         await ui.stop()
-        s2 = await ui.recv()
-        assert isinstance(s2, UIReqStatus)
-        assert s2.prev == RunnerStatus.waiting_input
-        assert s2.curr == RunnerStatus.stopped
+        s2_env = await ui.recv()
+        assert isinstance(s2_env.payload, UIPacketStatus)
+        assert s2_env.payload.prev == RunnerStatus.waiting_input
+        assert s2_env.payload.curr == RunnerStatus.stopped
         assert ui.is_active() is False
 
     asyncio.run(scenario())
@@ -212,10 +219,10 @@ def test_ui_state_replace_input_guard(monkeypatch):
         await ui.start(wf)
 
         # Drain status and the input request event
-        await ui.recv()  # UIReqStatus waiting_input
-        req = await ui.recv()  # UIReqRunEvent (input requested)
-        assert isinstance(req, UIReqRunEvent)
-        assert req.event.input_requested
+        await ui.recv()  # UIPacketStatus waiting_input
+        req_env = await ui.recv()  # UIPacketRunEvent (input requested)
+        assert isinstance(req_env.payload, UIPacketRunEvent)
+        assert req_env.payload.event.input_requested
 
         # Attempt replacing last user input while waiting for input should fail
         with pytest.raises(RuntimeError):
@@ -226,9 +233,9 @@ def test_ui_state_replace_input_guard(monkeypatch):
         # Cleanup: cancel the driver to avoid leaks
         await ui.cancel()
         # Receive final canceled status
-        s = await ui.recv()
-        assert isinstance(s, UIReqStatus)
-        assert s.curr == RunnerStatus.canceled
+        s_env = await ui.recv()
+        assert isinstance(s_env.payload, UIPacketStatus)
+        assert s_env.payload.curr == RunnerStatus.canceled
 
     asyncio.run(scenario())
 
@@ -275,8 +282,8 @@ def test_project_state_reset_clears(monkeypatch):
         await ui.start(wf)
 
         # Drain first status to ensure driver started
-        s = await ui.recv()
-        assert isinstance(s, UIReqStatus)
+        s_env = await ui.recv()
+        assert isinstance(s_env.payload, UIPacketStatus)
 
         # Basic set/get/delete
         ps = ui.project.project_state
@@ -294,7 +301,7 @@ def test_project_state_reset_clears(monkeypatch):
 
         # Cleanup: cancel the restarted driver to avoid leaks
         await ui.cancel()
-        s_end = await ui.recv()
-        assert isinstance(s_end, UIReqStatus)
+        s_end_env = await ui.recv()
+        assert isinstance(s_end_env.payload, UIPacketStatus)
 
     asyncio.run(scenario())

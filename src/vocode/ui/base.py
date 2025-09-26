@@ -17,17 +17,17 @@ from vocode.runner.models import (
 from vocode.state import Assignment, Message, RunnerStatus
 from vocode.models import Graph, Workflow
 from .proto import (
-    UIRequest,
-    UIReqRunEvent,
-    UIReqStatus,
-    UIResponse,
-    UIRespRunInput,
-    UI_PACKET_RUN_INPUT,
-    UIReqCustomCommands,
+    UIPacket,
+    UIPacketEnvelope,
+    UIPacketRunEvent,
+    UIPacketStatus,
+    UIPacketRunInput,
+    UIPacketCustomCommands,
+    UIPacketCommandResult,
+    UIPacketRunCommand,
     UICommand,
-    UIRespRunCommand,
-    UIReqCommandResult,
-    UI_PACKET_RUN_COMMAND,
+    PACKET_RUN_INPUT,
+    PACKET_RUN_COMMAND,
 )
 
 if TYPE_CHECKING:
@@ -47,14 +47,14 @@ class UIState:
         self.assignment: Optional[Assignment] = None
         self._initial_message: Optional[Message] = None
 
-        self._outgoing: "asyncio.Queue[UIRequest]" = asyncio.Queue()
-        self._incoming: "asyncio.Queue[UIResponse]" = asyncio.Queue()
+        self._outgoing: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
+        self._incoming: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
         # Dedicated queue for custom run_command invocations
-        self._incoming_cmds: "asyncio.Queue[UIRespRunCommand]" = asyncio.Queue()
+        self._incoming_cmds: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
         self._drive_task: Optional[asyncio.Task] = None
         self._cmd_events_task: Optional[asyncio.Task] = None
         self._cmd_calls_task: Optional[asyncio.Task] = None
-        self._req_counter: int = 0
+        self._msg_counter: int = 0
         self._last_status: Optional[RunnerStatus] = None
         self._selected_workflow_name: Optional[str] = None
         self._current_node_name: Optional[str] = None
@@ -65,38 +65,44 @@ class UIState:
         self._cmd_events_task = asyncio.create_task(self._forward_command_events())
         self._cmd_calls_task = asyncio.create_task(self._process_command_calls())
 
+    def _next_msg_id(self) -> int:
+        self._msg_counter += 1
+        return self._msg_counter
+
     # ------------------------
     # Public protocol endpoints
     # ------------------------
 
-    async def recv(self) -> UIRequest:
+    async def recv(self) -> UIPacketEnvelope:
         """
         Await next request from UIState (to be handled by UI client).
         """
         return await self._outgoing.get()
 
-    async def send(self, resp: UIResponse) -> None:
+    async def send(self, envelope: UIPacketEnvelope) -> None:
         """
         Send a response from UI client back to UIState.
         """
         # Route run_command packets to a dedicated queue to avoid interfering with runner flow.
-        if getattr(resp, "kind", None) == UI_PACKET_RUN_COMMAND:
-            await self._incoming_cmds.put(resp)  # type: ignore[arg-type]
+        if getattr(envelope.payload, "kind", None) == PACKET_RUN_COMMAND:
+            await self._incoming_cmds.put(envelope)
         else:
-            await self._incoming.put(resp)
+            await self._incoming.put(envelope)
 
     # Convenience helpers to build and send responses
-    async def respond_packet(self, req_id: int, packet: Optional[RespPacket]) -> None:
+    async def respond_packet(self, msg_id: int, packet: Optional[RespPacket]) -> None:
         inp = (
             RunInput(response=packet) if packet is not None else RunInput(response=None)
         )
-        await self.send(UIRespRunInput(req_id=req_id, input=inp))
+        await self.send(
+            UIPacketEnvelope(msg_id=msg_id, payload=UIPacketRunInput(input=inp))
+        )
 
-    async def respond_message(self, req_id: int, message: Message) -> None:
-        await self.respond_packet(req_id, RespMessage(message=message))
+    async def respond_message(self, msg_id: int, message: Message) -> None:
+        await self.respond_packet(msg_id, RespMessage(message=message))
 
-    async def respond_approval(self, req_id: int, approved: bool) -> None:
-        await self.respond_packet(req_id, RespApproval(approved=approved))
+    async def respond_approval(self, msg_id: int, approved: bool) -> None:
+        await self.respond_packet(msg_id, RespApproval(approved=approved))
 
     # ------------------------
     # Runner lifecycle control
@@ -128,7 +134,7 @@ class UIState:
             self.runner = Runner(
                 workflow=workflow, project=self.project, initial_message=initial_message
             )
-            self._req_counter = 0
+            self._msg_counter = 0
             self._last_status = None
             self._stop_signal.clear()
             self._drive_task = asyncio.create_task(self._drive_runner())
@@ -180,7 +186,7 @@ class UIState:
             # Prevent multiple drivers
             if self._drive_task and not self._drive_task.done():
                 raise RuntimeError("Runner is already active")
-            self._req_counter = 0
+            self._msg_counter = 0
             self._last_status = None
             self._stop_signal.clear()
             self._drive_task = asyncio.create_task(self._drive_runner())
@@ -327,7 +333,12 @@ class UIState:
             return
         curr = self.runner.status
         if curr != self._last_status:
-            await self._outgoing.put(UIReqStatus(prev=self._last_status, curr=curr))
+            await self._outgoing.put(
+                UIPacketEnvelope(
+                    msg_id=self._next_msg_id(),
+                    payload=UIPacketStatus(prev=self._last_status, curr=curr),
+                )
+            )
             self._last_status = curr
 
     async def _drive_runner(self) -> None:
@@ -381,15 +392,16 @@ class UIState:
                         # Be conservative: if we cannot resolve the node, do not suppress.
                         suppress_event = False
 
+                msg_id: Optional[int] = None
                 if not suppress_event:
                     # Forward the run event to the UI client with a correlation id
-                    self._req_counter += 1
-                    req_id = self._req_counter
+                    msg_id = self._next_msg_id()
                     self._current_node_name = req.node
-                    await self._outgoing.put(UIReqRunEvent(req_id=req_id, event=req))
-                else:
-                    # Do not forward or wait for input. Leave to_send as None.
-                    req_id = None
+                    await self._outgoing.put(
+                        UIPacketEnvelope(
+                            msg_id=msg_id, payload=UIPacketRunEvent(event=req)
+                        )
+                    )
 
                 # Await UI response only if required
                 if req.input_requested and not suppress_event:
@@ -409,18 +421,20 @@ class UIState:
                             await self._emit_status_if_changed()
                             return
                         # Otherwise we have a response task completed.
-                        ui_resp = resp_task.result()
+                        envelope = resp_task.result()
                         for t in pending:
                             t.cancel()
+
+                        payload = envelope.payload
                         if (
-                            ui_resp.kind == UI_PACKET_RUN_INPUT
-                            and ui_resp.req_id == req_id
+                            isinstance(payload, UIPacketRunInput)
+                            and envelope.msg_id == msg_id
                         ):
-                            to_send = ui_resp.input
+                            to_send = payload.input
                             break
                         else:
                             logger.warning(
-                                "UIState: Ignored mismatched response", expected=req_id
+                                "UIState: Ignored mismatched response", expected=msg_id
                             )
 
                 else:
@@ -448,7 +462,10 @@ class UIState:
                     UICommand(name=c.name, help=c.help, usage=c.usage) for c in delta.added
                 ]
                 await self._outgoing.put(
-                    UIReqCustomCommands(added=added, removed=delta.removed)
+                    UIPacketEnvelope(
+                        msg_id=self._next_msg_id(),
+                        payload=UIPacketCustomCommands(added=added, removed=delta.removed),
+                    )
                 )
         except asyncio.CancelledError:
             return
@@ -460,7 +477,10 @@ class UIState:
         from vocode.commands import CommandContext as ExecCommandContext
         try:
             while True:
-                rc = await self._incoming_cmds.get()
+                envelope = await self._incoming_cmds.get()
+                rc = envelope.payload
+                if not isinstance(rc, UIPacketRunCommand):
+                    continue
                 name = rc.name
                 args: List[str] = list(rc.input or [])
                 ctx = ExecCommandContext(project=self.project, ui=self)  # type: ignore[arg-type]
@@ -473,7 +493,12 @@ class UIState:
                     ok = False
                     error = str(ex)
                 await self._outgoing.put(
-                    UIReqCommandResult(name=name, ok=ok, output=output, error=error)
+                    UIPacketEnvelope(
+                        msg_id=self._next_msg_id(),
+                        payload=UIPacketCommandResult(
+                            name=name, ok=ok, output=output, error=error
+                        ),
+                    )
                 )
         except asyncio.CancelledError:
             return

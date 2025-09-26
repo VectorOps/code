@@ -22,16 +22,16 @@ from vocode.project import Project
 from vocode.ui.terminal.buf import MessageBuffer
 from vocode.ui.base import UIState
 from vocode.ui.proto import (
-    UIReqRunEvent,
-    UIReqStatus,
-    UI_PACKET_RUN_EVENT,
-    UI_PACKET_STATUS,
-    UIReqCustomCommands,
-    UIReqCommandResult,
-    UIRespRunCommand,
-    UI_PACKET_CUSTOM_COMMANDS,
-    UI_PACKET_COMMAND_RESULT,
-    UI_PACKET_RUN_COMMAND,
+    UIPacketEnvelope,
+    UIPacketRunEvent,
+    UIPacketCustomCommands,
+    UIPacketCommandResult,
+    UIPacketRunCommand,
+    PACKET_RUN_EVENT,
+    PACKET_STATUS,
+    PACKET_CUSTOM_COMMANDS,
+    PACKET_COMMAND_RESULT,
+    PACKET_RUN_COMMAND,
 )
 from vocode.runner.models import (
     ReqMessageRequest,
@@ -144,6 +144,13 @@ def out_fmt_stream(ft):
 async def run_terminal(project: Project) -> None:
     ui = UIState(project)
 
+    _msg_id_counter = 0
+
+    def _next_msg_id() -> int:
+        nonlocal _msg_id_counter
+        _msg_id_counter += 1
+        return _msg_id_counter
+
     ui_cfg = project.settings.ui if getattr(project, "settings", None) else None
     multiline = True if ui_cfg is None else bool(ui_cfg.multiline)
     editing_mode = None
@@ -234,10 +241,10 @@ async def run_terminal(project: Project) -> None:
     )
     commands = register_default_commands(Commands())
 
-    pending_req: Optional[UIReqRunEvent] = None
+    pending_req_env: Optional[UIPacketEnvelope] = None
     pending_cmd: Optional[str] = None
     # Futures waiting for command results keyed by backend name (no leading slash)
-    cmd_waiters: dict[str, asyncio.Future[UIReqCommandResult]] = {}
+    cmd_waiters: dict[str, asyncio.Future[UIPacketCommandResult]] = {}
     # Track dynamic custom CLI commands to avoid affecting built-ins
     dynamic_cli_commands: set[str] = set()
     queued_resp: Optional[Union[RespMessage, RespApproval]] = None
@@ -252,7 +259,7 @@ async def run_terminal(project: Project) -> None:
     # ----------------------------
     # Packet handlers (extracted)
     # ----------------------------
-    async def handle_custom_commands_packet(cd: UIReqCustomCommands) -> None:
+    async def handle_custom_commands_packet(cd: UIPacketCustomCommands) -> None:
         # Register added commands as proxies without overriding built-ins
         existing_names = {c.name for c in commands.list_commands()}
         for c in cd.added:
@@ -267,14 +274,20 @@ async def run_terminal(project: Project) -> None:
             # Create proxy handler
             async def _proxy(ctx: CommandContext, args: list[str], *, _cname=c.name):
                 nonlocal pending_cmd
-                input_str = " ".join(args) if args else ""
                 pending_cmd = _cname
                 change_event.set()
-                fut: asyncio.Future = asyncio.get_running_loop().create_future()
-                cmd_waiters[_cname] = fut  # type: ignore[assignment]
-                await ui.send(UIRespRunCommand(name=_cname, input=input_str))
+                fut: asyncio.Future[UIPacketCommandResult] = (
+                    asyncio.get_running_loop().create_future()
+                )
+                cmd_waiters[_cname] = fut
+                await ui.send(
+                    UIPacketEnvelope(
+                        msg_id=_next_msg_id(),
+                        payload=UIPacketRunCommand(name=_cname, input=args),
+                    )
+                )
                 try:
-                    res: UIReqCommandResult = await fut  # type: ignore[assignment]
+                    res: UIPacketCommandResult = await fut
                     if res.ok:
                         if res.output:
                             ctx.out(res.output)
@@ -295,15 +308,17 @@ async def run_terminal(project: Project) -> None:
                 dynamic_cli_commands.discard(cli_name)
         change_event.set()
 
-    def handle_command_result_packet(cr: UIReqCommandResult) -> None:
+    def handle_command_result_packet(cr: UIPacketCommandResult) -> None:
         fut = cmd_waiters.get(cr.name)
         if fut and not fut.done():
             fut.set_result(cr)
         change_event.set()
 
-    async def handle_run_event(req: UIReqRunEvent) -> None:
-        nonlocal pending_req, stream_buffer, queued_resp
-        ev = req.event.event
+    async def handle_run_event(envelope: UIPacketEnvelope) -> None:
+        nonlocal pending_req_env, stream_buffer, queued_resp
+        req_payload = envelope.payload
+        assert isinstance(req_payload, UIPacketRunEvent)
+        ev = req_payload.event.event
 
         # Debug/log messages from executors: print immediately without requesting input
         if ev.kind == PACKET_LOG:
@@ -338,12 +353,12 @@ async def run_terminal(project: Project) -> None:
 
         if ev.kind == PACKET_MESSAGE_REQUEST:
             _finish_stream()
-            pending_req = req if req.event.input_requested else None
+            pending_req_env = envelope if req_payload.event.input_requested else None
             # Auto-respond if we have a queued response
-            if pending_req is not None and queued_resp is not None:
-                await ui.respond_packet(pending_req.req_id, queued_resp)
+            if pending_req_env is not None and queued_resp is not None:
+                await ui.respond_packet(pending_req_env.msg_id, queued_resp)
                 queued_resp = None
-                pending_req = None
+                pending_req_env = None
             return
 
         if ev.kind == PACKET_TOOL_CALL:
@@ -351,12 +366,12 @@ async def run_terminal(project: Project) -> None:
             out(f"Tool calls requested: {len(ev.tool_calls)}")
             for i, tc in enumerate(ev.tool_calls, start=1):
                 out(f"  {i}. {tc.name}({tc.arguments})")
-            pending_req = req if req.event.input_requested else None
+            pending_req_env = envelope if req_payload.event.input_requested else None
             # Auto-respond if we have a queued response (typically approval)
-            if pending_req is not None and queued_resp is not None:
-                await ui.respond_packet(pending_req.req_id, queued_resp)
+            if pending_req_env is not None and queued_resp is not None:
+                await ui.respond_packet(pending_req_env.msg_id, queued_resp)
                 queued_resp = None
-                pending_req = None
+                pending_req_env = None
             return
 
         if ev.kind == PACKET_FINAL_MESSAGE:
@@ -370,33 +385,34 @@ async def run_terminal(project: Project) -> None:
                 text = ev.message.text or ""
                 out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
 
-            pending_req = req if req.event.input_requested else None
+            pending_req_env = envelope if req_payload.event.input_requested else None
 
             # Auto-respond if we have a queued response (approval or user message)
-            if pending_req is not None and queued_resp is not None:
-                await ui.respond_packet(pending_req.req_id, queued_resp)
+            if pending_req_env is not None and queued_resp is not None:
+                await ui.respond_packet(pending_req_env.msg_id, queued_resp)
                 queued_resp = None
-                pending_req = None
+                pending_req_env = None
             return
 
     async def event_consumer():
-        nonlocal pending_req, pending_cmd
+        nonlocal pending_req_env, pending_cmd
         while True:
             try:
-                msg = await ui.recv()
-                if msg.kind == UI_PACKET_STATUS:
+                envelope = await ui.recv()
+                msg = envelope.payload
+                if msg.kind == PACKET_STATUS:
                     reset_interrupt()
                     change_event.set()
                     continue
-                if msg.kind == UI_PACKET_RUN_EVENT:
-                    await handle_run_event(msg)  # type: ignore[arg-type]
+                if msg.kind == PACKET_RUN_EVENT:
+                    await handle_run_event(envelope)
                     change_event.set()
                     continue
-                if msg.kind == UI_PACKET_CUSTOM_COMMANDS:
-                    await handle_custom_commands_packet(msg)  # type: ignore[arg-type]
+                if msg.kind == PACKET_CUSTOM_COMMANDS:
+                    await handle_custom_commands_packet(msg)
                     continue
-                if msg.kind == UI_PACKET_COMMAND_RESULT:
-                    handle_command_result_packet(msg)  # type: ignore[arg-type]
+                if msg.kind == PACKET_COMMAND_RESULT:
+                    handle_command_result_packet(msg)
                     continue
             except Exception as ex:
                 import traceback
@@ -410,15 +426,21 @@ async def run_terminal(project: Project) -> None:
     try:
         while True:
             # Wait until we should show a prompt:
-            while (pending_cmd is not None) or (ui.is_active() and pending_req is None):
+            while (pending_cmd is not None) or (ui.is_active() and pending_req_env is None):
                 await change_event.wait()
                 change_event.clear()
 
+            prompt_payload = (
+                pending_req_env.payload
+                if pending_req_env
+                and isinstance(pending_req_env.payload, UIPacketRunEvent)
+                else None
+            )
             line = await session.prompt_async(
-                lambda: build_prompt(ui, pending_req),
+                lambda: build_prompt(ui, prompt_payload),
                 key_bindings=kb,
                 default="",
-                bottom_toolbar=lambda: build_toolbar(ui, pending_req),
+                bottom_toolbar=lambda: build_toolbar(ui, prompt_payload),
             )
             text = line.rstrip("\n")
 
@@ -431,7 +453,7 @@ async def run_terminal(project: Project) -> None:
                 continue
 
             # If stopped and no pending request, treat input as a replacement for the last input boundary.
-            if pending_req is None and ui.status == RunnerStatus.stopped:
+            if pending_req_env is None and ui.status == RunnerStatus.stopped:
                 t = text.strip()
                 # Build a queued response:
                 # - empty => implicit approval (continue)
@@ -461,26 +483,27 @@ async def run_terminal(project: Project) -> None:
                 # Do not prompt further here; event_consumer will deliver the next request and auto-reply.
                 continue
 
-            if pending_req is not None:
-                ev = pending_req.event.event
-                req_id = pending_req.req_id
+            if pending_req_env is not None:
+                assert isinstance(pending_req_env.payload, UIPacketRunEvent)
+                ev = pending_req_env.payload.event.event
+                msg_id = pending_req_env.msg_id
 
                 if ev.kind == PACKET_MESSAGE_REQUEST:
                     if text == "":
-                        await ui.respond_packet(req_id, None)
+                        await ui.respond_packet(msg_id, None)
                     else:
                         await ui.respond_message(
-                            req_id, Message(role="user", text=text)
+                            msg_id, Message(role="user", text=text)
                         )
-                    pending_req = None
+                    pending_req_env = None
                     continue
 
                 if ev.kind == PACKET_TOOL_CALL:
                     if text.strip().lower() in ("", "y", "yes"):
-                        await ui.respond_approval(req_id, True)
+                        await ui.respond_approval(msg_id, True)
                     else:
-                        await ui.respond_approval(req_id, False)
-                    pending_req = None
+                        await ui.respond_approval(msg_id, False)
+                    pending_req_env = None
                     continue
 
                 if ev.kind == PACKET_FINAL_MESSAGE:
@@ -488,24 +511,24 @@ async def run_terminal(project: Project) -> None:
                     if conf == Confirmation.confirm:
                         ans = text.strip().lower()
                         if ans in ("y", "yes"):
-                            await ui.respond_approval(req_id, True)
-                            pending_req = None
+                            await ui.respond_approval(msg_id, True)
+                            pending_req_env = None
                             continue
                         if ans in ("n", "no"):
-                            await ui.respond_approval(req_id, False)
-                            pending_req = None
+                            await ui.respond_approval(msg_id, False)
+                            pending_req_env = None
                             continue
                         out("Please answer Y or N.")
                         # Do not clear pending_req; re-prompt
                         continue
                     # prompt mode behavior
                     if text.strip() == "":
-                        await ui.respond_approval(req_id, True)
+                        await ui.respond_approval(msg_id, True)
                     else:
                         await ui.respond_message(
-                            req_id, Message(role="user", text=text)
+                            msg_id, Message(role="user", text=text)
                         )
-                    pending_req = None
+                    pending_req_env = None
                     continue
 
             # No pending request here: runner is active; ignore input and re-prompt.

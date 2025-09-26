@@ -5,7 +5,7 @@ from prompt_toolkit.formatted_text import HTML, to_formatted_text
 from prompt_toolkit.formatted_text.utils import fragment_list_width
 
 from vocode.ui.base import UIState
-from vocode.ui.proto import UIReqRunEvent
+from vocode.ui.proto import UIPacketRunEvent
 from vocode.runner.models import (
     PACKET_MESSAGE_REQUEST,
     PACKET_TOOL_CALL,
@@ -52,7 +52,7 @@ def _current_node_confirmation(ui: UIState) -> Optional[Confirmation]:
         return None
 
 
-def _input_hint(ui: UIState, pending_req: Optional[UIReqRunEvent]) -> str:
+def _input_hint(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> str:
     if pending_req is None or not pending_req.event.input_requested:
         return ""
     ev = pending_req.event.event
@@ -68,13 +68,13 @@ def _input_hint(ui: UIState, pending_req: Optional[UIReqRunEvent]) -> str:
     return ""
 
 
-def build_prompt(ui: UIState, pending_req: Optional[UIReqRunEvent]) -> HTML:
+def build_prompt(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> HTML:
     hint = _input_hint(ui, pending_req)
     prompt_text = f"{hint if hint else ''}> "
     return HTML(f'<style fg="ansiyellow">{prompt_text}</style>')
 
 
-def build_toolbar(ui: UIState, pending_req: Optional[UIReqRunEvent]) -> HTML:
+def build_toolbar(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> HTML:
     wf = ui.selected_workflow_name or "-"
     node = ui.current_node_name or "-"
     status = getattr(ui.status, "value", str(ui.status))
