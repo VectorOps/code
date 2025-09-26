@@ -89,7 +89,7 @@ class UIState:
         Send a response from UI client back to UIState.
         """
         # Route run_command packets to a dedicated queue to avoid interfering with runner flow.
-        if getattr(envelope.payload, "kind", None) == PACKET_RUN_COMMAND:
+        if envelope.payload.kind == PACKET_RUN_COMMAND:
             await self._incoming_cmds.put(envelope)
         else:
             await self._incoming.put(envelope)
@@ -436,7 +436,7 @@ class UIState:
 
                         payload = envelope.payload
                         if (
-                            isinstance(payload, UIPacketRunInput)
+                            payload.kind == PACKET_RUN_INPUT
                             and envelope.source_msg_id == msg_id
                         ):
                             to_send = payload.input
@@ -488,7 +488,7 @@ class UIState:
             while True:
                 envelope = await self._incoming_cmds.get()
                 rc = envelope.payload
-                if not isinstance(rc, UIPacketRunCommand):
+                if rc.kind != PACKET_RUN_COMMAND:
                     continue
                 name = rc.name
                 args: List[str] = list(rc.input or [])

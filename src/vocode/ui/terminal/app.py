@@ -311,7 +311,7 @@ async def run_terminal(project: Project) -> None:
 
     def handle_command_result_packet(envelope: UIPacketEnvelope) -> None:
         cr = envelope.payload
-        assert isinstance(cr, UIPacketCommandResult)
+        assert cr.kind == PACKET_COMMAND_RESULT
         if envelope.source_msg_id is None:
             return
         fut = cmd_waiters.get(envelope.source_msg_id)
@@ -322,7 +322,7 @@ async def run_terminal(project: Project) -> None:
     async def handle_run_event(envelope: UIPacketEnvelope) -> None:
         nonlocal pending_req_env, stream_buffer, queued_resp
         req_payload = envelope.payload
-        assert isinstance(req_payload, UIPacketRunEvent)
+        assert req_payload.kind == PACKET_RUN_EVENT
         ev = req_payload.event.event
 
         # Debug/log messages from executors: print immediately without requesting input
@@ -438,7 +438,7 @@ async def run_terminal(project: Project) -> None:
             prompt_payload = (
                 pending_req_env.payload
                 if pending_req_env
-                and isinstance(pending_req_env.payload, UIPacketRunEvent)
+                and pending_req_env.payload.kind == PACKET_RUN_EVENT
                 else None
             )
             line = await session.prompt_async(
@@ -489,7 +489,7 @@ async def run_terminal(project: Project) -> None:
                 continue
 
             if pending_req_env is not None:
-                assert isinstance(pending_req_env.payload, UIPacketRunEvent)
+                assert pending_req_env.payload.kind == PACKET_RUN_EVENT
                 ev = pending_req_env.payload.event.event
                 msg_id = pending_req_env.msg_id
 
