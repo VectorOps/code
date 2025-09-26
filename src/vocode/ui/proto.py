@@ -8,6 +8,9 @@ from vocode.state import RunnerStatus
 
 UI_PACKET_RUN_EVENT = "run_event"
 UI_PACKET_STATUS = "status"
+UI_PACKET_CUSTOM_COMMANDS = "custom_commands"
+UI_PACKET_RUN_COMMAND = "run_command"
+UI_PACKET_COMMAND_RESULT = "command_result"
 
 class UIReqRunEvent(BaseModel):
     """
@@ -26,10 +29,22 @@ class UIReqStatus(BaseModel):
     prev: Optional[RunnerStatus] = None
     curr: RunnerStatus
 
+class UICommand(BaseModel):
+    name: str
+    help: str
+    usage: Optional[str] = None
+
+class UIReqCustomCommands(BaseModel):
+    kind: Literal["custom_commands"] = UI_PACKET_CUSTOM_COMMANDS
+    added: list[UICommand] = []
+    removed: list[str] = []
+
 UIRequest = Annotated[
     Union[
         UIReqRunEvent,
         UIReqStatus,
+        UIReqCustomCommands,
+        "UIReqCommandResult",
     ],
     Field(discriminator="kind"),
 ]
@@ -46,9 +61,22 @@ class UIRespRunInput(BaseModel):
     req_id: int
     input: Optional[RunInput] = None
 
+class UIRespRunCommand(BaseModel):
+    kind: Literal["run_command"] = UI_PACKET_RUN_COMMAND
+    name: str
+    input: str = ""
+
+class UIReqCommandResult(BaseModel):
+    kind: Literal["command_result"] = UI_PACKET_COMMAND_RESULT
+    name: str
+    ok: bool
+    output: Optional[str] = None
+    error: Optional[str] = None
+
 UIResponse = Annotated[
     Union[
         UIRespRunInput,
+        UIRespRunCommand,
     ],
     Field(discriminator="kind"),
 ]

@@ -37,6 +37,10 @@ class Commands:
     def list_commands(self) -> List[Command]:
         return sorted(self._registry.values(), key=lambda c: c.name)
 
+    def unregister(self, name: str) -> None:
+        if name in self._registry:
+            del self._registry[name]
+
     async def run(self, line: str, ctx: CommandContext) -> bool:
         parts = line.strip().split()
         if not parts:

@@ -26,6 +26,12 @@ from vocode.ui.proto import (
     UIReqStatus,
     UI_PACKET_RUN_EVENT,
     UI_PACKET_STATUS,
+    UIReqCustomCommands,
+    UIReqCommandResult,
+    UIRespRunCommand,
+    UI_PACKET_CUSTOM_COMMANDS,
+    UI_PACKET_COMMAND_RESULT,
+    UI_PACKET_RUN_COMMAND,
 )
 from vocode.runner.models import (
     ReqMessageRequest,
@@ -229,6 +235,11 @@ async def run_terminal(project: Project) -> None:
     commands = register_default_commands(Commands())
 
     pending_req: Optional[UIReqRunEvent] = None
+    pending_cmd: Optional[str] = None
+    # Futures waiting for command results keyed by backend name (no leading slash)
+    cmd_waiters: dict[str, asyncio.Future[UIReqCommandResult]] = {}
+    # Track dynamic custom CLI commands to avoid affecting built-ins
+    dynamic_cli_commands: set[str] = set()
     queued_resp: Optional[Union[RespMessage, RespApproval]] = None
 
     stream_buffer: Optional[MessageBuffer] = None
@@ -238,6 +249,57 @@ async def run_terminal(project: Project) -> None:
         if stream_buffer:
             out("")  # Newline to finish the streamed line
             stream_buffer = None
+    # ----------------------------
+    # Packet handlers (extracted)
+    # ----------------------------
+    async def handle_custom_commands_packet(cd: UIReqCustomCommands) -> None:
+        # Register added commands as proxies without overriding built-ins
+        existing_names = {c.name for c in commands.list_commands()}
+        for c in cd.added:
+            cli_name = f"/{c.name}"
+            # Skip if a non-dynamic command already exists (do not override globals)
+            if cli_name in existing_names and cli_name not in dynamic_cli_commands:
+                continue
+            # If previously registered dynamically, remove first
+            if cli_name in dynamic_cli_commands:
+                commands.unregister(cli_name)
+                dynamic_cli_commands.discard(cli_name)
+            # Create proxy handler
+            async def _proxy(ctx: CommandContext, args: list[str], *, _cname=c.name):
+                nonlocal pending_cmd
+                input_str = " ".join(args) if args else ""
+                pending_cmd = _cname
+                change_event.set()
+                fut: asyncio.Future = asyncio.get_running_loop().create_future()
+                cmd_waiters[_cname] = fut  # type: ignore[assignment]
+                await ui.send(UIRespRunCommand(name=_cname, input=input_str))
+                try:
+                    res: UIReqCommandResult = await fut  # type: ignore[assignment]
+                    if res.ok:
+                        if res.output:
+                            ctx.out(res.output)
+                    else:
+                        ctx.out(f"Command '{_cname}' failed: {res.error or 'unknown error'}")
+                finally:
+                    pending_cmd = None
+                    change_event.set()
+                    cmd_waiters.pop(_cname, None)
+            commands.register(cli_name, c.help or "", c.usage)(_proxy)  # type: ignore[arg-type]
+            dynamic_cli_commands.add(cli_name)
+            existing_names.add(cli_name)
+        # Unregister removed commands only if they were dynamically added
+        for name in cd.removed:
+            cli_name = f"/{name}"
+            if cli_name in dynamic_cli_commands:
+                commands.unregister(cli_name)
+                dynamic_cli_commands.discard(cli_name)
+        change_event.set()
+
+    def handle_command_result_packet(cr: UIReqCommandResult) -> None:
+        fut = cmd_waiters.get(cr.name)
+        if fut and not fut.done():
+            fut.set_result(cr)
+        change_event.set()
 
     async def handle_run_event(req: UIReqRunEvent) -> None:
         nonlocal pending_req, stream_buffer, queued_resp
@@ -318,7 +380,7 @@ async def run_terminal(project: Project) -> None:
             return
 
     async def event_consumer():
-        nonlocal pending_req
+        nonlocal pending_req, pending_cmd
         while True:
             try:
                 msg = await ui.recv()
@@ -329,6 +391,12 @@ async def run_terminal(project: Project) -> None:
                 if msg.kind == UI_PACKET_RUN_EVENT:
                     await handle_run_event(msg)  # type: ignore[arg-type]
                     change_event.set()
+                    continue
+                if msg.kind == UI_PACKET_CUSTOM_COMMANDS:
+                    await handle_custom_commands_packet(msg)  # type: ignore[arg-type]
+                    continue
+                if msg.kind == UI_PACKET_COMMAND_RESULT:
+                    handle_command_result_packet(msg)  # type: ignore[arg-type]
                     continue
             except Exception as ex:
                 import traceback
@@ -342,7 +410,7 @@ async def run_terminal(project: Project) -> None:
     try:
         while True:
             # Wait until we should show a prompt:
-            while ui.is_active() and pending_req is None:
+            while (pending_cmd is not None) or (ui.is_active() and pending_req is None):
                 await change_event.wait()
                 change_event.clear()
 

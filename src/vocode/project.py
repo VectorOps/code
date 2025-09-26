@@ -14,6 +14,7 @@ from .tools import get_all_tools
 from .settings import KnowProjectSettings, Settings, load_settings
 from .templates import write_default_config
 from vocode.runner.models import TokenUsageTotals
+from vocode.commands import CommandManager
 
 
 class ProjectState:
@@ -66,6 +67,8 @@ class Project:
         self.know: KnowProject = know
         # Project-level shared state for executors
         self.project_state: ProjectState = ProjectState()
+        # Workflow-scoped custom commands (cleared on workflow changes)
+        self.commands: CommandManager = CommandManager()
         # Ephemeral (per-process) LLM usage totals
         self.llm_usage: TokenUsageTotals = TokenUsageTotals()
 

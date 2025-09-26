@@ -23,6 +23,11 @@ from .proto import (
     UIResponse,
     UIRespRunInput,
     UI_PACKET_RUN_INPUT,
+    UIReqCustomCommands,
+    UICommand,
+    UIRespRunCommand,
+    UIReqCommandResult,
+    UI_PACKET_RUN_COMMAND,
 )
 
 if TYPE_CHECKING:
@@ -44,7 +49,11 @@ class UIState:
 
         self._outgoing: "asyncio.Queue[UIRequest]" = asyncio.Queue()
         self._incoming: "asyncio.Queue[UIResponse]" = asyncio.Queue()
+        # Dedicated queue for custom run_command invocations
+        self._incoming_cmds: "asyncio.Queue[UIRespRunCommand]" = asyncio.Queue()
         self._drive_task: Optional[asyncio.Task] = None
+        self._cmd_events_task: Optional[asyncio.Task] = None
+        self._cmd_calls_task: Optional[asyncio.Task] = None
         self._req_counter: int = 0
         self._last_status: Optional[RunnerStatus] = None
         self._selected_workflow_name: Optional[str] = None
@@ -52,6 +61,9 @@ class UIState:
         self._lock = asyncio.Lock()
         self._stop_signal: asyncio.Event = asyncio.Event()
         # LLM usage totals are stored on Project.llm_usage and proxied via properties.
+        # Start background tasks for command deltas and command invocations
+        self._cmd_events_task = asyncio.create_task(self._forward_command_events())
+        self._cmd_calls_task = asyncio.create_task(self._process_command_calls())
 
     # ------------------------
     # Public protocol endpoints
@@ -67,7 +79,11 @@ class UIState:
         """
         Send a response from UI client back to UIState.
         """
-        await self._incoming.put(resp)
+        # Route run_command packets to a dedicated queue to avoid interfering with runner flow.
+        if getattr(resp, "kind", None) == UI_PACKET_RUN_COMMAND:
+            await self._incoming_cmds.put(resp)  # type: ignore[arg-type]
+        else:
+            await self._incoming.put(resp)
 
     # Convenience helpers to build and send responses
     async def respond_packet(self, req_id: int, packet: Optional[RespPacket]) -> None:
@@ -106,6 +122,9 @@ class UIState:
             )
             self.assignment = assignment or Assignment()
             self._initial_message = initial_message
+            # New workflow: clear workflow-scoped custom commands
+            with contextlib.suppress(Exception):
+                self.project.commands.clear()
             self.runner = Runner(
                 workflow=workflow, project=self.project, initial_message=initial_message
             )
@@ -183,6 +202,8 @@ class UIState:
             and name != self._selected_workflow_name
         ):
             self.project.project_state.clear()
+            with contextlib.suppress(Exception):
+                self.project.commands.clear()
         if not self.project.settings or name not in (
             self.project.settings.workflows or {}
         ):
@@ -220,6 +241,9 @@ class UIState:
             with contextlib.suppress(asyncio.QueueEmpty):
                 while True:
                     self._incoming.get_nowait()
+            with contextlib.suppress(asyncio.QueueEmpty):
+                while True:
+                    self._incoming_cmds.get_nowait()
 
     async def use(
         self, name: str, *, initial_message: Optional[Message] = None
@@ -233,6 +257,8 @@ class UIState:
         await self._shutdown_current_runner(cancel=False)
         # Clear project-level state on reset
         self.project.project_state.clear()
+        with contextlib.suppress(Exception):
+            self.project.commands.clear()
         await self.start_by_name(
             self._selected_workflow_name, initial_message=self._initial_message
         )
@@ -409,3 +435,47 @@ class UIState:
             with contextlib.suppress(Exception):
                 self._stop_signal.clear()
             self._current_node_name = None
+
+    # ------------------------
+    # Custom commands plumbing
+    # ------------------------
+    async def _forward_command_events(self) -> None:
+        try:
+            q = self.project.commands.subscribe()
+            while True:
+                delta = await q.get()
+                added = [
+                    UICommand(name=c.name, help=c.help, usage=c.usage) for c in delta.added
+                ]
+                await self._outgoing.put(
+                    UIReqCustomCommands(added=added, removed=delta.removed)
+                )
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.exception("UIState: command events forwarder failed: %s", e)
+
+    async def _process_command_calls(self) -> None:
+        # Handle UIRespRunCommand packets arriving from the UI client.
+        from vocode.commands import CommandContext as ExecCommandContext
+        try:
+            while True:
+                rc = await self._incoming_cmds.get()
+                name = rc.name
+                input_str = rc.input or ""
+                ctx = ExecCommandContext(project=self.project, ui=self)  # type: ignore[arg-type]
+                ok = True
+                output: Optional[str] = None
+                error: Optional[str] = None
+                try:
+                    output = await self.project.commands.execute(name, ctx, input_str)
+                except Exception as ex:
+                    ok = False
+                    error = str(ex)
+                await self._outgoing.put(
+                    UIReqCommandResult(name=name, ok=ok, output=output, error=error)
+                )
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.exception("UIState: command call processor failed: %s", e)
