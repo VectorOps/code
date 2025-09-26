@@ -641,6 +641,15 @@ def build_commits(
         s = "\n".join(lines)
         return s + ("\n" if eol else "")
 
+    def format_block_excerpt(s: int, e: int) -> str:
+        max_lines = 8
+        segment = lines[s:e]
+        if len(segment) > max_lines:
+            head = segment[: max_lines // 2]
+            tail = segment[-(max_lines // 2) :]
+            segment = [*head, "...", *tail]
+        return "\n".join(f"  | {ln}" for ln in segment)
+
     def find_chunk_linear(
         file_lines: List[str],
         chunk: Chunk,
@@ -954,14 +963,19 @@ def build_commits(
         for (s1, e1, _r1, l1), (s2, e2, _r2, l2) in zip(located, located[1:]):
             if not (e1 <= s2):  # overlap if e1 > s2
                 overlaps_found = True
+                overlap_hint = (
+                    "Two change blocks overlap in their context/deletion ranges. "
+                    f"First block covers [{s1}, {e1}), second covers [{s2}, {e2}).\n"
+                    "First block excerpt:\n"
+                    f"{format_block_excerpt(s1, e1)}\n"
+                    "Second block excerpt:\n"
+                    f"{format_block_excerpt(s2, e2)}\n"
+                    "Reorder the chunks or regenerate the patch to avoid overlapping contexts."
+                )
                 add_error(
                     f"Overlapping change blocks detected in {path}",
                     line=min((l1 or 0), (l2 or 0)) or None,
-                    hint=(
-                        "Two change blocks overlap in their context/deletion ranges. "
-                        f"First block covers [{s1}, {e1}), second covers [{s2}, {e2}). "
-                        "Reorder the chunks or regenerate the patch to avoid overlapping contexts."
-                    ),
+                    hint=overlap_hint,
                     filename=path,
                 )
         if overlaps_found:
