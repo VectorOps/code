@@ -46,7 +46,7 @@ def _current_node_confirmation(ui: UIState) -> Optional[Confirmation]:
             return None
         for n in wf.graph.nodes:
             if n.name == name:
-                return getattr(n, "confirmation", None)
+                return n.confirmation
         return None
     except Exception:
         return None
@@ -77,12 +77,12 @@ def build_prompt(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> HTML:
 def build_toolbar(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> HTML:
     wf = ui.selected_workflow_name or "-"
     node = ui.current_node_name or "-"
-    status = getattr(ui.status, "value", str(ui.status))
+    status = ui.status.value
 
     left_markup = f"<b>{wf}</b>@{node} [{status}]"
-    p = getattr(ui, "acc_prompt_tokens", 0)
-    c = getattr(ui, "acc_completion_tokens", 0)
-    cost = getattr(ui, "acc_cost_dollars", 0.0)
+    p = ui.acc_prompt_tokens
+    c = ui.acc_completion_tokens
+    cost = ui.acc_cost_dollars
     right_markup = f"p:{_abbr_int(int(p))} r:{_abbr_int(int(c))} ${_abbr_cost(float(cost))}"
 
     # Measure widths to compute spacing.

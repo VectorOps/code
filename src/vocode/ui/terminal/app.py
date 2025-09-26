@@ -151,7 +151,7 @@ async def run_terminal(project: Project) -> None:
         _msg_id_counter += 1
         return _msg_id_counter
 
-    ui_cfg = project.settings.ui if getattr(project, "settings", None) else None
+    ui_cfg = project.settings.ui if project.settings else None
     multiline = True if ui_cfg is None else bool(ui_cfg.multiline)
     editing_mode = None
     if ui_cfg and ui_cfg.edit_mode:
@@ -162,7 +162,7 @@ async def run_terminal(project: Project) -> None:
             editing_mode = EditingMode.EMACS
 
     try:
-        hist_dir = Path(getattr(project, "base_path", ".")) / ".vocode"
+        hist_dir = project.base_path / ".vocode"
         hist_dir.mkdir(parents=True, exist_ok=True)
         hist_path = hist_dir / "data" / "terminal_history"
         kwargs = {"history": FileHistory(str(hist_path)), "multiline": multiline}
@@ -334,7 +334,7 @@ async def run_terminal(project: Project) -> None:
                 cfg_log_level = ui.project.settings.ui.log_level
 
             # Determine message log level, default to info
-            msg_level = getattr(ev, "level", None) or LogLevel.info
+            msg_level = ev.level or LogLevel.info
 
             # Filter messages below configured level
             if LOG_LEVEL_ORDER[msg_level] < LOG_LEVEL_ORDER[cfg_log_level]:
@@ -342,7 +342,7 @@ async def run_terminal(project: Project) -> None:
 
             level_str = msg_level.value
             prefix = f"[{level_str}] "
-            out(prefix + getattr(ev, "text", ""))
+            out(prefix + ev.text)
             return
 
         if ev.kind == PACKET_MESSAGE and ev.message:

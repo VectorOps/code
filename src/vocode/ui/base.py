@@ -132,9 +132,8 @@ class UIState:
                 raise RuntimeError("Runner is already active")
 
             self.workflow = workflow
-            self._selected_workflow_name = getattr(
-                workflow, "name", self._selected_workflow_name
-            )
+            if workflow.name:
+                self._selected_workflow_name = workflow.name
             self.assignment = assignment or Assignment()
             self._initial_message = initial_message
             # New workflow: clear workflow-scoped custom commands
@@ -393,9 +392,7 @@ class UIState:
                         graph = getattr(self.workflow, "graph", None)
                         if graph is not None:
                             rn = graph.get_runtime_node_by_name(req.node)
-                            if rn is not None and getattr(
-                                rn.model, "hide_final_output", False
-                            ):
+                            if rn is not None and rn.model.hide_final_output:
                                 suppress_event = True
                     except Exception:
                         # Be conservative: if we cannot resolve the node, do not suppress.
