@@ -118,7 +118,7 @@ class LLMExecutor(Executor):
         self, cfg: LLMNode, history: List[Message]
     ) -> List[Dict[str, Any]]:
         def map_role(m: Message) -> Dict[str, Any]:
-            role = (m.role or "user")
+            role = m.role or "user"
             if role == "agent":
                 role = "assistant"
             elif role not in ("user", "assistant", "system", "tool"):
@@ -296,7 +296,7 @@ class LLMExecutor(Executor):
         if inp.state is not None and inp.messages:
             for m in inp.messages:
                 # Preserve original roles; map 'agent' -> 'assistant'
-                role = (m.role or "user")
+                role = m.role or "user"
                 if role == "agent":
                     role = "assistant"
                 elif role not in ("user", "assistant", "system", "tool"):
@@ -313,9 +313,7 @@ class LLMExecutor(Executor):
                         "role": "tool",
                         "tool_call_id": rcall.id or "",
                         "name": rcall.name,
-                        "content": (
-                            json.dumps(rcall.result) if rcall.result is not None else ""
-                        ),
+                        "content": (rcall.result if rcall.result is not None else ""),
                     }
                 )
             state.expect = LLMExpect.none

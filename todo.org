@@ -41,6 +41,9 @@ Concrete example: files that were read and already in context.
 * [X] UI protocol
 ** [X] In-memory bidirectional stream implementation for TUI
 ** [ ] Add syntax name hint to apply formatting
+** [ ] Better event handler loop as current implementation is hacky
+- Create global dispatch for RPC calls
+- Make it reusable and use in UIState and terminal app
 * [ ] Terminal UI
 ** [ ] Simple styling
 *** [ ] Color usage
