@@ -244,7 +244,7 @@ async def run_terminal(project: Project) -> None:
     pending_req_env: Optional[UIPacketEnvelope] = None
     pending_cmd: Optional[str] = None
     # Futures waiting for command results keyed by backend name (no leading slash)
-    cmd_waiters: dict[str, asyncio.Future[UIPacketCommandResult]] = {}
+    cmd_waiters: dict[int, asyncio.Future[UIPacketCommandResult]] = {}
     # Track dynamic custom CLI commands to avoid affecting built-ins
     dynamic_cli_commands: set[str] = set()
     queued_resp: Optional[Union[RespMessage, RespApproval]] = None
@@ -279,10 +279,11 @@ async def run_terminal(project: Project) -> None:
                 fut: asyncio.Future[UIPacketCommandResult] = (
                     asyncio.get_running_loop().create_future()
                 )
-                cmd_waiters[_cname] = fut
+                msg_id = _next_msg_id()
+                cmd_waiters[msg_id] = fut
                 await ui.send(
                     UIPacketEnvelope(
-                        msg_id=_next_msg_id(),
+                        msg_id=msg_id,
                         payload=UIPacketRunCommand(name=_cname, input=args),
                     )
                 )
@@ -296,7 +297,7 @@ async def run_terminal(project: Project) -> None:
                 finally:
                     pending_cmd = None
                     change_event.set()
-                    cmd_waiters.pop(_cname, None)
+                    cmd_waiters.pop(msg_id, None)
             commands.register(cli_name, c.help or "", c.usage)(_proxy)  # type: ignore[arg-type]
             dynamic_cli_commands.add(cli_name)
             existing_names.add(cli_name)
@@ -308,8 +309,12 @@ async def run_terminal(project: Project) -> None:
                 dynamic_cli_commands.discard(cli_name)
         change_event.set()
 
-    def handle_command_result_packet(cr: UIPacketCommandResult) -> None:
-        fut = cmd_waiters.get(cr.name)
+    def handle_command_result_packet(envelope: UIPacketEnvelope) -> None:
+        cr = envelope.payload
+        assert isinstance(cr, UIPacketCommandResult)
+        if envelope.source_msg_id is None:
+            return
+        fut = cmd_waiters.get(envelope.source_msg_id)
         if fut and not fut.done():
             fut.set_result(cr)
         change_event.set()
@@ -412,7 +417,7 @@ async def run_terminal(project: Project) -> None:
                     await handle_custom_commands_packet(msg)
                     continue
                 if msg.kind == PACKET_COMMAND_RESULT:
-                    handle_command_result_packet(msg)
+                    handle_command_result_packet(envelope)
                     continue
             except Exception as ex:
                 import traceback

@@ -55,6 +55,7 @@ class UIState:
         self._cmd_events_task: Optional[asyncio.Task] = None
         self._cmd_calls_task: Optional[asyncio.Task] = None
         self._msg_counter: int = 0
+        self._client_msg_counter: int = 0
         self._last_status: Optional[RunnerStatus] = None
         self._selected_workflow_name: Optional[str] = None
         self._current_node_name: Optional[str] = None
@@ -68,6 +69,10 @@ class UIState:
     def _next_msg_id(self) -> int:
         self._msg_counter += 1
         return self._msg_counter
+
+    def _next_client_msg_id(self) -> int:
+        self._client_msg_counter += 1
+        return self._client_msg_counter
 
     # ------------------------
     # Public protocol endpoints
@@ -90,19 +95,23 @@ class UIState:
             await self._incoming.put(envelope)
 
     # Convenience helpers to build and send responses
-    async def respond_packet(self, msg_id: int, packet: Optional[RespPacket]) -> None:
+    async def respond_packet(self, source_msg_id: int, packet: Optional[RespPacket]) -> None:
         inp = (
             RunInput(response=packet) if packet is not None else RunInput(response=None)
         )
         await self.send(
-            UIPacketEnvelope(msg_id=msg_id, payload=UIPacketRunInput(input=inp))
+            UIPacketEnvelope(
+                msg_id=self._next_client_msg_id(),
+                source_msg_id=source_msg_id,
+                payload=UIPacketRunInput(input=inp),
+            )
         )
 
-    async def respond_message(self, msg_id: int, message: Message) -> None:
-        await self.respond_packet(msg_id, RespMessage(message=message))
+    async def respond_message(self, source_msg_id: int, message: Message) -> None:
+        await self.respond_packet(source_msg_id, RespMessage(message=message))
 
-    async def respond_approval(self, msg_id: int, approved: bool) -> None:
-        await self.respond_packet(msg_id, RespApproval(approved=approved))
+    async def respond_approval(self, source_msg_id: int, approved: bool) -> None:
+        await self.respond_packet(source_msg_id, RespApproval(approved=approved))
 
     # ------------------------
     # Runner lifecycle control
@@ -428,7 +437,7 @@ class UIState:
                         payload = envelope.payload
                         if (
                             isinstance(payload, UIPacketRunInput)
-                            and envelope.msg_id == msg_id
+                            and envelope.source_msg_id == msg_id
                         ):
                             to_send = payload.input
                             break
@@ -495,6 +504,7 @@ class UIState:
                 await self._outgoing.put(
                     UIPacketEnvelope(
                         msg_id=self._next_msg_id(),
+                        source_msg_id=envelope.msg_id,
                         payload=UIPacketCommandResult(
                             name=name, ok=ok, output=output, error=error
                         ),

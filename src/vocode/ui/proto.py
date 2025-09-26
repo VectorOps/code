@@ -70,3 +70,4 @@ UIPacket = Annotated[
 class UIPacketEnvelope(BaseModel):
     msg_id: int
     payload: UIPacket
+    source_msg_id: Optional[int] = None
