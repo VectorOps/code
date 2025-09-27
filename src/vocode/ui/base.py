@@ -54,6 +54,7 @@ class UIState:
         # Dedicated queue for custom run_command invocations
         self._incoming_cmds: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
         self._drive_task: Optional[asyncio.Task] = None
+        self._stop_watcher_task: Optional[asyncio.Task] = None
         self._cmd_events_task: Optional[asyncio.Task] = None
         self._cmd_calls_task: Optional[asyncio.Task] = None
         self._msg_counter: int = 0
@@ -76,6 +77,14 @@ class UIState:
         """Generate a new message ID for a client-initiated message."""
         self._client_msg_counter += 1
         return self._client_msg_counter
+
+    async def _watch_stop_signal(self) -> None:
+        try:
+            await self._stop_signal.wait()
+            if self._drive_task and not self._drive_task.done():
+                self._drive_task.cancel("Stop signal received")
+        except asyncio.CancelledError:
+            pass
 
     # ------------------------
     # Public protocol endpoints
@@ -154,6 +163,8 @@ class UIState:
             self._last_status = None
             self._stop_signal.clear()
             self._drive_task = asyncio.create_task(self._drive_runner())
+            self._stop_watcher_task = asyncio.create_task(self._watch_stop_signal())
+            self._stop_watcher_task = asyncio.create_task(self._watch_stop_signal())
 
     async def stop(self) -> None:
         """
@@ -380,6 +391,8 @@ class UIState:
                     break
                 except asyncio.CancelledError:
                     # Propagate cancellation state out; runner.cancel/stop should set status accordingly
+                    with contextlib.suppress(Exception):
+                        await agen.aclose()
                     await self._emit_status_if_changed()
                     break
 
@@ -406,30 +419,10 @@ class UIState:
                         # Be conservative: if we cannot resolve the node, do not suppress.
                         suppress_event = False
 
-                msg_id: Optional[int] = None
                 # Await UI response only if required
                 if req.input_requested and not suppress_event:
                     self._current_node_name = req.node
-                    rpc_call_task = asyncio.create_task(
-                        self._rpc.call(UIPacketRunEvent(event=req))
-                    )
-                    stop_task = asyncio.create_task(self._stop_signal.wait())
-                    done, pending = await asyncio.wait(
-                        {rpc_call_task, stop_task}, return_when=asyncio.FIRST_COMPLETED
-                    )
-                    # If stop signal fired, close the runner generator and exit promptly.
-                    if stop_task in done:
-                        for t in pending:
-                            t.cancel()
-                        with contextlib.suppress(Exception):
-                            await agen.aclose()
-                        await self._emit_status_if_changed()
-                        return
-                    # Otherwise we have a response task completed.
-                    for t in pending:
-                        t.cancel()
-
-                    response_payload = rpc_call_task.result()
+                    response_payload = await self._rpc.call(UIPacketRunEvent(event=req))
 
                     if response_payload and response_payload.kind == PACKET_RUN_INPUT:
                         to_send = response_payload.input
@@ -456,6 +449,12 @@ class UIState:
         except Exception as e:
             logger.exception("UIState: runner driver failed: %s", e)
         finally:
+            # Cancel watcher task if it's still running
+            if self._stop_watcher_task:
+                self._stop_watcher_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._stop_watcher_task
+            self._stop_watcher_task = None
             # Final status emission (in case it changed just before exit)
             await self._emit_status_if_changed()
             # Clear stop signal to leave UIState in a clean state for future starts.
