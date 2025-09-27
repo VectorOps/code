@@ -50,7 +50,9 @@ class UIState:
 
         self._outgoing: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
         self._incoming: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
-        self._rpc = RpcHelper(self._outgoing.put, "UIState", id_generator=self._next_msg_id)
+        self._rpc = RpcHelper(
+            self._outgoing.put, "UIState", id_generator=self._next_msg_id
+        )
         # Dedicated queue for custom run_command invocations
         self._incoming_cmds: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
         self._drive_task: Optional[asyncio.Task] = None
@@ -416,12 +418,11 @@ class UIState:
                     to_send = None
                     if not suppress_event:
                         # Forward the run event to the UI client with a correlation id
-                        # Note: no msg_id is assigned for non-input-requested events
-                        # as no RPC response is expected.
                         self._current_node_name = req.node
                         await self._outgoing.put(
                             UIPacketEnvelope(
-                                msg_id=self._next_msg_id(), payload=UIPacketRunEvent(event=req)
+                                msg_id=self._next_msg_id(),
+                                payload=UIPacketRunEvent(event=req),
                             )
                         )
 

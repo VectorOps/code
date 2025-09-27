@@ -277,6 +277,7 @@ async def run_terminal(project: Project) -> None:
         if stream_buffer:
             out("")  # Newline to finish the streamed line
             stream_buffer = None
+
     # ----------------------------
     # Packet handlers (extracted)
     # ----------------------------
@@ -292,15 +293,14 @@ async def run_terminal(project: Project) -> None:
             if cli_name in dynamic_cli_commands:
                 commands.unregister(cli_name)
                 dynamic_cli_commands.discard(cli_name)
+
             # Create proxy handler
             async def _proxy(ctx: CommandContext, args: list[str], *, _cname=c.name):
                 nonlocal pending_cmd
                 pending_cmd = _cname
                 change_event.set()
                 try:
-                    res = await rpc.call(
-                        UIPacketRunCommand(name=_cname, input=args)
-                    )
+                    res = await rpc.call(UIPacketRunCommand(name=_cname, input=args))
                     if res is None:
                         return
                     if res.kind != PACKET_COMMAND_RESULT:
@@ -446,14 +446,15 @@ async def run_terminal(project: Project) -> None:
     try:
         while True:
             # Wait until we should show a prompt:
-            while (pending_cmd is not None) or (ui.is_active() and pending_req_env is None):
+            while (pending_cmd is not None) or (
+                ui.is_active() and pending_req_env is None
+            ):
                 await change_event.wait()
                 change_event.clear()
 
             prompt_payload = (
                 pending_req_env.payload
-                if pending_req_env
-                and pending_req_env.payload.kind == PACKET_RUN_EVENT
+                if pending_req_env and pending_req_env.payload.kind == PACKET_RUN_EVENT
                 else None
             )
             line = await session.prompt_async(
