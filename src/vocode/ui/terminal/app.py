@@ -33,6 +33,7 @@ from vocode.ui.proto import (
     PACKET_COMMAND_RESULT,
     PACKET_RUN_COMMAND,
 )
+from vocode.ui.rpc import RpcHelper
 from vocode.runner.models import (
     ReqMessageRequest,
     ReqToolCall,
@@ -144,12 +145,7 @@ def out_fmt_stream(ft):
 async def run_terminal(project: Project) -> None:
     ui = UIState(project)
 
-    _msg_id_counter = 0
-
-    def _next_msg_id() -> int:
-        nonlocal _msg_id_counter
-        _msg_id_counter += 1
-        return _msg_id_counter
+    rpc = RpcHelper(ui.send, "TerminalApp", id_generator=ui.next_client_msg_id)
 
     ui_cfg = project.settings.ui if project.settings else None
     multiline = True if ui_cfg is None else bool(ui_cfg.multiline)
@@ -243,8 +239,6 @@ async def run_terminal(project: Project) -> None:
 
     pending_req_env: Optional[UIPacketEnvelope] = None
     pending_cmd: Optional[str] = None
-    # Futures waiting for command results keyed by backend name (no leading slash)
-    cmd_waiters: dict[int, asyncio.Future[UIPacketCommandResult]] = {}
     # Track dynamic custom CLI commands to avoid affecting built-ins
     dynamic_cli_commands: set[str] = set()
     queued_resp: Optional[Union[RespMessage, RespApproval]] = None
@@ -276,28 +270,31 @@ async def run_terminal(project: Project) -> None:
                 nonlocal pending_cmd
                 pending_cmd = _cname
                 change_event.set()
-                fut: asyncio.Future[UIPacketCommandResult] = (
-                    asyncio.get_running_loop().create_future()
-                )
-                msg_id = _next_msg_id()
-                cmd_waiters[msg_id] = fut
-                await ui.send(
-                    UIPacketEnvelope(
-                        msg_id=msg_id,
-                        payload=UIPacketRunCommand(name=_cname, input=args),
-                    )
-                )
                 try:
-                    res: UIPacketCommandResult = await fut
+                    res = await rpc.call(
+                        UIPacketRunCommand(name=_cname, input=args)
+                    )
+                    if res is None:
+                        return
+                    if res.kind != PACKET_COMMAND_RESULT:
+                        ctx.out(
+                            f"Command '{_cname}' failed: unexpected response {res.kind}"
+                        )
+                        return
+
                     if res.ok:
                         if res.output:
                             ctx.out(res.output)
                     else:
-                        ctx.out(f"Command '{_cname}' failed: {res.error or 'unknown error'}")
+                        ctx.out(
+                            f"Command '{_cname}' failed: {res.error or 'unknown error'}"
+                        )
+                except Exception as e:
+                    ctx.out(f"Error executing command '{_cname}': {e}")
                 finally:
                     pending_cmd = None
                     change_event.set()
-                    cmd_waiters.pop(msg_id, None)
+
             commands.register(cli_name, c.help or "", c.usage)(_proxy)  # type: ignore[arg-type]
             dynamic_cli_commands.add(cli_name)
             existing_names.add(cli_name)
@@ -307,16 +304,6 @@ async def run_terminal(project: Project) -> None:
             if cli_name in dynamic_cli_commands:
                 commands.unregister(cli_name)
                 dynamic_cli_commands.discard(cli_name)
-        change_event.set()
-
-    def handle_command_result_packet(envelope: UIPacketEnvelope) -> None:
-        cr = envelope.payload
-        assert cr.kind == PACKET_COMMAND_RESULT
-        if envelope.source_msg_id is None:
-            return
-        fut = cmd_waiters.get(envelope.source_msg_id)
-        if fut and not fut.done():
-            fut.set_result(cr)
         change_event.set()
 
     async def handle_run_event(envelope: UIPacketEnvelope) -> None:
@@ -404,6 +391,10 @@ async def run_terminal(project: Project) -> None:
         while True:
             try:
                 envelope = await ui.recv()
+                if rpc.handle_response(envelope):
+                    change_event.set()
+                    continue
+
                 msg = envelope.payload
                 if msg.kind == PACKET_STATUS:
                     reset_interrupt()
@@ -415,9 +406,6 @@ async def run_terminal(project: Project) -> None:
                     continue
                 if msg.kind == PACKET_CUSTOM_COMMANDS:
                     await handle_custom_commands_packet(msg)
-                    continue
-                if msg.kind == PACKET_COMMAND_RESULT:
-                    handle_command_result_packet(envelope)
                     continue
             except Exception as ex:
                 import traceback

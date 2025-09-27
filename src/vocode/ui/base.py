@@ -29,6 +29,7 @@ from .proto import (
     PACKET_RUN_INPUT,
     PACKET_RUN_COMMAND,
 )
+from .rpc import RpcHelper
 
 if TYPE_CHECKING:
     from vocode.project import Project
@@ -49,6 +50,7 @@ class UIState:
 
         self._outgoing: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
         self._incoming: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
+        self._rpc = RpcHelper(self._outgoing.put, "UIState", id_generator=self._next_msg_id)
         # Dedicated queue for custom run_command invocations
         self._incoming_cmds: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
         self._drive_task: Optional[asyncio.Task] = None
@@ -70,7 +72,8 @@ class UIState:
         self._msg_counter += 1
         return self._msg_counter
 
-    def _next_client_msg_id(self) -> int:
+    def next_client_msg_id(self) -> int:
+        """Generate a new message ID for a client-initiated message."""
         self._client_msg_counter += 1
         return self._client_msg_counter
 
@@ -88,6 +91,9 @@ class UIState:
         """
         Send a response from UI client back to UIState.
         """
+        if envelope.source_msg_id is not None and self._rpc.handle_response(envelope):
+            return
+
         # Route run_command packets to a dedicated queue to avoid interfering with runner flow.
         if envelope.payload.kind == PACKET_RUN_COMMAND:
             await self._incoming_cmds.put(envelope)
@@ -95,13 +101,15 @@ class UIState:
             await self._incoming.put(envelope)
 
     # Convenience helpers to build and send responses
-    async def respond_packet(self, source_msg_id: int, packet: Optional[RespPacket]) -> None:
+    async def respond_packet(
+        self, source_msg_id: int, packet: Optional[RespPacket]
+    ) -> None:
         inp = (
             RunInput(response=packet) if packet is not None else RunInput(response=None)
         )
         await self.send(
             UIPacketEnvelope(
-                msg_id=self._next_client_msg_id(),
+                msg_id=self.next_client_msg_id(),
                 source_msg_id=source_msg_id,
                 payload=UIPacketRunInput(input=inp),
             )
@@ -389,7 +397,7 @@ class UIState:
                     and self.workflow is not None
                 ):
                     try:
-                        graph = getattr(self.workflow, "graph", None)
+                        graph = self.workflow.graph
                         if graph is not None:
                             rn = graph.get_runtime_node_by_name(req.node)
                             if rn is not None and rn.model.hide_final_output:
@@ -399,52 +407,51 @@ class UIState:
                         suppress_event = False
 
                 msg_id: Optional[int] = None
-                if not suppress_event:
-                    # Forward the run event to the UI client with a correlation id
-                    msg_id = self._next_msg_id()
-                    self._current_node_name = req.node
-                    await self._outgoing.put(
-                        UIPacketEnvelope(
-                            msg_id=msg_id, payload=UIPacketRunEvent(event=req)
-                        )
-                    )
-
                 # Await UI response only if required
                 if req.input_requested and not suppress_event:
-                    # Wait for a matching response or a stop signal.
-                    while True:
-                        resp_task = asyncio.create_task(self._incoming.get())
-                        stop_task = asyncio.create_task(self._stop_signal.wait())
-                        done, pending = await asyncio.wait(
-                            {resp_task, stop_task}, return_when=asyncio.FIRST_COMPLETED
-                        )
-                        # If stop signal fired, close the runner generator and exit promptly.
-                        if stop_task in done:
-                            for t in pending:
-                                t.cancel()
-                            with contextlib.suppress(Exception):
-                                await agen.aclose()
-                            await self._emit_status_if_changed()
-                            return
-                        # Otherwise we have a response task completed.
-                        envelope = resp_task.result()
+                    self._current_node_name = req.node
+                    rpc_call_task = asyncio.create_task(
+                        self._rpc.call(UIPacketRunEvent(event=req))
+                    )
+                    stop_task = asyncio.create_task(self._stop_signal.wait())
+                    done, pending = await asyncio.wait(
+                        {rpc_call_task, stop_task}, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    # If stop signal fired, close the runner generator and exit promptly.
+                    if stop_task in done:
                         for t in pending:
                             t.cancel()
+                        with contextlib.suppress(Exception):
+                            await agen.aclose()
+                        await self._emit_status_if_changed()
+                        return
+                    # Otherwise we have a response task completed.
+                    for t in pending:
+                        t.cancel()
 
-                        payload = envelope.payload
-                        if (
-                            payload.kind == PACKET_RUN_INPUT
-                            and envelope.source_msg_id == msg_id
-                        ):
-                            to_send = payload.input
-                            break
-                        else:
+                    response_payload = rpc_call_task.result()
+
+                    if response_payload and response_payload.kind == PACKET_RUN_INPUT:
+                        to_send = response_payload.input
+                    else:
+                        if response_payload:
                             logger.warning(
-                                "UIState: Ignored mismatched response", expected=msg_id
+                                "UIState: Ignored mismatched RPC response",
+                                response=response_payload,
                             )
-
+                        to_send = None
                 else:
                     to_send = None
+                    if not suppress_event:
+                        # Forward the run event to the UI client with a correlation id
+                        # Note: no msg_id is assigned for non-input-requested events
+                        # as no RPC response is expected.
+                        self._current_node_name = req.node
+                        await self._outgoing.put(
+                            UIPacketEnvelope(
+                                msg_id=self._next_msg_id(), payload=UIPacketRunEvent(event=req)
+                            )
+                        )
 
         except Exception as e:
             logger.exception("UIState: runner driver failed: %s", e)
@@ -465,12 +472,15 @@ class UIState:
             while True:
                 delta = await q.get()
                 added = [
-                    UICommand(name=c.name, help=c.help, usage=c.usage) for c in delta.added
+                    UICommand(name=c.name, help=c.help, usage=c.usage)
+                    for c in delta.added
                 ]
                 await self._outgoing.put(
                     UIPacketEnvelope(
                         msg_id=self._next_msg_id(),
-                        payload=UIPacketCustomCommands(added=added, removed=delta.removed),
+                        payload=UIPacketCustomCommands(
+                            added=added, removed=delta.removed
+                        ),
                     )
                 )
         except asyncio.CancelledError:
@@ -481,6 +491,7 @@ class UIState:
     async def _process_command_calls(self) -> None:
         # Handle UIRespRunCommand packets arriving from the UI client.
         from vocode.commands import CommandContext as ExecCommandContext
+
         try:
             while True:
                 envelope = await self._incoming_cmds.get()

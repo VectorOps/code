@@ -18,8 +18,21 @@ from vocode.runner.models import (
     RespMessage,
     RunInput,
     RunEvent,
+    TokenUsageTotals,
 )
 from vocode.state import RunnerStatus, Message, Activity, ActivityType
+from vocode.commands import CommandManager
+from vocode.project import ProjectState
+
+
+class FakeProject:
+    def __init__(self, settings=None):
+        wf_name = "wf-project-state"
+        wf_cfg = SimpleNamespace(nodes=[], edges=[])
+        self.settings = settings or SimpleNamespace(workflows={wf_name: wf_cfg})
+        self.commands = CommandManager()
+        self.project_state = ProjectState()
+        self.llm_usage = TokenUsageTotals()
 
 
 class FakeRunner:
@@ -97,7 +110,7 @@ def test_ui_state_basic_flow(monkeypatch):
             ("node3", _mk_final("bye"), False, RunnerStatus.running),
         ]
         wf = SimpleNamespace(name="wf", script=script)
-        project = SimpleNamespace(settings=None)
+        project = FakeProject()
         ui = UIState(project)
 
         await ui.start(wf)
@@ -179,7 +192,7 @@ def test_ui_state_stop_while_waiting(monkeypatch):
             ("node1", ReqMessageRequest(), True, RunnerStatus.waiting_input),
         ]
         wf = SimpleNamespace(name="wf-stop", script=script)
-        project = SimpleNamespace(settings=None)
+        project = FakeProject()
         ui = UIState(project)
         await ui.start(wf)
 
@@ -214,7 +227,7 @@ def test_ui_state_replace_input_guard(monkeypatch):
             ("node1", ReqMessageRequest(), True, RunnerStatus.waiting_input),
         ]
         wf = SimpleNamespace(name="wf-guard", script=script)
-        project = SimpleNamespace(settings=None)
+        project = FakeProject()
         ui = UIState(project)
         await ui.start(wf)
 
@@ -241,30 +254,6 @@ def test_ui_state_replace_input_guard(monkeypatch):
 
 
 def test_project_state_reset_clears(monkeypatch):
-    class FakeProjectState:
-        def __init__(self):
-            self._d = {}
-
-        def set(self, k, v):
-            self._d[k] = v
-
-        def get(self, k, default=None):
-            return self._d.get(k, default)
-
-        def delete(self, k):
-            self._d.pop(k, None)
-
-        def clear(self):
-            self._d.clear()
-
-    class FakeProject:
-        def __init__(self):
-            # Provide minimal settings so start_by_name in reset() can work
-            wf_name = "wf-project-state"
-            wf_cfg = SimpleNamespace(nodes=[], edges=[])
-            self.settings = SimpleNamespace(workflows={wf_name: wf_cfg})
-            self.project_state = FakeProjectState()
-
     async def scenario():
         from vocode.ui import base as ui_base
 

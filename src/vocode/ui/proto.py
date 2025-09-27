@@ -10,6 +10,7 @@ PACKET_CUSTOM_COMMANDS = "custom_commands"
 PACKET_RUN_COMMAND = "run_command"
 PACKET_COMMAND_RESULT = "command_result"
 PACKET_RUN_INPUT = "run_input"
+PACKET_ACK = "ack"
 
 
 class UIPacketRunEvent(BaseModel):
@@ -54,6 +55,10 @@ class UIPacketCommandResult(BaseModel):
     error: Optional[str] = None
 
 
+class UIPacketAck(BaseModel):
+    kind: Literal["ack"] = PACKET_ACK
+
+
 UIPacket = Annotated[
     Union[
         UIPacketRunEvent,
@@ -62,6 +67,7 @@ UIPacket = Annotated[
         UIPacketRunInput,
         UIPacketRunCommand,
         UIPacketCommandResult,
+        UIPacketAck,
     ],
     Field(discriminator="kind"),
 ]
