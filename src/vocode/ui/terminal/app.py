@@ -27,6 +27,7 @@ from vocode.ui.proto import (
     UIPacketCustomCommands,
     UIPacketCommandResult,
     UIPacketRunCommand,
+    UIPacketRunInput,
     PACKET_RUN_EVENT,
     PACKET_STATUS,
     PACKET_CUSTOM_COMMANDS,
