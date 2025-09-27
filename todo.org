@@ -42,7 +42,6 @@ Concrete example: files that were read and already in context.
 ** [X] In-memory bidirectional stream implementation for TUI
 ** [ ] Add syntax name hint to apply formatting
 ** [X] Better event handler loop as current implementation is hacky
-** [ ] Make all exchanges be RPC based
 * [ ] Terminal UI
 ** [ ] Simple styling
 *** [ ] Color usage
