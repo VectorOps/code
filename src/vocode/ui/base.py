@@ -109,27 +109,6 @@ class UIState:
         else:
             await self._incoming.put(envelope)
 
-    # Convenience helpers to build and send responses
-    async def respond_packet(
-        self, source_msg_id: int, packet: Optional[RespPacket]
-    ) -> None:
-        inp = (
-            RunInput(response=packet) if packet is not None else RunInput(response=None)
-        )
-        await self.send(
-            UIPacketEnvelope(
-                msg_id=self.next_client_msg_id(),
-                source_msg_id=source_msg_id,
-                payload=UIPacketRunInput(input=inp),
-            )
-        )
-
-    async def respond_message(self, source_msg_id: int, message: Message) -> None:
-        await self.respond_packet(source_msg_id, RespMessage(message=message))
-
-    async def respond_approval(self, source_msg_id: int, approved: bool) -> None:
-        await self.respond_packet(source_msg_id, RespApproval(approved=approved))
-
     # ------------------------
     # Runner lifecycle control
     # ------------------------

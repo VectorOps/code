@@ -16,6 +16,8 @@ from vocode.runner.models import (
     ReqInterimMessage,
     ReqFinalMessage,
     RespMessage,
+    RespApproval,
+    RespPacket,
     RunInput,
     RunEvent,
     TokenUsageTotals,
@@ -23,6 +25,27 @@ from vocode.runner.models import (
 from vocode.state import RunnerStatus, Message, Activity, ActivityType
 from vocode.commands import CommandManager
 from vocode.project import ProjectState
+
+
+async def respond_packet(
+    ui: UIState, source_msg_id: int, packet: Optional[RespPacket]
+) -> None:
+    inp = RunInput(response=packet) if packet is not None else RunInput(response=None)
+    await ui.send(
+        UIPacketEnvelope(
+            msg_id=ui.next_client_msg_id(),
+            source_msg_id=source_msg_id,
+            payload=UIPacketRunInput(input=inp),
+        )
+    )
+
+
+async def respond_message(ui: UIState, source_msg_id: int, message: Message) -> None:
+    await respond_packet(ui, source_msg_id, RespMessage(message=message))
+
+
+async def respond_approval(ui: UIState, source_msg_id: int, approved: bool) -> None:
+    await respond_packet(ui, source_msg_id, RespApproval(approved=approved))
 
 
 class FakeProject:
@@ -149,7 +172,7 @@ def test_ui_state_basic_flow(monkeypatch):
             UIPacketEnvelope(msg_id=999, payload=UIPacketRunInput(input=RunInput()))
         )
         # Now send the proper response using helper
-        await ui.respond_message(req2_env.msg_id, Message(role="user", text="ok"))
+        await respond_message(ui, req2_env.msg_id, Message(role="user", text="ok"))
 
         # 5) Back to running before final event
         msg3_env = await ui.recv()

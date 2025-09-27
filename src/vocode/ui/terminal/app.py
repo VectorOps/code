@@ -39,6 +39,10 @@ from vocode.runner.models import (
     ReqToolCall,
     ReqInterimMessage,
     ReqFinalMessage,
+    ReqMessageRequest,
+    ReqToolCall,
+    ReqInterimMessage,
+    ReqFinalMessage,
     RespMessage,
     RespApproval,
     PACKET_MESSAGE_REQUEST,
@@ -46,6 +50,8 @@ from vocode.runner.models import (
     PACKET_MESSAGE,
     PACKET_FINAL_MESSAGE,
     PACKET_LOG,
+    RunInput,
+    RespPacket,
 )
 from vocode.state import Message, RunnerStatus, LogLevel
 from vocode.ui.terminal.toolbar import (
@@ -140,6 +146,27 @@ def out_fmt_stream(ft):
     # will overwrite from the first visual line of this wrapped block.
     if wraps > 0:
         print(ANSI_CURSOR_UP * wraps, end="")
+
+
+async def respond_packet(
+    ui: UIState, source_msg_id: int, packet: Optional[RespPacket]
+) -> None:
+    inp = RunInput(response=packet) if packet is not None else RunInput(response=None)
+    await ui.send(
+        UIPacketEnvelope(
+            msg_id=ui.next_client_msg_id(),
+            source_msg_id=source_msg_id,
+            payload=UIPacketRunInput(input=inp),
+        )
+    )
+
+
+async def respond_message(ui: UIState, source_msg_id: int, message: Message) -> None:
+    await respond_packet(ui, source_msg_id, RespMessage(message=message))
+
+
+async def respond_approval(ui: UIState, source_msg_id: int, approved: bool) -> None:
+    await respond_packet(ui, source_msg_id, RespApproval(approved=approved))
 
 
 async def run_terminal(project: Project) -> None:
@@ -348,7 +375,7 @@ async def run_terminal(project: Project) -> None:
             pending_req_env = envelope if req_payload.event.input_requested else None
             # Auto-respond if we have a queued response
             if pending_req_env is not None and queued_resp is not None:
-                await ui.respond_packet(pending_req_env.msg_id, queued_resp)
+                await respond_packet(ui, pending_req_env.msg_id, queued_resp)
                 queued_resp = None
                 pending_req_env = None
             return
@@ -361,7 +388,7 @@ async def run_terminal(project: Project) -> None:
             pending_req_env = envelope if req_payload.event.input_requested else None
             # Auto-respond if we have a queued response (typically approval)
             if pending_req_env is not None and queued_resp is not None:
-                await ui.respond_packet(pending_req_env.msg_id, queued_resp)
+                await respond_packet(ui, pending_req_env.msg_id, queued_resp)
                 queued_resp = None
                 pending_req_env = None
             return
@@ -381,7 +408,7 @@ async def run_terminal(project: Project) -> None:
 
             # Auto-respond if we have a queued response (approval or user message)
             if pending_req_env is not None and queued_resp is not None:
-                await ui.respond_packet(pending_req_env.msg_id, queued_resp)
+                await respond_packet(ui, pending_req_env.msg_id, queued_resp)
                 queued_resp = None
                 pending_req_env = None
             return
@@ -483,19 +510,19 @@ async def run_terminal(project: Project) -> None:
 
                 if ev.kind == PACKET_MESSAGE_REQUEST:
                     if text == "":
-                        await ui.respond_packet(msg_id, None)
+                        await respond_packet(ui, msg_id, None)
                     else:
-                        await ui.respond_message(
-                            msg_id, Message(role="user", text=text)
+                        await respond_message(
+                            ui, msg_id, Message(role="user", text=text)
                         )
                     pending_req_env = None
                     continue
 
                 if ev.kind == PACKET_TOOL_CALL:
                     if text.strip().lower() in ("", "y", "yes"):
-                        await ui.respond_approval(msg_id, True)
+                        await respond_approval(ui, msg_id, True)
                     else:
-                        await ui.respond_approval(msg_id, False)
+                        await respond_approval(ui, msg_id, False)
                     pending_req_env = None
                     continue
 
@@ -504,11 +531,11 @@ async def run_terminal(project: Project) -> None:
                     if conf == Confirmation.confirm:
                         ans = text.strip().lower()
                         if ans in ("y", "yes"):
-                            await ui.respond_approval(msg_id, True)
+                            await respond_approval(ui, msg_id, True)
                             pending_req_env = None
                             continue
                         if ans in ("n", "no"):
-                            await ui.respond_approval(msg_id, False)
+                            await respond_approval(ui, msg_id, False)
                             pending_req_env = None
                             continue
                         out("Please answer Y or N.")
@@ -516,10 +543,10 @@ async def run_terminal(project: Project) -> None:
                         continue
                     # prompt mode behavior
                     if text.strip() == "":
-                        await ui.respond_approval(msg_id, True)
+                        await respond_approval(ui, msg_id, True)
                     else:
-                        await ui.respond_message(
-                            msg_id, Message(role="user", text=text)
+                        await respond_message(
+                            ui, msg_id, Message(role="user", text=text)
                         )
                     pending_req_env = None
                     continue
