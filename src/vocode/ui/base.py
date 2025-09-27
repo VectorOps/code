@@ -278,6 +278,12 @@ class UIState:
         )
 
     def is_active(self) -> bool:
+        if self.status in (
+            RunnerStatus.finished,
+            RunnerStatus.stopped,
+            RunnerStatus.canceled,
+        ):
+            return False
         return self._drive_task is not None and not self._drive_task.done()
 
     @property
