@@ -97,6 +97,7 @@ Concrete example: files that were read and already in context.
 * [ ] Nodes
 ** [X] Add project as a parameter to executor
 ** [ ] Add a node that injects files in context. Add file manager.
+*** [ ] Needs file auto-complete UI support
 *** [ ] Add file context manager
 *** [ ] Add UI support for file context management
 ** [X] [#A] Think how to manage state for a run

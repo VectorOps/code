@@ -90,20 +90,91 @@ class FileStateExecutor(Executor):
         self._ensure_commands_registered()
 
     def _ensure_commands_registered(self) -> None:
-        if getattr(self.project, "_file_state_cmds_registered", False):
+        # Idempotent: register only if missing. Survives CommandManager.clear().
+        existing = {
+            name
+            for name in ("fadd", "fdel", "flist")
+            if self.project.commands.get(name)
+        }
+        if existing == {"fadd", "fdel", "flist"}:
             return
 
         async def cmd_fadd(ctx: CommandContext, args: List[str]) -> Optional[str]:
             if not args:
                 return "usage: /fadd <relative-path> [more ...]"
-            added, skipped = get_file_state_ctx(ctx.project).add(args, ctx.project)
-            return f"/fadd: added={added} skipped={skipped}"
+            state = get_file_state_ctx(ctx.project)
+            to_add: List[str] = []
+            added_list: List[str] = []
+            skipped_details: List[tuple[str, str]] = []
+
+            # Validate, normalize, and dedupe for clearer reporting
+            for raw in args:
+                try:
+                    norm = state._validate_relpath(raw, ctx.project)
+                except Exception as e:
+                    skipped_details.append((raw, str(e)))
+                    continue
+                if norm in state.files or norm in to_add:
+                    skipped_details.append((raw, "already added"))
+                    continue
+                to_add.append(norm)
+
+            if to_add:
+                # Perform the actual addition
+                state.add(to_add, ctx.project)
+                added_list = list(to_add)
+
+            # Human-readable report
+            lines: List[str] = [
+                f"/fadd: added={len(added_list)} skipped={len(skipped_details)}"
+            ]
+            if added_list:
+                lines.append("Added:")
+                lines.extend(f"- {p}" for p in added_list)
+            if skipped_details:
+                lines.append("Skipped:")
+                lines.extend(f"- {raw} ({reason})" for raw, reason in skipped_details)
+            return "\n".join(lines)
 
         async def cmd_fdel(ctx: CommandContext, args: List[str]) -> Optional[str]:
             if not args:
                 return "usage: /fdel <relative-path> [more ...]"
-            removed, skipped = get_file_state_ctx(ctx.project).remove(args)
-            return f"/fdel: removed={removed} skipped={skipped}"
+            state = get_file_state_ctx(ctx.project)
+            removed_list: List[str] = []
+            skipped_details: List[tuple[str, str]] = []
+
+            # Normalize relative paths to project (without requiring file existence)
+            base = ctx.project.base_path.resolve()
+            for raw in args:
+                p = Path(raw)
+                if p.is_absolute():
+                    skipped_details.append((raw, f"Path must be relative to project: {raw}"))
+                    continue
+                try:
+                    full = (ctx.project.base_path / p).resolve()
+                    # Ensure path is within project
+                    norm_rel = full.relative_to(base).as_posix()
+                except Exception:
+                    skipped_details.append((raw, f"Path escapes project root: {raw}"))
+                    continue
+
+                # Remove normalized path if present
+                try:
+                    state.files.remove(norm_rel)
+                    removed_list.append(norm_rel)
+                except ValueError:
+                    skipped_details.append((raw, "not in context"))
+
+            lines: List[str] = [
+                f"/fdel: removed={len(removed_list)} skipped={len(skipped_details)}"
+            ]
+            if removed_list:
+                lines.append("Removed:")
+                lines.extend(f"- {p}" for p in removed_list)
+            if skipped_details:
+                lines.append("Skipped:")
+                lines.extend(f"- {raw} ({reason})" for raw, reason in skipped_details)
+            return "\n".join(lines)
 
         async def cmd_flist(ctx: CommandContext, args: List[str]) -> Optional[str]:
             files = get_file_state_ctx(ctx.project).list()
@@ -112,21 +183,20 @@ class FileStateExecutor(Executor):
             return "\n".join(files)
 
         self.project.commands.register(
-            "/fadd",
+            "fadd",
             "Add file(s) to FileState context",
             cmd_fadd,
             "usage: /fadd <relative-path> [more ...]",
         )
         self.project.commands.register(
-            "/fdel",
+            "fdel",
             "Remove file(s) from FileState context",
             cmd_fdel,
             "usage: /fdel <relative-path> [more ...]",
         )
         self.project.commands.register(
-            "/flist", "List files in FileState context", cmd_flist, "usage: /flist"
+            "flist", "List files in FileState context", cmd_flist, "usage: /flist"
         )
-        setattr(self.project, "_file_state_cmds_registered", True)
  
     async def run(
         self, inp: ExecRunInput

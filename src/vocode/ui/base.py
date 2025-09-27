@@ -134,9 +134,6 @@ class UIState:
                 self._selected_workflow_name = workflow.name
             self.assignment = assignment or Assignment()
             self._initial_message = initial_message
-            # New workflow: clear workflow-scoped custom commands
-            with contextlib.suppress(Exception):
-                self.project.commands.clear()
             self.runner = Runner(
                 workflow=workflow, project=self.project, initial_message=initial_message
             )
@@ -144,7 +141,6 @@ class UIState:
             self._last_status = None
             self._stop_signal.clear()
             self._drive_task = asyncio.create_task(self._drive_runner())
-            self._stop_watcher_task = asyncio.create_task(self._watch_stop_signal())
             self._stop_watcher_task = asyncio.create_task(self._watch_stop_signal())
 
     async def stop(self) -> None:
@@ -243,6 +239,9 @@ class UIState:
             self._drive_task.cancel()
             with contextlib.suppress(Exception):
                 await self._drive_task
+        except asyncio.CancelledError:
+            # Task was cancelled but should have handled cleanup; ignore
+            pass
         finally:
             self._drive_task = None
             self.runner = None
@@ -376,12 +375,6 @@ class UIState:
                     # Final status notification
                     await self._emit_status_if_changed()
                     break
-                except asyncio.CancelledError:
-                    # Propagate cancellation state out; runner.cancel/stop should set status accordingly
-                    with contextlib.suppress(Exception):
-                        await agen.aclose()
-                    await self._emit_status_if_changed()
-                    break
 
                 # Notify status transition, if any
                 await self._emit_status_if_changed()
@@ -432,6 +425,12 @@ class UIState:
                             )
                         )
 
+        except asyncio.CancelledError:
+            # Runner was cancelled/stopped while waiting (e.g., for UI input).
+            # Close the generator and emit final status, then exit cleanly.
+            with contextlib.suppress(Exception):
+                await agen.aclose()
+            await self._emit_status_if_changed()
         except Exception as e:
             logger.exception("UIState: runner driver failed: %s", e)
         finally:

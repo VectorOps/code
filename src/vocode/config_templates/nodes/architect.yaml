@@ -3,9 +3,6 @@ variables:
 name: architect
 type: llm
 model: ${LLM_ARCHITECT_MODEL}
-tools:
-  - vectorops_summarize_files
-  - vectorops_read_files
 outcomes:
   - name: done
 system: |

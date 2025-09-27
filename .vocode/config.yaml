@@ -26,6 +26,9 @@ workflows:
         confirmation: auto
       - $include:
           template: nodes/architect.yaml
+        tools:
+          - vectorops_summarize_files
+          - vectorops_read_files
         function_tokens_pct: 25
         reset_policy: keep_results
       - $include:
@@ -58,6 +61,7 @@ workflows:
     edges:
       - prompt.done -> architect
       - architect.done -> finish
+  # Aider-like explicit coder loop
   coder:
     nodes:
       - name: prompt
@@ -67,12 +71,21 @@ workflows:
         outcomes:
           - name: done
       - $include:
+          template: nodes/file_state.yaml
+      - $include:
+          template: nodes/architect.yaml
+      - $include:
           template: nodes/coder.yaml
-      - name: finish
-        type: noop
+          confirmation: auto
+      - $include:
+          template: nodes/apply_patch.yaml
     edges:
-      - prompt.done -> coder
-      - coder.done -> finish
+      - prompt.done -> file_state
+      - file_state.done -> architect
+      - architect.done -> coder
+      - coder.done -> apply
+      - apply.success -> prompt
+      - apply.fail -> coder:keep_state
   idler:
     nodes:
       - name: prompt
