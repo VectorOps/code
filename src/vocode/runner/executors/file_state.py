@@ -1,10 +1,11 @@
-from typing import AsyncIterator, Optional, Any, List
+from typing import AsyncIterator, Optional, Any, List, Dict
 from pathlib import Path
+import hashlib
 
 from pydantic import BaseModel, Field
 
 from vocode.runner.runner import Executor
-from vocode.models import Node
+from vocode.models import Node, ResetPolicy
 from vocode.state import Message
 from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 from vocode.commands import CommandContext
@@ -19,10 +20,22 @@ STRICT_DEFAULT_PROMPT = (
 class FileStateNode(Node):
     type: str = "file_state"
     prompt: str = Field(default=STRICT_DEFAULT_PROMPT)
+    reset_policy: ResetPolicy = Field(default=ResetPolicy.keep_state)
+
+
+class FileStateState(BaseModel):
+    hashes: Dict[str, str] = Field(default_factory=dict)
+
+def _hash_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 64), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 class FileStateContext(BaseModel):
-    files: List[str] = Field(default_factory=list)
+    files: Dict[str, str] = Field(default_factory=dict)
 
     def _validate_relpath(self, rel: str, project) -> str:
         p = Path(rel)
@@ -52,7 +65,13 @@ class FileStateContext(BaseModel):
             if norm_rel in self.files:
                 skipped += 1
                 continue
-            self.files.append(norm_rel)
+            full = (project.base_path / norm_rel).resolve()
+            try:
+                file_hash = _hash_file(full)
+            except Exception:
+                # If hashing fails, still record presence with empty hash
+                file_hash = ""
+            self.files[norm_rel] = file_hash
             added += 1
         return added, skipped
 
@@ -60,15 +79,15 @@ class FileStateContext(BaseModel):
         removed = 0
         skipped = 0
         for rel in rel_paths:
-            try:
-                self.files.remove(rel)
+            if rel in self.files:
+                self.files.pop(rel)
                 removed += 1
-            except ValueError:
+            else:
                 skipped += 1
         return removed, skipped
 
     def list(self) -> List[str]:
-        return list(self.files)
+        return list(self.files.keys())
 
 
 def get_file_state_ctx(project) -> FileStateContext:
@@ -159,10 +178,10 @@ class FileStateExecutor(Executor):
                     continue
 
                 # Remove normalized path if present
-                try:
-                    state.files.remove(norm_rel)
+                if norm_rel in state.files:
+                    state.files.pop(norm_rel)
                     removed_list.append(norm_rel)
-                except ValueError:
+                else:
                     skipped_details.append((raw, "not in context"))
 
             lines: List[str] = [
@@ -202,15 +221,40 @@ class FileStateExecutor(Executor):
         self, inp: ExecRunInput
     ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: FileStateNode = self.config  # type: ignore[assignment]
-        files = get_file_state_ctx(self.project).list()
+        ctx_files = get_file_state_ctx(self.project).list()
         base = self.project.base_path
 
-        parts: List[str] = [cfg.prompt]
-        for rel in files:
+        # Previous state (hashes) if available
+        prev_hashes: Dict[str, str] = {}
+        if isinstance(inp.state, FileStateState):
+            prev_hashes = dict(inp.state.hashes)
+        elif isinstance(inp.state, dict):
+            # Back-compat if raw dict was persisted
+            prev_hashes = {k: str(v) for k, v in inp.state.items()}
+
+        # Compute current hashes for tracked files that exist
+        cur_hashes: Dict[str, str] = {}
+        for rel in ctx_files:
             full = (base / rel)
             if not full.exists() or not full.is_file():
-                # If file disappeared since addition, skip silently
                 continue
+            try:
+                cur_hashes[rel] = _hash_file(full)
+            except Exception:
+                # Skip files we cannot hash
+                continue
+
+        # Which files to include:
+        # - First run (no state): include all
+        # - Subsequent runs: include only new/changed files
+        if prev_hashes:
+            include_rels = [rel for rel, h in cur_hashes.items() if prev_hashes.get(rel) != h]
+        else:
+            include_rels = list(cur_hashes.keys())
+
+        parts: List[str] = [cfg.prompt]
+        for rel in include_rels:
+            full = (base / rel)
             try:
                 content = full.read_text(encoding="utf-8", errors="replace")
             except Exception:
@@ -222,4 +266,7 @@ class FileStateExecutor(Executor):
 
         final_text = "\n\n".join(parts)
         final = Message(role="agent", text=final_text)
-        yield ReqFinalMessage(message=final), None
+
+        # Persist current hashes for next run
+        state_out = FileStateState(hashes=cur_hashes)
+        yield ReqFinalMessage(message=final), state_out

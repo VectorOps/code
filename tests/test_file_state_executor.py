@@ -36,7 +36,8 @@ async def test_file_state_executor_outputs_files_with_fences(tmp_path: Path):
         assert "README.md" in (lst or "")
 
         # Run the workflow; first event should be final message
-        agen = runner.run(Assignment())
+        assign = Assignment()
+        agen = runner.run(assign)
         event = await agen.__anext__()
         assert event.event.kind == PACKET_FINAL_MESSAGE
         text = event.event.message.text
@@ -56,6 +57,26 @@ async def test_file_state_executor_outputs_files_with_fences(tmp_path: Path):
         # Finish the generator
         with pytest.raises(StopAsyncIteration):
             await agen.asend(RunInput())
+
+        # Modify one file and run again; only changed files should be included
+        f1.write_text("print('hello again')\n", encoding="utf-8")
+
+        runner2 = Runner(wf, project)
+        agen2 = runner2.run(assign)
+        event2 = await agen2.__anext__()
+        assert event2.event.kind == PACKET_FINAL_MESSAGE
+        text2 = event2.event.message.text
+
+        # Prompt present
+        assert "STRICT:" in text2
+
+        # Only the changed file should be included
+        assert "File: src/a.py" in text2
+        assert "print('hello again')" in text2
+        assert "File: README.md" not in text2
+
+        with pytest.raises(StopAsyncIteration):
+            await agen2.asend(RunInput())
 
         # Remove a file and verify removal works
         msg2 = await project.commands.execute("fdel", ctx, ["README.md"])
