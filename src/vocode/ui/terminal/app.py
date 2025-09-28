@@ -17,6 +17,7 @@ from prompt_toolkit.formatted_text.utils import split_lines, fragment_list_width
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.enums import EditingMode
 from vocode.ui.terminal import colors
+from vocode.ui.terminal.completer import TerminalCompleter
 
 from vocode.project import Project
 from vocode.ui.terminal.buf import MessageBuffer
@@ -185,17 +186,25 @@ async def run_terminal(project: Project) -> None:
         elif mode == "emacs":
             editing_mode = EditingMode.EMACS
 
+    # Initialize commands early so the completer can reference them.
+    commands = register_default_commands(Commands(), ui)
+    completer = TerminalCompleter(ui, commands)
+
     try:
         hist_dir = project.base_path / ".vocode"
         hist_dir.mkdir(parents=True, exist_ok=True)
         hist_path = hist_dir / "data" / "terminal_history"
-        kwargs = {"history": FileHistory(str(hist_path)), "multiline": multiline}
+        kwargs = {
+            "history": FileHistory(str(hist_path)),
+            "multiline": multiline,
+            "completer": completer,
+        }
         if editing_mode is not None:
             kwargs["editing_mode"] = editing_mode
         session = PromptSession(**kwargs)
     except Exception:
         # Fall back to in-memory history if anything goes wrong
-        kwargs = {"multiline": multiline}
+        kwargs = {"multiline": multiline, "completer": completer}
         if editing_mode is not None:
             kwargs["editing_mode"] = editing_mode
         session = PromptSession(**kwargs)
@@ -263,7 +272,6 @@ async def run_terminal(project: Project) -> None:
     ctx = CommandContext(
         ui=ui, out=lambda s: out(s), stop_toggle=stop_toggle, request_exit=request_exit
     )
-    commands = register_default_commands(Commands())
 
     pending_req_env: Optional[UIPacketEnvelope] = None
     pending_cmd: Optional[str] = None

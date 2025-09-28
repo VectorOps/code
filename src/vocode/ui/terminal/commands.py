@@ -1,9 +1,17 @@
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
+import shlex
+from typing import Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING, Iterable, Union
+from prompt_toolkit.document import Document
+from prompt_toolkit.completion import Completion
 from vocode.state import RunnerStatus
 
 if TYPE_CHECKING:
     from vocode.ui.base import UIState
+
+# Callback type used for per-command completions.
+CommandCompletionProvider = Callable[
+    ["UIState", Document, List[str], str], Iterable[Union[str, Completion]]
+]
 
 
 @dataclass
@@ -20,16 +28,19 @@ class Command:
     help: str
     usage: Optional[str]
     handler: Callable[[CommandContext, List[str]], Awaitable[None]]
+    completer: Optional[CommandCompletionProvider] = None
 
 
 class Commands:
     def __init__(self) -> None:
         self._registry: Dict[str, Command] = {}
 
-    def register(self, name: str, help: str, usage: Optional[str] = None):
+    def register(
+        self, name: str, help: str, usage: Optional[str] = None, completer: Optional[CommandCompletionProvider] = None
+    ):
         def deco(func: Callable[[CommandContext, List[str]], Awaitable[None]]):
             self._registry[name] = Command(
-                name=name, help=help, usage=usage, handler=func
+                name=name, help=help, usage=usage, handler=func, completer=completer
             )
             return func
         return deco
@@ -41,15 +52,33 @@ class Commands:
         if name in self._registry:
             del self._registry[name]
 
+    def get(self, name: str) -> Optional[Command]:
+        return self._registry.get(name)
+
     async def run(self, line: str, ctx: CommandContext) -> bool:
-        parts = line.strip().split()
+        s = line.strip()
+        if not s:
+            return True
+        try:
+            # Shell-like parsing: supports quotes and backslash escaping.
+            # Disable comments to avoid treating '#' as a comment introducer.
+            lexer = shlex.shlex(s, posix=True)
+            lexer.whitespace_split = True
+            lexer.commenters = ""
+            parts = list(lexer)
+        except ValueError as e:
+            # Unbalanced quotes or similar parsing error.
+            ctx.out(f"Parse error: {e}")
+            return True
+
         if not parts:
             return True
         name = parts[0]
         cmd = self._registry.get(name)
         if cmd is None:
             return False
-        await cmd.handler(ctx, parts[1:])
+        args = parts[1:]
+        await cmd.handler(ctx, args)
         return True
 
 
@@ -106,7 +135,7 @@ async def _continue(ctx: CommandContext, args: List[str]) -> None:
         ctx.out(f"Failed to continue: {e}")
 
 
-def register_default_commands(commands: Commands) -> Commands:
+def register_default_commands(commands: Commands, ui: "UIState") -> Commands:
     # Help must access the instance to list commands; define it in this scope.
     @commands.register("/help", "Show available commands")
     async def _help(ctx: CommandContext, args: List[str]) -> None:
@@ -119,7 +148,19 @@ def register_default_commands(commands: Commands) -> Commands:
 
     # Register the rest of the built-ins against this instance.
     commands.register("/workflows", "List available workflows")(_workflows)
-    commands.register("/use", "Select and start a workflow", "<workflow>")(_use)
+
+    def _use_completer(
+        _ui: "UIState", _doc: Document, _args: List[str], arg_prefix: str
+    ):
+        names = _ui.list_workflows()
+        return [n for n in names if not arg_prefix or n.startswith(arg_prefix)]
+
+    commands.register(
+        "/use",
+        "Select and start a workflow",
+        "<workflow>",
+        completer=_use_completer,
+    )(_use)
     commands.register("/reset", "Reset current workflow from the beginning")(_reset)
     commands.register("/stop", "Stop current run (Ctrl+C). Press twice to cancel.")(_stop)
     commands.register("/quit", "Exit the CLI")(_quit)
