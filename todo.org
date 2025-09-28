@@ -1,6 +1,7 @@
-#+title: Code ToDo
-* [ ] Models
+#+title: Code TODO
+* [ ] Cleanup and optimizations
 ** [ ] Autocompleters needs consts at model level
+** [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 * [ ] Runner
 ** [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
 ** [X] ctrl+c after providing looping llm answer did not continue from that step - it started from initial step.
@@ -20,7 +21,7 @@
 ** [X] Add multi-line input
 ** [X] Add a flag to not show node output in the UI. Useful for input node, etc
 ** [ ] Add a way to restrict number of loops when cycling
-** [ ] Stopping executor with ctrl+c during input and then starting it with /use does not stop at input, but retries last input node
+** [ ] Stopping executor with ctrl+c during input and then starting it with /use does not stop at input, but retries last input node - verify
 ** [X] It seems like reset_policy: keep_results is keeping more than a single result. Maybe it should, but then we need keep_final policy too.
 * [ ] Configuration
 ** [X] Redo include file syntax to include section with default variable values
@@ -28,7 +29,6 @@
 ** [ ] Figure out why confirmation override for discovery did not work
 ** [ ] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
 ** [ ] Tweak prompt for discovery to only work with existing files
-* [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 Concrete example: files that were read and already in context.
 * [ ] Error handling
 ** [ ] Add exception handlers
@@ -36,7 +36,7 @@ Concrete example: files that were read and already in context.
 *** [ ] UI
 ** [ ] Tool calling timeouts and failures
 ** [ ] Add a way for human to unblock failures by retrying last operation
-* [ ] Cleanup all dependencies
+* [X] Cleanup all dependencies
 ** [X] Move graph models out of graph, move runtime graph generation out of Graph class
 ** [X] Move executor/models.py out to root
 ** [X] Move preprocessors to llm/ and move llm.py to llm/__init__.py
@@ -51,7 +51,10 @@ Concrete example: files that were read and already in context.
 *** [ ] Remove Agent: prefix
 ** [ ] Print node transitions
 ** [ ] Format tool calls
-** [ ] Assume markdown as default formatter
+*** [ ] JSON formatter and highlighter
+*** [ ] Add a way (tab?) to expand/collapse JSON
+*** [ ] Require all tool calls from LLM to have description (Key Objective)
+** [X] Assume markdown as default formatter
 ** [ ] Wrapped lines don't move caret down correctly - next line overwrites it.
 ** [X] Add way to show log messages (inline? out of process?)
 ** [X] Fix line breaks - if line is naturally too long, then moving caret to the beginning of the line does not work, we need to go one line up.
@@ -65,7 +68,7 @@ Concrete example: files that were read and already in context.
 - If workflow is stopped after finishing, then sending a new message should resume same workflow from the beginning
 - If workflow is canceled, then workflow should start new workflow
 ** [X] ctrl+c when runner is active does nothing - should stop the runner (verify, might not be the case)
-** [ ] We might have deadlock somewhere that does not break with ctrl+c
+** [?] We might have deadlock somewhere that does not break with ctrl+c
 - Added debugging stacktraces for now
 ** [X] Add file context management once corresponding node is created
 ** [ ] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
@@ -83,19 +86,14 @@ Concrete example: files that were read and already in context.
 * [ ] Block parsers
 ** [X] Code parsers
 ** [ ] Diff parsers
-*** [ ] GPT V4A diff format
+*** [X] GPT V4A diff format
 **** [X] Better error reporting and verify apply patch cycle
 **** [X] When multiple chunks match, but we can't match any of the chunks - return all possible lines
 **** [X] Add support for multi-blocks where multiple things are getting deleted and added.
 **** [X] Add support for multiple patch blocks or provide better instructions
-**** [ ] Allow multiple patches in a single request
-**** [ ] Better error instructions when blocks overlap
+**** [X] Better error instructions when blocks overlap
 *** [X] Fenced diff format
 *** [ ] Unified Diff format
-* [X] Settings
-** [X] Settings loader
-* [X] Chat state
-** [X] NodeLog, Section, Message
 * [ ] Nodes
 ** [X] Add project as a parameter to executor
 ** [X] Add a node that injects files in context. Add file manager.
@@ -147,7 +145,7 @@ Concrete example: files that were read and already in context.
 ** [ ] Create API to start a new workflow
 - Should start a runner
 - Wait for runner to finish
-- Pass all messages through to UI
+- Pass all messages through to UI, plumb via parent runner
 * [X] Graph
 ** [X] Rename output to be outcome
 ** [X] Refactor NodeExecution input_messages and messages. messages should be append only.

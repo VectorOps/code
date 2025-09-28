@@ -74,6 +74,7 @@ workflows:
           template: nodes/file_state.yaml
       - $include:
           template: nodes/architect.yaml
+          reset_policy: keep_state
       - $include:
           template: nodes/coder.yaml
           confirmation: auto
