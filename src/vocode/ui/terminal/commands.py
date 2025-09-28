@@ -1,6 +1,15 @@
 from dataclasses import dataclass
 import shlex
-from typing import Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING, Iterable, Union
+from typing import (
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    TYPE_CHECKING,
+    Iterable,
+    Union,
+)
 from prompt_toolkit.document import Document
 from prompt_toolkit.completion import Completion
 from vocode.state import RunnerStatus
@@ -13,7 +22,9 @@ if TYPE_CHECKING:
 # Callback type used for per-command completions.
 CommandCompletionProvider = Callable[
     ["UIState", Document, List[str], str],
-    Union[Iterable[Union[str, Completion]], Awaitable[Iterable[Union[str, Completion]]]],
+    Union[
+        Iterable[Union[str, Completion]], Awaitable[Iterable[Union[str, Completion]]]
+    ],
 ]
 
 
@@ -40,13 +51,18 @@ class Commands:
         self._registry: Dict[str, Command] = {}
 
     def register(
-        self, name: str, help: str, usage: Optional[str] = None, completer: Optional[CommandCompletionProvider] = None
+        self,
+        name: str,
+        help: str,
+        usage: Optional[str] = None,
+        completer: Optional[CommandCompletionProvider] = None,
     ):
         def deco(func: Callable[[CommandContext, List[str]], Awaitable[None]]):
             self._registry[name] = Command(
                 name=name, help=help, usage=usage, handler=func, completer=completer
             )
             return func
+
         return deco
 
     def list_commands(self) -> List[Command]:
@@ -88,11 +104,14 @@ class Commands:
 
 # Built-in command handlers (registration happens via register_default_commands)
 
+
 async def _workflows(ctx: CommandContext, args: List[str]) -> None:
     names: List[str] = []
     try:
-        res = await ctx.rpc.call(UIPacketCompletionRequest(name="workflow_list", params={}), timeout=3.0)
-        if res and res.kind == PACKET_COMPLETION_RESULT and getattr(res, "ok", False):
+        res = await ctx.rpc.call(
+            UIPacketCompletionRequest(name="workflow_list", params={}), timeout=3.0
+        )
+        if res and res.kind == PACKET_COMPLETION_RESULT and res.ok:
             names = list(res.suggestions)
         else:
             # Fallback to direct API if RPC not available or failed
@@ -117,6 +136,7 @@ async def _use(ctx: CommandContext, args: List[str]) -> None:
         await ctx.ui.use(name)
     except Exception as e:
         ctx.out(f"Failed to start workflow '{name}': {e}")
+
 
 async def _run(ctx: CommandContext, args: List[str]) -> None:
     if not args:
@@ -178,22 +198,14 @@ def register_default_commands(
     # Register the rest of the built-ins against this instance.
     commands.register("/workflows", "List available workflows")(_workflows)
 
-    def _use_completer(
-        _ui: "UIState", _doc: Document, _args: List[str], arg_prefix: str
-    ):
-        names = _ui.list_workflows()
-        return [n for n in names if not arg_prefix or n.startswith(arg_prefix)]
-
-    commands.register(
-        "/use",
-        "Select and start a workflow",
-        "<workflow>",
-        completer=_use_completer,
-    )(_use)
     commands.register("/reset", "Reset current workflow from the beginning")(_reset)
-    commands.register("/stop", "Stop current run (Ctrl+C). Press twice to cancel.")(_stop)
+    commands.register("/stop", "Stop current run (Ctrl+C). Press twice to cancel.")(
+        _stop
+    )
     commands.register("/quit", "Exit the CLI")(_quit)
-    commands.register("/continue", "Continue execution if the runner is stopped")(_continue)
+    commands.register("/continue", "Continue execution if the runner is stopped")(
+        _continue
+    )
 
     commands.register(
         "/run",

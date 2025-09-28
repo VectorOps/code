@@ -1,5 +1,6 @@
 name: file_state
 type: file_state
 confirmation: auto
+message_mode: concatenate_final
 outcomes:
   - name: done

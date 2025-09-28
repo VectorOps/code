@@ -1,4 +1,6 @@
 #+title: Code ToDo
+* [ ] Models
+** [ ] Autocompleters needs consts at model level
 * [ ] Runner
 ** [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
 ** [X] ctrl+c after providing looping llm answer did not continue from that step - it started from initial step.
@@ -92,14 +94,14 @@ Concrete example: files that were read and already in context.
 *** [ ] Unified Diff format
 * [X] Settings
 ** [X] Settings loader
-* [ ] Chat state
+* [X] Chat state
 ** [X] NodeLog, Section, Message
 * [ ] Nodes
 ** [X] Add project as a parameter to executor
-** [ ] Add a node that injects files in context. Add file manager.
-*** [ ] Needs file auto-complete UI support
-*** [ ] Add file context manager
-*** [ ] Add UI support for file context management
+** [X] Add a node that injects files in context. Add file manager.
+*** [X] Needs file auto-complete UI support
+*** [X] Add file context manager
+*** [X] Add UI support for file context management
 ** [X] [#A] Think how to manage state for a run
 ** [X] Base node runner class
 ** [ ] LLM node

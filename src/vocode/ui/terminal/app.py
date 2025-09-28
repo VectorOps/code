@@ -337,7 +337,14 @@ async def run_terminal(project: Project) -> None:
                     pending_cmd = None
                     change_event.set()
 
-            commands.register(cli_name, c.help or "", c.usage)(_proxy)  # type: ignore[arg-type]
+            commands.register(
+                cli_name,
+                c.help or "",
+                c.usage,
+                (ac_factory(c.autocompleter) if c.autocompleter else None),
+            )(
+                _proxy
+            )  # type: ignore[arg-type]
             dynamic_cli_commands.add(cli_name)
             existing_names.add(cli_name)
         # Unregister removed commands only if they were dynamically added

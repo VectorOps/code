@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional, TYPE_CHECKING, List, Union, Any, Callable, Awaitable, Dict
+from typing import Optional, TYPE_CHECKING, List, Union, Any, Dict
 import contextlib
 from vocode.settings import build_model_from_settings
 
@@ -39,17 +39,8 @@ if TYPE_CHECKING:
     from vocode.project import Project
 
 
-AutoCompletionHandler = Callable[[Dict[str, Any]], Awaitable[List[str]]]
-class AutoCompletionManager:
-    def __init__(self, ui: "UIState") -> None:
-        self._ui = ui
-        self._registry: Dict[str, AutoCompletionHandler] = {}
-    def register(self, name: str, handler: AutoCompletionHandler) -> None:
-        self._registry[name] = handler
-    def unregister(self, name: str) -> None:
-        self._registry.pop(name, None)
-    def get(self, name: str) -> Optional[AutoCompletionHandler]:
-        return self._registry.get(name)
+from .autocomplete import AutoCompletionManager
+from .autocomplete_providers import ac_workflow_list, ac_filelist
 
 
 class UIState:
@@ -71,13 +62,9 @@ class UIState:
             self._outgoing.put, "UIState", id_generator=self._next_msg_id
         )
         self.autocomplete = AutoCompletionManager(self)
-        async def _ac_workflow_list(params: Dict[str, Any]) -> List[str]:
-            names = self.list_workflows()
-            prefix = str(params.get("prefix", "") or "")
-            if prefix:
-                return [n for n in names if n.startswith(prefix)]
-            return names
-        self.autocomplete.register("workflow_list", _ac_workflow_list)
+
+        self.autocomplete.register("workflow_list", ac_workflow_list)
+        self.autocomplete.register("filelist", ac_filelist)
         # Dedicated task for forwarding command events and a router for incoming packets
         self._drive_task: Optional[asyncio.Task] = None
         self._stop_watcher_task: Optional[asyncio.Task] = None
@@ -474,7 +461,9 @@ class UIState:
             while True:
                 delta = await q.get()
                 added = [
-                    UICommand(name=c.name, help=c.help, usage=c.usage)
+                    UICommand(
+                        name=c.name, help=c.help, usage=c.usage, autocompleter=c.autocompleter
+                    )
                     for c in delta.added
                 ]
                 await self._outgoing.put(
@@ -550,7 +539,7 @@ class UIState:
             )
         else:
             try:
-                suggestions = await handler(req.params or {})
+                suggestions = await handler(self, req.params or {})
                 resp = UIPacketCompletionResult(ok=True, suggestions=suggestions)
             except Exception as ex:
                 resp = UIPacketCompletionResult(ok=False, suggestions=[], error=str(ex))

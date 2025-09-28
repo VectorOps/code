@@ -11,7 +11,7 @@ from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 from vocode.commands import CommandContext
 
 STRICT_DEFAULT_PROMPT = (
-    "STRICT: The following files were explicitly added by the developer to your context. "
+    "The following files were explicitly added by the developer to your context. "
     "Discard and ignore any prior versions of these files you received earlier. "
     "Use only the versions provided below."
 )
@@ -25,6 +25,7 @@ class FileStateNode(Node):
 
 class FileStateState(BaseModel):
     hashes: Dict[str, str] = Field(default_factory=dict)
+
 
 def _hash_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -167,7 +168,9 @@ class FileStateExecutor(Executor):
             for raw in args:
                 p = Path(raw)
                 if p.is_absolute():
-                    skipped_details.append((raw, f"Path must be relative to project: {raw}"))
+                    skipped_details.append(
+                        (raw, f"Path must be relative to project: {raw}")
+                    )
                     continue
                 try:
                     full = (ctx.project.base_path / p).resolve()
@@ -206,17 +209,19 @@ class FileStateExecutor(Executor):
             "Add file(s) to FileState context",
             cmd_fadd,
             "usage: /fadd <relative-path> [more ...]",
+            autocompleter="filelist",
         )
         self.project.commands.register(
             "fdel",
             "Remove file(s) from FileState context",
             cmd_fdel,
             "usage: /fdel <relative-path> [more ...]",
+            autocompleter="filelist",
         )
         self.project.commands.register(
             "flist", "List files in FileState context", cmd_flist, "usage: /flist"
         )
- 
+
     async def run(
         self, inp: ExecRunInput
     ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
@@ -235,7 +240,7 @@ class FileStateExecutor(Executor):
         # Compute current hashes for tracked files that exist
         cur_hashes: Dict[str, str] = {}
         for rel in ctx_files:
-            full = (base / rel)
+            full = base / rel
             if not full.exists() or not full.is_file():
                 continue
             try:
@@ -248,13 +253,15 @@ class FileStateExecutor(Executor):
         # - First run (no state): include all
         # - Subsequent runs: include only new/changed files
         if prev_hashes:
-            include_rels = [rel for rel, h in cur_hashes.items() if prev_hashes.get(rel) != h]
+            include_rels = [
+                rel for rel, h in cur_hashes.items() if prev_hashes.get(rel) != h
+            ]
         else:
             include_rels = list(cur_hashes.keys())
 
         parts: List[str] = [cfg.prompt]
         for rel in include_rels:
-            full = (base / rel)
+            full = base / rel
             try:
                 content = full.read_text(encoding="utf-8", errors="replace")
             except Exception:

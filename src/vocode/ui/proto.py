@@ -30,6 +30,7 @@ class UICommand(BaseModel):
     name: str
     help: str
     usage: Optional[str] = None
+    autocompleter: Optional[str] = None
 
 
 class UIPacketCustomCommands(BaseModel):

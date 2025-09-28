@@ -21,6 +21,7 @@ class CommandDef:
     help: str
     usage: Optional[str]
     handler: Callable[[CommandContext, List[str]], Awaitable[Optional[str]]]
+    autocompleter: Optional[str] = None
 
 
 @dataclass
@@ -40,18 +41,29 @@ class CommandManager:
         help: str,
         handler: Callable[[CommandContext, List[str]], Awaitable[Optional[str]]],
         usage: Optional[str] = None,
+        autocompleter: Optional[str] = None,
     ) -> None:
         # If replacing, emit as remove + add
         if name in self._registry:
             old = self._registry[name]
             self._registry[name] = CommandDef(
-                name=name, help=help, usage=usage, handler=handler
+                name=name,
+                help=help,
+                usage=usage,
+                handler=handler,
+                autocompleter=autocompleter,
             )
             self._notify(
                 CommandDelta(added=[self._registry[name]], removed=[old.name])
             )
             return
-        cmd = CommandDef(name=name, help=help, usage=usage, handler=handler)
+        cmd = CommandDef(
+            name=name,
+            help=help,
+            usage=usage,
+            handler=handler,
+            autocompleter=autocompleter,
+        )
         self._registry[name] = cmd
         self._notify(CommandDelta(added=[cmd], removed=[]))
 
