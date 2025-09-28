@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 from enum import Enum
+import json
 import re
 from pygments.lexers.markup import MarkdownLexer
 
@@ -181,3 +182,42 @@ def get_console_style() -> Style:
     Return a prompt_toolkit Style to be used with print_formatted_text when rendering markdown.
     """
     return _CONSOLE_STYLE
+
+
+def render_json(data: Any) -> AnyFormattedText:
+    """
+    Pretty-print JSON with syntax highlighting.
+    - If data is str/bytes, attempt json.loads; on failure, render as plain text.
+    - Otherwise, json.dumps with indent=2 (ensure_ascii=False).
+    Falls back to plain text tokens if serialization or lexing fails.
+    """
+    text: str
+    try:
+        if isinstance(data, (bytes, bytearray)):
+            s = data.decode("utf-8", errors="replace")
+            try:
+                obj = json.loads(s)
+                text = json.dumps(obj, indent=2, ensure_ascii=False)
+            except Exception:
+                tokens = list(pygments.lex(s, TextLexer()))
+                return PygmentsTokens(tokens)
+        elif isinstance(data, str):
+            try:
+                obj = json.loads(data)
+                text = json.dumps(obj, indent=2, ensure_ascii=False)
+            except Exception:
+                tokens = list(pygments.lex(data, TextLexer()))
+                return PygmentsTokens(tokens)
+        else:
+            # Best-effort pretty print; may raise if not JSON-serializable
+            text = json.dumps(data, indent=2, ensure_ascii=False)
+    except Exception:
+        tokens = list(pygments.lex(str(data), TextLexer()))
+        return PygmentsTokens(tokens)
+
+    try:
+        lexer = get_lexer_by_name("json")
+    except Exception:
+        lexer = TextLexer()
+    tokens = list(pygments.lex(text, lexer))
+    return PygmentsTokens(tokens)

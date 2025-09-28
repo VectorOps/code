@@ -144,16 +144,20 @@ class FileStateExecutor(Executor):
                 state.add(to_add, ctx.project)
                 added_list = list(to_add)
 
-            # Human-readable report
-            lines: List[str] = [
-                f"/fadd: added={len(added_list)} skipped={len(skipped_details)}"
-            ]
+            # Human-readable report (no counts; show individual files and errors; always show current files)
+            lines: List[str] = []
             if added_list:
                 lines.append("Added:")
                 lines.extend(f"- {p}" for p in added_list)
             if skipped_details:
-                lines.append("Skipped:")
-                lines.extend(f"- {raw} ({reason})" for raw, reason in skipped_details)
+                lines.append("Errors:")
+                lines.extend(f"- {raw}: {reason}" for raw, reason in skipped_details)
+            files_now = state.list()
+            lines.append("Files in context:")
+            if files_now:
+                lines.extend(f"- {p}" for p in files_now)
+            else:
+                lines.append("(none)")
             return "\n".join(lines)
 
         async def cmd_fdel(ctx: CommandContext, args: List[str]) -> Optional[str]:
@@ -187,15 +191,19 @@ class FileStateExecutor(Executor):
                 else:
                     skipped_details.append((raw, "not in context"))
 
-            lines: List[str] = [
-                f"/fdel: removed={len(removed_list)} skipped={len(skipped_details)}"
-            ]
+            lines: List[str] = []
             if removed_list:
                 lines.append("Removed:")
                 lines.extend(f"- {p}" for p in removed_list)
             if skipped_details:
-                lines.append("Skipped:")
-                lines.extend(f"- {raw} ({reason})" for raw, reason in skipped_details)
+                lines.append("Errors:")
+                lines.extend(f"- {raw}: {reason}" for raw, reason in skipped_details)
+            files_now = state.list()
+            lines.append("Files in context:")
+            if files_now:
+                lines.extend(f"- {p}" for p in files_now)
+            else:
+                lines.append("(none)")
             return "\n".join(lines)
 
         async def cmd_flist(ctx: CommandContext, args: List[str]) -> Optional[str]:

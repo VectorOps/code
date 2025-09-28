@@ -406,7 +406,8 @@ async def run_terminal(project: Project) -> None:
             _finish_stream()
             out(f"Tool calls requested: {len(ev.tool_calls)}")
             for i, tc in enumerate(ev.tool_calls, start=1):
-                out(f"  {i}. {tc.name}({tc.arguments})")
+                out(f"  {i}. {tc.name} arguments:")
+                out_fmt(colors.render_json(tc.arguments))
             pending_req_env = envelope if req_payload.event.input_requested else None
             # Auto-respond if we have a queued response (typically approval)
             if pending_req_env is not None and queued_resp is not None:

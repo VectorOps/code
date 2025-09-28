@@ -28,7 +28,11 @@ async def test_file_state_executor_outputs_files_with_fences(tmp_path: Path):
         # Commands are registered by executor initialization in Runner
         ctx = CommandContext(project=project, ui=None)  # ui not used
         msg1 = await project.commands.execute("fadd", ctx, ["src/a.py", "README.md"])
-        assert msg1 is not None and "added=2" in msg1
+        assert msg1 is not None
+        assert "Added:" in msg1
+        assert "- src/a.py" in msg1
+        assert "- README.md" in msg1
+        assert "Files in context:" in msg1
 
         # Sanity: list shows added files
         lst = await project.commands.execute("flist", ctx, [])
@@ -80,4 +84,8 @@ async def test_file_state_executor_outputs_files_with_fences(tmp_path: Path):
 
         # Remove a file and verify removal works
         msg2 = await project.commands.execute("fdel", ctx, ["README.md"])
-        assert msg2 is not None and "removed=1" in msg2
+        assert msg2 is not None
+        assert "Removed:" in msg2
+        assert "- README.md" in msg2
+        assert "Files in context:" in msg2
+        assert "- src/a.py" in msg2

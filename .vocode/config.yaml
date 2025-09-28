@@ -72,6 +72,7 @@ workflows:
           - name: done
       - $include:
           template: nodes/file_state.yaml
+          reset_policy: keep_state
       - $include:
           template: nodes/architect.yaml
           reset_policy: keep_state
