@@ -31,7 +31,10 @@ from .patch import (
 # Node
 class ApplyPatchNode(Node):
     type: str = "apply_patch"
-    patch_format: str = Field(default="v4a", description="Patch format identifier (currently only 'v4a' is supported)")
+    format: str = Field(
+        default="v4a",
+        description="Patch format identifier ('v4a' or 'patch')",
+    )
 
 
 # Internal state
@@ -43,6 +46,7 @@ class PatchFormat:
         [str, Callable[[str], str], Callable[[str, str], None], Callable[[str], None]],
         Tuple[Dict[str, "FileApplyStatus"], List[Any]],
     ]
+
 
 SUPPORTED_PATCH_FORMATS: Dict[str, PatchFormat] = {
     "v4a": PatchFormat(
@@ -66,9 +70,13 @@ class ApplyPatchExecutor(Executor):
     def __init__(self, config, project):
         super().__init__(config=config, project=project)
         if not isinstance(config, ApplyPatchNode):
-            raise TypeError("ApplyPatchExecutor requires config to be an ApplyPatchNode")
+            raise TypeError(
+                "ApplyPatchExecutor requires config to be an ApplyPatchNode"
+            )
         if config.reset_policy != ResetPolicy.always_reset:
-            raise ValueError("ApplyPatchExecutor supports only ResetPolicy.always_reset")
+            raise ValueError(
+                "ApplyPatchExecutor supports only ResetPolicy.always_reset"
+            )
 
     def _resolve_safe_path(self, rel: str) -> pathlib.Path:
         if rel.startswith("/") or rel.startswith("~"):
@@ -104,25 +112,31 @@ class ApplyPatchExecutor(Executor):
         except OSError as e:
             raise DiffError(f"Failed to remove file: {rel}: {e}") from e
 
-
-    async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
+    async def run(
+        self, inp: ExecRunInput
+    ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: ApplyPatchNode = self.config  # type: ignore[assignment]
 
         # Enforce supported patch formats
-        fmt = (cfg.patch_format or "v4a").lower()
+        fmt = (cfg.format or "v4a").lower()
+
         fmt_entry = SUPPORTED_PATCH_FORMATS.get(fmt)
         if fmt_entry is None:
             supported = ", ".join(sorted(SUPPORTED_PATCH_FORMATS.keys()))
             final = Message(
                 role="agent",
-                text=f"Unsupported patch format: {cfg.patch_format}. Supported formats: {supported}",
+                text=f"Unsupported patch format: {cfg.format}. Supported formats: {supported}",
             )
             yield (ReqFinalMessage(message=final, outcome_name="fail"), inp.state)
             return
 
         # Determine source text: let patchers extract actual patch content
         source_text: Optional[str] = None
-        if inp.response is not None and inp.response.kind == PACKET_MESSAGE and inp.response.message is not None:
+        if (
+            inp.response is not None
+            and inp.response.kind == PACKET_MESSAGE
+            and inp.response.message is not None
+        ):
             source_text = inp.response.message.text or ""
         elif inp.messages:
             # Use the last message text as the source
@@ -131,7 +145,6 @@ class ApplyPatchExecutor(Executor):
             # Ask user for a message containing a patch
             yield (ReqMessageRequest(), inp.state)
             return
-
 
         outcome = "success"
         try:
@@ -150,7 +163,10 @@ class ApplyPatchExecutor(Executor):
                 if new_type == FileChangeType.DELETED:
                     changes_map[rel] = new_type
                 elif new_type == FileChangeType.UPDATED:
-                    if prev != FileChangeType.CREATED and prev != FileChangeType.DELETED:
+                    if (
+                        prev != FileChangeType.CREATED
+                        and prev != FileChangeType.DELETED
+                    ):
                         changes_map[rel] = new_type
 
             def tracking_write(rel: str, content: str) -> None:
@@ -161,7 +177,9 @@ class ApplyPatchExecutor(Executor):
                     # If resolution fails, default to assuming it existed so we mark UPDATED; underlying write will raise
                     existed = True
                 self._write_file(rel, content)
-                _record(rel, FileChangeType.UPDATED if existed else FileChangeType.CREATED)
+                _record(
+                    rel, FileChangeType.UPDATED if existed else FileChangeType.CREATED
+                )
 
             def tracking_remove(rel: str) -> None:
                 self._remove_file(rel)
@@ -175,28 +193,44 @@ class ApplyPatchExecutor(Executor):
                 delete_fn=tracking_remove,
             )
             # Compose result message based on statuses and errors
-            created = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Create])
-            updated_full = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Update])
-            updated_partial = sorted([f for f, s in statuses.items() if s == FileApplyStatus.PartialUpdate])
-            deleted = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Delete])
+            created = sorted(
+                [f for f, s in statuses.items() if s == FileApplyStatus.Create]
+            )
+            updated_full = sorted(
+                [f for f, s in statuses.items() if s == FileApplyStatus.Update]
+            )
+            updated_partial = sorted(
+                [f for f, s in statuses.items() if s == FileApplyStatus.PartialUpdate]
+            )
+            deleted = sorted(
+                [f for f, s in statuses.items() if s == FileApplyStatus.Delete]
+            )
 
             if errs:
                 # Determine what actually got applied based on successful IO (changes_map)
                 actually_applied = sorted(changes_map.keys())
                 applied_any = bool(actually_applied)
 
-                failed_files = sorted({e.filename for e in errs if getattr(e, "filename", None)})
+                failed_files = sorted(
+                    {e.filename for e in errs if getattr(e, "filename", None)}
+                )
                 # Ask to regenerate chunks for partial files and for files that failed entirely
-                targets_for_fix = sorted(set(updated_partial) | (set(failed_files) - set(actually_applied)))
+                targets_for_fix = sorted(
+                    set(updated_partial) | (set(failed_files) - set(actually_applied))
+                )
 
                 lines: list[str] = []
                 if not applied_any:
                     # Nothing was applied at all: request a brand new full patch
                     lines.append("Failed to apply patch. No changes were applied.")
-                    lines.append("Please generate a new complete patch that applies cleanly to the current repository state.")
+                    lines.append(
+                        "Please generate a new complete patch that applies cleanly to the current repository state."
+                    )
                 else:
                     # Some changes landed: summarize precisely and ask to regenerate only failed chunks
-                    lines.append("Applied patch partially. Some changes were written, but at least one chunk failed.")
+                    lines.append(
+                        "Applied patch partially. Some changes were written, but at least one chunk failed."
+                    )
 
                     # What actually happened on disk
                     if actually_applied:
@@ -206,18 +240,24 @@ class ApplyPatchExecutor(Executor):
 
                     # Be explicit about partials
                     if updated_partial:
-                        lines.append("Files with partial updates (some chunks applied, some failed):")
+                        lines.append(
+                            "Files with partial updates (some chunks applied, some failed):"
+                        )
                         for f in updated_partial:
                             lines.append(f"* {f}")
 
                     # Ask for regeneration of failed pieces only
                     if targets_for_fix:
-                        lines.append("Please regenerate patch chunks only for the failed parts in these files:")
+                        lines.append(
+                            "Please regenerate patch chunks only for the failed parts in these files:"
+                        )
                         for f in targets_for_fix:
                             lines.append(f"* {f}")
                     else:
                         # Fallback if we could not identify a specific target list
-                        lines.append("Please regenerate patch chunks for the parts that failed.")
+                        lines.append(
+                            "Please regenerate patch chunks for the parts that failed."
+                        )
 
                 # Append detailed error list with hints
                 lines.append("Errors:")

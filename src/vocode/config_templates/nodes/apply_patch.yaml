@@ -1,6 +1,8 @@
+variables:
+  LLM_DIFF_FORMAT: v4a
 name: apply
 type: apply_patch
-format: v4a
+format: ${LLM_DIFF_FORMAT}
 confirmation: auto
 outcomes:
   - name: success

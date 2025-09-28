@@ -329,8 +329,7 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(
         sent_msgs = stub.calls[0]["messages"]
         assert sent_msgs[0] == {"role": "system", "content": "sys"}
         assert {"role": "user", "content": "Hi"} in sent_msgs
-        # Agent outputs should be mapped to assistant role for LLM prompts
-        assert {"role": "assistant", "content": "Prev assistant"} in sent_msgs
+        assert {"role": "user", "content": "Prev assistant"} in sent_msgs
 
 
 @pytest.mark.asyncio

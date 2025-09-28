@@ -131,8 +131,7 @@ class LLMExecutor(Executor):
             # Apply LLMNode-specific preprocessors to the system prompt only
             preprocs = cfg.preprocessors or []
             if preprocs:
-                preproc_names = [p.name for p in preprocs]
-                sys_text = apply_preprocessors(preproc_names, sys_text)
+                sys_text = apply_preprocessors(preprocs, sys_text)
             msgs.append({"role": "system", "content": sys_text})
         for m in history:
             msgs.append(map_role(m))

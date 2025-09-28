@@ -767,3 +767,46 @@ workflows:
     settings = load_settings(str(root))
     wf = settings.workflows["t"]
     assert wf.config["val"] == 123
+
+
+def test_variables_reference_to_variable(tmp_path: Path):
+    cfg = _w(
+        tmp_path,
+        "vars_ref.yml",
+        """
+variables:
+  a: ${b}
+  b: 10
+workflows:
+  t:
+    config:
+      x: ${a}
+      y: ${b}
+    nodes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(cfg))
+    wf = settings.workflows["t"]
+    assert wf.config["x"] == 10
+    assert wf.config["y"] == 10
+
+
+def test_variables_cycle_detection(tmp_path: Path):
+    cfg = _w(
+        tmp_path,
+        "vars_cycle.yml",
+        """
+variables:
+  a: ${b}
+  b: ${a}
+workflows:
+  t:
+    config:
+      x: ${a}
+    nodes: []
+    edges: []
+""",
+    )
+    with pytest.raises(ValueError, match=r"resolution cycle"):
+        _ = load_settings(str(cfg))

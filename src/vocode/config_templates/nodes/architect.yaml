@@ -44,4 +44,4 @@ system: |
 
   * **Plan**: Ordered, concise steps to implement.
   * **Architecture**: Impacted modules/files, data flow, responsibilities.
-  * **Changes**: High-level file-level edits with brief rationale.
+  * **Changes**: High-level file-level edits with brief rationale. Only diffs should be returned for user to understand the changes.

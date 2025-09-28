@@ -1,13 +1,13 @@
 variables:
   LLM_CODER_MODEL: gpt-5-mini
-  LLM_CODER_DIFF_FORMAT: v4a
+  LLM_DIFF_FORMAT: v4a
 name: coder
 type: llm
 model: ${LLM_CODER_MODEL}
 preprocessors:
   - name: diff
     options:
-      format: ${LLM_CODER_DIFF_FORMAT}
+      format: ${LLM_DIFF_FORMAT}
 outcomes:
   - name: done
 system: |

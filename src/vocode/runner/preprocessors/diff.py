@@ -6,7 +6,9 @@ from vocode.runner.executors.apply_patch import SUPPORTED_PATCH_FORMATS
 from vocode.runner.preprocessors.base import register_preprocessor
 
 
-def _diff_preprocessor(text: str, options: Optional[Dict[str, Any]] = None, **_: Any) -> str:
+def _diff_preprocessor(
+    text: str, options: Optional[Dict[str, Any]] = None, **_: Any
+) -> str:
     """
     Inject additional system instructions for diff patching formats.
     Options:
@@ -16,6 +18,8 @@ def _diff_preprocessor(text: str, options: Optional[Dict[str, Any]] = None, **_:
       - Otherwise, returns the text unchanged.
     """
     fmt = (options or {}).get("format", "v4a")
+
+    print(options)
 
     if isinstance(fmt, str):
         fmt = fmt.lower().strip()

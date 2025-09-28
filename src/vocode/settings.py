@@ -132,6 +132,47 @@ def _apply_var_prefix_to_map(
     return {f"{prefix}{k}": v for k, v in vars_map.items()}
 
 
+def _resolve_variables(vars_map: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Resolve variables that reference other variables. Only supports full-match references:
+      - a: ${b}  -> a takes the resolved value of b (can be scalar/obj/list)
+    Partial interpolation inside variable values is NOT performed here.
+    Unknown references are left unmodified as the original placeholder string.
+    Detects cycles and raises ValueError.
+    """
+    resolved: Dict[str, Any] = {}
+    resolving: Set[str] = set()
+
+    def resolve_one(name: str) -> Any:
+        if name in resolved:
+            return resolved[name]
+        if name in resolving:
+            raise ValueError(f"Detected variable resolution cycle at '{name}'")
+        resolving.add(name)
+        val = vars_map.get(name)
+        # Only resolve if the value is a full-match variable reference
+        if isinstance(val, str):
+            m = VAR_PATTERN.fullmatch(val)
+            if m:
+                ref = m.group(1)
+                if ref in vars_map:
+                    res = resolve_one(ref)
+                else:
+                    # Unknown variable refs are left as the placeholder string
+                    res = val
+                resolved[name] = res
+                resolving.remove(name)
+                return res
+        # Non-strings or non-full-match strings are returned as-is
+        resolved[name] = val
+        resolving.remove(name)
+        return val
+
+    for k in vars_map.keys():
+        resolve_one(k)
+    return resolved
+
+
 def _interpolate_string(s: str, vars_map: Dict[str, Any]) -> str:
     def repl(m: re.Match) -> str:
         name = m.group(1)
@@ -455,8 +496,12 @@ def load_settings(path: str) -> Settings:
     vars_map.update(included_vars)
     vars_map.update(root_vars)
 
+    # Resolve variable-to-variable references (e.g., a: ${b}) with cycle detection
+    vars_map = _resolve_variables(vars_map)
+
     # Interpolate and build models
     data = _apply_variables(data_any, vars_map)
+
     return Settings.model_validate(data)
 
 
