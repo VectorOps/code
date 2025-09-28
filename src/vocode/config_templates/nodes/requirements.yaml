@@ -1,6 +1,8 @@
+variables:
+  LLM_REQUIREMENTS_MODEL: gpt-5-mini
 name: requirements
 type: llm
-model: gpt-5
+model: ${LLM_REQUIREMENTS_MODEL}
 tools:
   - vectorops_list_files
   - vectorops_search

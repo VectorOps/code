@@ -136,6 +136,11 @@ class LLMExecutor(Executor):
             msgs.append({"role": "system", "content": sys_text})
         for m in history:
             msgs.append(map_role(m))
+
+        # Ensure the conversation ends with a 'user' message so the model is prompted correctly
+        if msgs and msgs[-1].get("role") != "user":
+            msgs[-1]["role"] = "user"
+
         return msgs
 
     def _parse_outcome_from_text(
@@ -250,18 +255,23 @@ class LLMExecutor(Executor):
             or 0.0
         )
 
-    def _get_round_cost(self, stream: Any, model: str) -> float:
-        """Get cost from litellm completion response. Pass model to help pricing map."""
-
+    def _get_round_cost(
+        self,
+        stream: Any,
+        model: str,
+        cfg: "LLMNode",
+        prompt_tokens: int,
+        completion_tokens: int,
+    ) -> float:
+        """Get cost from litellm completion response, with fallback to node.extra per-1k pricing."""
         round_cost = 0.0
         try:
             # Primary method: use litellm.completion_cost()
-            # Explicitly pass model to help LiteLLM price when response lacks model metadata
             cost = completion_cost(completion_response=stream, model=model)
             if cost is not None:
                 round_cost = float(cost)
         except Exception:
-            pass  # Fallback to other methods
+            pass  # Continue to fallbacks
 
         if round_cost == 0.0:
             # Fallback to hidden params for some models/older litellm versions
@@ -275,7 +285,16 @@ class LLMExecutor(Executor):
                     if cost is not None:
                         round_cost = float(cost)
             except Exception:
-                pass  # Cost will be 0.0 if all methods fail
+                pass
+
+        if round_cost == 0.0:
+            # Final fallback: compute using per-1k pricing configured on the node.
+            in_per_1k = self._get_input_cost_per_1k(cfg)
+            out_per_1k = self._get_output_cost_per_1k(cfg)
+            if in_per_1k > 0.0 or out_per_1k > 0.0:
+                round_cost = (prompt_tokens / 1000.0) * in_per_1k + (
+                    completion_tokens / 1000.0
+                ) * out_per_1k
         return round_cost
 
     async def run(
@@ -506,7 +525,9 @@ class LLMExecutor(Executor):
                     assistant_text, cfg.model
                 )
 
-            round_cost = self._get_round_cost(stream, cfg.model)
+            round_cost = self._get_round_cost(
+                stream, cfg.model, cfg, prompt_tokens, completion_tokens
+            )
 
             self.project.add_llm_usage(
                 prompt_delta=prompt_tokens,

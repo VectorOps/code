@@ -229,6 +229,13 @@ async def run_terminal(project: Project) -> None:
     def _(event):
         asyncio.create_task(stop_toggle())
 
+    # Ctrl+G: Reset/clear the current input buffer (including multiline).
+    # Eager so it overrides any default bindings.
+    @kb.add("c-g", eager=True)
+    def _(event):
+        buf = event.app.current_buffer
+        buf.reset()
+
     # Register a SIGINT handler that triggers stop_toggle so Ctrl-C works
     # even when not focused on prompt_toolkit. Save the previous handler so
     # it can be restored on exit.

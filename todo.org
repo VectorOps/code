@@ -24,6 +24,7 @@
 ** [ ] Stopping executor with ctrl+c during input and then starting it with /use does not stop at input, but retries last input node - verify
 ** [X] It seems like reset_policy: keep_results is keeping more than a single result. Maybe it should, but then we need keep_final policy too.
 * [ ] Configuration
+** [ ] Add a way to cascade variables by setting variable value to other variable value, recursively
 ** [X] Redo include file syntax to include section with default variable values
 ** [ ] Update templates and parametrize them via variables
 ** [ ] Figure out why confirmation override for discovery did not work
@@ -45,6 +46,9 @@ Concrete example: files that were read and already in context.
 ** [ ] Add syntax name hint to apply formatting
 ** [X] Better event handler loop as current implementation is hacky
 * [ ] Terminal UI
+** [ ] When ctrl+c is pressed while waiting for user input and runner is stopped, need to cancel waiter.
+** [ ] Continue after stopping runner on input does not show correct prompt
+** [ ] Add command to reload config without restart
 ** [ ] Add shortcuts to cancel current input easily
 ** [ ] Simple styling
 *** [ ] Color usage

@@ -1,6 +1,10 @@
 # Default Vocode configuration
 ui:
-  log_level: info
+  log_level: debug
+variables:
+  LLM_DISCOVERY_MODEL: gemini/gemini-2.5-flash
+  LLM_ARCHITECT_MODEL: gemini/gemini-2.5-pro
+  LLM_CODER_MODEL: gemini/gemini-2.5-flash
 tools:
   - name: vectorops_read_files
     auto_approve: true
@@ -70,6 +74,7 @@ workflows:
         type: input
         message: Enter your request
         confirmation: auto
+        hide_final_output: true
         outcomes:
           - name: done
       - $include:

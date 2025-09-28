@@ -34,7 +34,7 @@ def test_build_simple_graph_ok():
     assert rg.graph._children_names("A") == ["B"]
 
     # Plugin dispatch to subclasses
-    print(rg.graph.nodes, repr(RootNode), "!", repr(rg.graph.nodes[0]))
+    # print(rg.graph.nodes, repr(RootNode), "!", repr(rg.graph.nodes[0]))
     assert isinstance(rg.graph.nodes[0], RootNode)
     assert isinstance(rg.graph.nodes[1], ChildNode)
 
@@ -75,7 +75,9 @@ def test_duplicate_edges_from_same_slot_error():
         {"source_node": "A", "source_outcome": "x", "target_node": "B1"},
         {"source_node": "A", "source_outcome": "x", "target_node": "B2"},
     ]
-    with pytest.raises(ValueError, match="Multiple edges found from the same outcome slot"):
+    with pytest.raises(
+        ValueError, match="Multiple edges found from the same outcome slot"
+    ):
         build(nodes=nodes, edges=edges)
 
 
@@ -85,5 +87,7 @@ def test_missing_edges_for_declared_outcome_slot_error():
         {"name": "B", "type": "child", "outcomes": []},
     ]
     edges = [{"source_node": "A", "source_outcome": "x", "target_node": "B"}]
-    with pytest.raises(ValueError, match=r"Missing edges for declared outcome slots: A:y"):
+    with pytest.raises(
+        ValueError, match=r"Missing edges for declared outcome slots: A:y"
+    ):
         build(nodes=nodes, edges=edges)
