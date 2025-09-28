@@ -4,6 +4,8 @@ from typing import Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING, Ite
 from prompt_toolkit.document import Document
 from prompt_toolkit.completion import Completion
 from vocode.state import RunnerStatus
+from vocode.ui.rpc import RpcHelper
+from vocode.ui.proto import UIPacketCompletionRequest, PACKET_COMPLETION_RESULT
 
 if TYPE_CHECKING:
     from vocode.ui.base import UIState
@@ -21,6 +23,7 @@ class CommandContext:
     out: Callable[[str], None]
     stop_toggle: Callable[[], Awaitable[None]]  # first call -> stop, second -> cancel
     request_exit: Callable[[], None]
+    rpc: RpcHelper
 
 
 @dataclass
@@ -86,7 +89,18 @@ class Commands:
 # Built-in command handlers (registration happens via register_default_commands)
 
 async def _workflows(ctx: CommandContext, args: List[str]) -> None:
-    names = ctx.ui.list_workflows()
+    names: List[str] = []
+    try:
+        res = await ctx.rpc.call(UIPacketCompletionRequest(name="workflow_list", params={}), timeout=3.0)
+        if res and res.kind == PACKET_COMPLETION_RESULT and getattr(res, "ok", False):
+            names = list(res.suggestions)
+        else:
+            # Fallback to direct API if RPC not available or failed
+            names = ctx.ui.list_workflows()
+    except Exception:
+        # Fallback to direct API on any RPC error
+        names = ctx.ui.list_workflows()
+
     if not names:
         ctx.out("No workflows configured.")
         return

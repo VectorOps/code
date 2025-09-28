@@ -272,7 +272,11 @@ async def run_terminal(project: Project) -> None:
             session.app.exit(result="")
 
     ctx = CommandContext(
-        ui=ui, out=lambda s: out(s), stop_toggle=stop_toggle, request_exit=request_exit
+        ui=ui,
+        out=lambda s: out(s),
+        stop_toggle=stop_toggle,
+        request_exit=request_exit,
+        rpc=rpc,
     )
 
     pending_req_env: Optional[UIPacketEnvelope] = None
