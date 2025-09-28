@@ -10,7 +10,8 @@ if TYPE_CHECKING:
 
 # Callback type used for per-command completions.
 CommandCompletionProvider = Callable[
-    ["UIState", Document, List[str], str], Iterable[Union[str, Completion]]
+    ["UIState", Document, List[str], str],
+    Union[Iterable[Union[str, Completion]], Awaitable[Iterable[Union[str, Completion]]]],
 ]
 
 
@@ -103,6 +104,16 @@ async def _use(ctx: CommandContext, args: List[str]) -> None:
     except Exception as e:
         ctx.out(f"Failed to start workflow '{name}': {e}")
 
+async def _run(ctx: CommandContext, args: List[str]) -> None:
+    if not args:
+        ctx.out("Usage: /run <workflow>")
+        return
+    name = args[0]
+    try:
+        await ctx.ui.use(name)
+    except Exception as e:
+        ctx.out(f"Failed to run workflow '{name}': {e}")
+
 
 async def _reset(ctx: CommandContext, args: List[str]) -> None:
     try:
@@ -135,7 +146,11 @@ async def _continue(ctx: CommandContext, args: List[str]) -> None:
         ctx.out(f"Failed to continue: {e}")
 
 
-def register_default_commands(commands: Commands, ui: "UIState") -> Commands:
+def register_default_commands(
+    commands: Commands,
+    ui: "UIState",
+    ac_factory: Optional[Callable[[str], CommandCompletionProvider]] = None,
+) -> Commands:
     # Help must access the instance to list commands; define it in this scope.
     @commands.register("/help", "Show available commands")
     async def _help(ctx: CommandContext, args: List[str]) -> None:
@@ -165,4 +180,12 @@ def register_default_commands(commands: Commands, ui: "UIState") -> Commands:
     commands.register("/stop", "Stop current run (Ctrl+C). Press twice to cancel.")(_stop)
     commands.register("/quit", "Exit the CLI")(_quit)
     commands.register("/continue", "Continue execution if the runner is stopped")(_continue)
+
+    commands.register(
+        "/run",
+        "Run a workflow",
+        "<workflow>",
+        completer=(ac_factory("workflow_list") if ac_factory else None),
+    )(_run)
+
     return commands

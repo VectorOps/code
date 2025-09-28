@@ -18,6 +18,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.enums import EditingMode
 from vocode.ui.terminal import colors
 from vocode.ui.terminal.completer import TerminalCompleter
+from vocode.ui.terminal.ac_client import make_canned_provider
 
 from vocode.project import Project
 from vocode.ui.terminal.buf import MessageBuffer
@@ -175,6 +176,7 @@ async def run_terminal(project: Project) -> None:
     ui = UIState(project)
 
     rpc = RpcHelper(ui.send, "TerminalApp", id_generator=ui.next_client_msg_id)
+    ac_factory = lambda name: make_canned_provider(rpc, name)
 
     ui_cfg = project.settings.ui if project.settings else None
     multiline = True if ui_cfg is None else bool(ui_cfg.multiline)
@@ -187,7 +189,7 @@ async def run_terminal(project: Project) -> None:
             editing_mode = EditingMode.EMACS
 
     # Initialize commands early so the completer can reference them.
-    commands = register_default_commands(Commands(), ui)
+    commands = register_default_commands(Commands(), ui, ac_factory=ac_factory)
     completer = TerminalCompleter(ui, commands)
 
     try:

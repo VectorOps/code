@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 from typing import Callable, Dict, Iterable, List, Optional, Union
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
@@ -7,11 +9,6 @@ from prompt_toolkit.document import Document
 from .commands import Commands, CommandCompletionProvider
 from vocode.ui.base import UIState
 
-# Provider signature: given the document, parsed args (excluding the command),
-# and the word currently being completed (arg_prefix), return strings or Completion objects.
-CommandCompletionProvider = Callable[
-    [Document, List[str], str], Iterable[Union[str, Completion]]
-]
 
 # Optional non-command provider: given the document and current word prefix.
 GeneralCompletionProvider = Callable[
@@ -100,3 +97,33 @@ class TerminalCompleter(Completer):
                 yield s
             else:
                 yield Completion(str(s), start_position=-len(arg_prefix))
+
+    async def get_completions_async(self, document: Document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            if self._general_provider is None:
+                return
+            cursor_at_space = text.endswith(" ")
+            tokens = text.split()
+            current_word = "" if cursor_at_space else (tokens[-1] if tokens else "")
+            for s in self._general_provider(document, current_word):
+                yield s if isinstance(s, Completion) else Completion(str(s), start_position=-len(current_word))
+            return
+        cursor_at_space = text.endswith(" ")
+        tokens = text.split()
+        current_word = "" if cursor_at_space else (tokens[-1] if tokens else "")
+        if len(tokens) <= 1 and not cursor_at_space:
+            prefix = current_word
+            for name in sorted(self._command_names()):
+                if name.startswith(prefix):
+                    yield Completion(name, start_position=-len(prefix))
+            return
+        cmd_name = tokens[0] if tokens else ""
+        args = tokens[1:] if len(tokens) > 1 else []
+        arg_prefix = "" if cursor_at_space else (current_word if len(tokens) >= 2 else "")
+        cmd = self._commands.get(cmd_name)
+        provider = (cmd.completer if cmd and cmd.completer else self._default_cmd_provider)
+        result = provider(self._ui, document, args, arg_prefix)
+        suggestions = await result if inspect.isawaitable(result) else result
+        for s in suggestions:
+            yield s if isinstance(s, Completion) else Completion(str(s), start_position=-len(arg_prefix))

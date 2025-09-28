@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional, TYPE_CHECKING, List, Union
+from typing import Optional, TYPE_CHECKING, List, Union, Any, Callable, Awaitable, Dict
 import contextlib
 from vocode.settings import build_model_from_settings
 
@@ -23,16 +23,33 @@ from .proto import (
     UIPacketStatus,
     UIPacketRunInput,
     UIPacketCustomCommands,
+    UIPacketCompletionRequest,
+    UIPacketCompletionResult,
     UIPacketCommandResult,
     UIPacketRunCommand,
     UICommand,
     PACKET_RUN_INPUT,
     PACKET_RUN_COMMAND,
+    PACKET_COMPLETION_REQUEST,
+    PACKET_COMPLETION_RESULT,
 )
 from .rpc import RpcHelper
 
 if TYPE_CHECKING:
     from vocode.project import Project
+
+
+AutoCompletionHandler = Callable[[Dict[str, Any]], Awaitable[List[str]]]
+class AutoCompletionManager:
+    def __init__(self, ui: "UIState") -> None:
+        self._ui = ui
+        self._registry: Dict[str, AutoCompletionHandler] = {}
+    def register(self, name: str, handler: AutoCompletionHandler) -> None:
+        self._registry[name] = handler
+    def unregister(self, name: str) -> None:
+        self._registry.pop(name, None)
+    def get(self, name: str) -> Optional[AutoCompletionHandler]:
+        return self._registry.get(name)
 
 
 class UIState:
@@ -53,12 +70,19 @@ class UIState:
         self._rpc = RpcHelper(
             self._outgoing.put, "UIState", id_generator=self._next_msg_id
         )
-        # Dedicated queue for custom run_command invocations
-        self._incoming_cmds: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
+        self.autocomplete = AutoCompletionManager(self)
+        async def _ac_workflow_list(params: Dict[str, Any]) -> List[str]:
+            names = self.list_workflows()
+            prefix = str(params.get("prefix", "") or "")
+            if prefix:
+                return [n for n in names if n.startswith(prefix)]
+            return names
+        self.autocomplete.register("workflow_list", _ac_workflow_list)
+        # Dedicated task for forwarding command events and a router for incoming packets
         self._drive_task: Optional[asyncio.Task] = None
         self._stop_watcher_task: Optional[asyncio.Task] = None
         self._cmd_events_task: Optional[asyncio.Task] = None
-        self._cmd_calls_task: Optional[asyncio.Task] = None
+        self._incoming_router_task: Optional[asyncio.Task] = None
         self._msg_counter: int = 0
         self._client_msg_counter: int = 0
         self._last_status: Optional[RunnerStatus] = None
@@ -67,9 +91,9 @@ class UIState:
         self._lock = asyncio.Lock()
         self._stop_signal: asyncio.Event = asyncio.Event()
         # LLM usage totals are stored on Project.llm_usage and proxied via properties.
-        # Start background tasks for command deltas and command invocations
+        # Start background tasks for command deltas and incoming packet routing
         self._cmd_events_task = asyncio.create_task(self._forward_command_events())
-        self._cmd_calls_task = asyncio.create_task(self._process_command_calls())
+        self._incoming_router_task = asyncio.create_task(self._route_incoming_packets())
 
     def _next_msg_id(self) -> int:
         self._msg_counter += 1
@@ -105,11 +129,8 @@ class UIState:
         if envelope.source_msg_id is not None and self._rpc.handle_response(envelope):
             return
 
-        # Route run_command packets to a dedicated queue to avoid interfering with runner flow.
-        if envelope.payload.kind == PACKET_RUN_COMMAND:
-            await self._incoming_cmds.put(envelope)
-        else:
-            await self._incoming.put(envelope)
+        # All incoming packets (including run_command and completion_request) are placed on the single incoming queue.
+        await self._incoming.put(envelope)
 
     # ------------------------
     # Runner lifecycle control
@@ -254,9 +275,6 @@ class UIState:
             with contextlib.suppress(asyncio.QueueEmpty):
                 while True:
                     self._incoming.get_nowait()
-            with contextlib.suppress(asyncio.QueueEmpty):
-                while True:
-                    self._incoming_cmds.get_nowait()
 
     async def use(
         self, name: str, *, initial_message: Optional[Message] = None
@@ -472,37 +490,75 @@ class UIState:
         except Exception as e:
             logger.exception("UIState: command events forwarder failed: %s", e)
 
-    async def _process_command_calls(self) -> None:
-        # Handle UIRespRunCommand packets arriving from the UI client.
-        from vocode.commands import CommandContext as ExecCommandContext
-
+    async def _route_incoming_packets(self) -> None:
         try:
             while True:
-                envelope = await self._incoming_cmds.get()
-                rc = envelope.payload
-                if rc.kind != PACKET_RUN_COMMAND:
-                    continue
-                name = rc.name
-                args: List[str] = list(rc.input or [])
-                ctx = ExecCommandContext(project=self.project, ui=self)  # type: ignore[arg-type]
-                ok = True
-                output: Optional[str] = None
-                error: Optional[str] = None
-                try:
-                    output = await self.project.commands.execute(name, ctx, args)
-                except Exception as ex:
-                    ok = False
-                    error = str(ex)
-                await self._outgoing.put(
-                    UIPacketEnvelope(
-                        msg_id=self._next_msg_id(),
-                        source_msg_id=envelope.msg_id,
-                        payload=UIPacketCommandResult(
-                            name=name, ok=ok, output=output, error=error
-                        ),
-                    )
-                )
+                envelope = await self._incoming.get()
+                kind = envelope.payload.kind
+                if kind == PACKET_RUN_COMMAND:
+                    await self._handle_run_command(envelope)
+                elif kind == PACKET_COMPLETION_REQUEST:
+                    await self._handle_completion_request(envelope)
+                else:
+                    # Non-command/completion requests should be handled elsewhere (e.g., RPC responses).
+                    # Ignore unknown requests.
+                    pass
         except asyncio.CancelledError:
             return
         except Exception as e:
-            logger.exception("UIState: command call processor failed: %s", e)
+            logger.exception("UIState: incoming packet router failed: %s", e)
+
+    async def _handle_run_command(self, envelope: UIPacketEnvelope) -> None:
+        from vocode.commands import CommandContext as ExecCommandContext
+
+        rc = envelope.payload
+        if rc.kind != PACKET_RUN_COMMAND:
+            return
+
+        name = rc.name
+        args: List[str] = list(rc.input or [])
+        ctx = ExecCommandContext(project=self.project, ui=self)  # type: ignore[arg-type]
+        ok = True
+        output: Optional[str] = None
+        error: Optional[str] = None
+
+        try:
+            output = await self.project.commands.execute(name, ctx, args)
+        except Exception as ex:
+            ok = False
+            error = str(ex)
+
+        await self._outgoing.put(
+            UIPacketEnvelope(
+                msg_id=self._next_msg_id(),
+                source_msg_id=envelope.msg_id,
+                payload=UIPacketCommandResult(
+                    name=name, ok=ok, output=output, error=error
+                ),
+            )
+        )
+
+    async def _handle_completion_request(self, envelope: UIPacketEnvelope) -> None:
+        req = envelope.payload
+        if req.kind != PACKET_COMPLETION_REQUEST:
+            return
+
+        handler = self.autocomplete.get(req.name)
+        if not handler:
+            resp = UIPacketCompletionResult(
+                ok=False, suggestions=[], error=f"Unknown autocompleter '{req.name}'"
+            )
+        else:
+            try:
+                suggestions = await handler(req.params or {})
+                resp = UIPacketCompletionResult(ok=True, suggestions=suggestions)
+            except Exception as ex:
+                resp = UIPacketCompletionResult(ok=False, suggestions=[], error=str(ex))
+
+        await self._outgoing.put(
+            UIPacketEnvelope(
+                msg_id=self._next_msg_id(),
+                source_msg_id=envelope.msg_id,
+                payload=resp,
+            )
+        )
