@@ -462,10 +462,40 @@ async def run_terminal(project: Project) -> None:
 
                 # TODO: Propagate up
                 print("Exception", traceback.format_exc())
+    # Show startup banner (configurable)
+    show_banner = True
+    if ui_cfg is not None:
+        show_banner = ui_cfg.show_banner
 
+    if show_banner:
+        banner_lines = [
+            r" _      ____  __   _____  ___   ___   ___   ___   __       __    ___   ___   ____ ",
+            r"\ \  / | |_  / /`   | |  / / \ | |_) / / \ | |_) ( (`     / /`  / / \ | | \ | |_  ",
+            r" \_\/  |_|__ \_\_,  |_|  \_\_/ |_| \ \_\_/ |_|   _)_)     \_\_, \_\_/ |_|_/ |_|__ ",
+        ]
+
+        colors_fg = [
+            "ansimagenta",
+            "ansiblue",
+            "ansicyan",
+            "ansigreen",
+            "ansiyellow",
+            "ansired",
+        ]
+        # Build prompt_toolkit fragments to preserve spacing/alignment.
+        fragments = []
+        for line, fg in zip(banner_lines, colors_fg):
+            fragments.append((f"fg:{fg}", line + "\n"))
+        # Add a blank line and the help hint as part of the same terminal write to avoid reordering.
+        fragments.append(("", "\n"))
+        fragments.append(("", "Type /help for commands.\n"))
+        out_fmt(fragments)
+    else:
+        out("Type /help for commands.")
+
+    # Start event consumer after initial banner/help to avoid interleaved output on startup.
     consumer_task = asyncio.create_task(event_consumer())
 
-    out("Type /help for commands.")
     try:
         while True:
             # Wait until we should show a prompt:

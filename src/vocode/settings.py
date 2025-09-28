@@ -14,7 +14,9 @@ from know.settings import ProjectSettings as KnowProjectSettings
 
 
 # Base path for packaged template configs, e.g. include: { vocode: "nodes/requirements.yaml" }
-VOCODE_TEMPLATE_BASE: Path = (Path(__file__).resolve().parent / "config_templates").resolve()
+VOCODE_TEMPLATE_BASE: Path = (
+    Path(__file__).resolve().parent / "config_templates"
+).resolve()
 # Include spec keys for bundled templates. Support GitLab 'template', legacy 'vocode', and 'templates'
 TEMPLATE_INCLUDE_KEYS: Final[Set[str]] = {"template", "templates", "vocode"}
 # Variable replacement pattern: only support ${ABC}
@@ -39,7 +41,9 @@ class Workflow(BaseModel):
         if isinstance(nodes, list):
             # Convert dicts to Node instances using the registry-based dispatcher
             data = dict(data)
-            data["nodes"] = [Node.from_obj(n) if isinstance(n, dict) else n for n in nodes]
+            data["nodes"] = [
+                Node.from_obj(n) if isinstance(n, dict) else n for n in nodes
+            ]
         return data
 
 
@@ -48,6 +52,7 @@ class ToolSettings(BaseModel):
     enabled: bool = True
     auto_approve: Optional[bool] = None
 
+
 class UISettings(BaseModel):
     # When true, PromptSession accepts multi-line input (Enter can insert newlines)
     multiline: bool = True
@@ -55,6 +60,9 @@ class UISettings(BaseModel):
     edit_mode: Optional[Literal["emacs", "vim"]] = None
     # Minimum log level to display in the terminal.
     log_level: LogLevel = LogLevel.info
+    # Show banner
+    show_banner: bool = True
+
 
 class Settings(BaseModel):
     workflows: Dict[str, Workflow] = Field(default_factory=dict)
@@ -70,7 +78,9 @@ class Settings(BaseModel):
 
 
 # Configuration loading
-def _deep_merge_dicts(a: Dict[str, Any], b: Dict[str, Any], *, concat_lists: bool = False) -> Dict[str, Any]:
+def _deep_merge_dicts(
+    a: Dict[str, Any], b: Dict[str, Any], *, concat_lists: bool = False
+) -> Dict[str, Any]:
     out = dict(a)
     for k, v in (b or {}).items():
         if k in out and isinstance(out[k], dict) and isinstance(v, dict):
@@ -113,10 +123,14 @@ def _collect_variables(doc: Dict[str, Any]) -> Dict[str, Any]:
                             out[k] = v
     return out
 
-def _apply_var_prefix_to_map(vars_map: Dict[str, Any], prefix: Optional[str]) -> Dict[str, Any]:
+
+def _apply_var_prefix_to_map(
+    vars_map: Dict[str, Any], prefix: Optional[str]
+) -> Dict[str, Any]:
     if not prefix:
         return dict(vars_map)
     return {f"{prefix}{k}": v for k, v in vars_map.items()}
+
 
 def _interpolate_string(s: str, vars_map: Dict[str, Any]) -> str:
     def repl(m: re.Match) -> str:
@@ -129,7 +143,9 @@ def _interpolate_string(s: str, vars_map: Dict[str, Any]) -> str:
         if isinstance(val, (dict, list)):
             return json.dumps(val, ensure_ascii=False)
         return str(val)
+
     return VAR_PATTERN.sub(repl, s)
+
 
 def _apply_variables(obj: Any, vars_map: Dict[str, Any]) -> Any:
     if isinstance(obj, str):
@@ -145,6 +161,7 @@ def _apply_variables(obj: Any, vars_map: Dict[str, Any]) -> Any:
     if isinstance(obj, list):
         return [_apply_variables(v, vars_map) for v in obj]
     return obj
+
 
 def _expand_include_patterns(base: Path, pattern: str) -> List[Path]:
     """
@@ -176,11 +193,15 @@ def _expand_include_patterns(base: Path, pattern: str) -> List[Path]:
             continue
         matches.append(cand.resolve())
     if not matches:
-        raise ValueError(f"Include pattern '{pattern}' under base '{base}' did not match any files")
+        raise ValueError(
+            f"Include pattern '{pattern}' under base '{base}' did not match any files"
+        )
     return matches
 
 
-def _collect_include_paths(spec: Any, base_dir: Path) -> List[tuple[Path, Dict[str, Any]]]:
+def _collect_include_paths(
+    spec: Any, base_dir: Path
+) -> List[tuple[Path, Dict[str, Any]]]:
     if spec is None:
         return []
 
@@ -198,12 +219,17 @@ def _collect_include_paths(spec: Any, base_dir: Path) -> List[tuple[Path, Dict[s
             raise TypeError("var_prefix must be a string")
         return opts
 
-    def make_entries(paths: List[Path], base_opts: Dict[str, Any]) -> List[tuple[Path, Dict[str, Any]]]:
+    def make_entries(
+        paths: List[Path], base_opts: Dict[str, Any]
+    ) -> List[tuple[Path, Dict[str, Any]]]:
         return [(p, dict(base_opts)) for p in paths]
 
     def norm_one(item: Any) -> List[tuple[Path, Dict[str, Any]]]:
         if isinstance(item, str):
-            return make_entries(_expand_include_patterns(base_dir, item), {"import_vars": True, "vars": {}, "var_prefix": None})
+            return make_entries(
+                _expand_include_patterns(base_dir, item),
+                {"import_vars": True, "vars": {}, "var_prefix": None},
+            )
         if isinstance(item, dict):
             opts = parse_opts(item)
 
@@ -234,7 +260,9 @@ def _collect_include_paths(spec: Any, base_dir: Path) -> List[tuple[Path, Dict[s
                 for p in item["files"]:
                     paths.extend(_expand_include_patterns(base_dir, p))
             else:
-                raise ValueError(f"Unsupported include dict keys for location: {list(item.keys())}")
+                raise ValueError(
+                    f"Unsupported include dict keys for location: {list(item.keys())}"
+                )
 
             return make_entries(paths, opts)
         if isinstance(item, list):
@@ -245,6 +273,7 @@ def _collect_include_paths(spec: Any, base_dir: Path) -> List[tuple[Path, Dict[s
         raise TypeError(f"Unsupported include item type: {type(item).__name__}")
 
     return norm_one(spec)
+
 
 def _combine_included_values(values: List[Any]) -> Any:
     if not values:
@@ -259,9 +288,14 @@ def _combine_included_values(values: List[Any]) -> Any:
         for v in values:
             acc_list.extend(v)
         return acc_list
-    raise ValueError("All included files must produce the same type (all dicts or all lists)")
+    raise ValueError(
+        "All included files must produce the same type (all dicts or all lists)"
+    )
 
-def _preprocess_includes(node: Any, base_dir: Path, seen: Set[Path]) -> tuple[Any, Dict[str, Any]]:
+
+def _preprocess_includes(
+    node: Any, base_dir: Path, seen: Set[Path]
+) -> tuple[Any, Dict[str, Any]]:
     if isinstance(node, dict):
         # If this dict contains a $include, expand it and merge/replace as appropriate
         if INCLUDE_KEY in node:
@@ -285,7 +319,9 @@ def _preprocess_includes(node: Any, base_dir: Path, seen: Set[Path]) -> tuple[An
                         inc_data = dict(inc_data)
                         inc_data.pop("variables", None)
 
-                    inc_proc, inc_vars_nested = _preprocess_includes(inc_data, inc_path.parent, seen)
+                    inc_proc, inc_vars_nested = _preprocess_includes(
+                        inc_data, inc_path.parent, seen
+                    )
 
                     # Merge nested include variables then the included file's own top-level variables
                     inc_all_vars = dict(inc_vars_nested)
@@ -294,7 +330,9 @@ def _preprocess_includes(node: Any, base_dir: Path, seen: Set[Path]) -> tuple[An
                     # Apply optional prefix
                     var_prefix = opts.get("var_prefix")
                     if var_prefix:
-                        inc_all_vars = _apply_var_prefix_to_map(inc_all_vars, var_prefix)
+                        inc_all_vars = _apply_var_prefix_to_map(
+                            inc_all_vars, var_prefix
+                        )
 
                     # Import included variables unless disabled
                     if opts.get("import_vars", True):
@@ -315,7 +353,9 @@ def _preprocess_includes(node: Any, base_dir: Path, seen: Set[Path]) -> tuple[An
             # - every included file must resolve to a dict (mapping)
             for i_val, (i_path, _) in zip(included_payloads, entries):
                 if not isinstance(i_val, dict):
-                    raise ValueError(f"Included file must be a mapping/object: {i_path}")
+                    raise ValueError(
+                        f"Included file must be a mapping/object: {i_path}"
+                    )
 
             # Process the rest of this dict (other keys beside $include)
             rest = {k: v for k, v in node.items() if k != INCLUDE_KEY}
@@ -338,7 +378,10 @@ def _preprocess_includes(node: Any, base_dir: Path, seen: Set[Path]) -> tuple[An
                 acc_vars.update(rest_vars)
 
                 if isinstance(combined, dict) and isinstance(rest_proc, dict):
-                    return _deep_merge_dicts(combined, rest_proc, concat_lists=False), acc_vars
+                    return (
+                        _deep_merge_dicts(combined, rest_proc, concat_lists=False),
+                        acc_vars,
+                    )
                 # If combined were a list, we would have merged above when 'rest' is present
                 return rest_proc, acc_vars
 
@@ -365,7 +408,10 @@ def _preprocess_includes(node: Any, base_dir: Path, seen: Set[Path]) -> tuple[An
 
     return node, {}
 
-def _load_and_preprocess(path: Union[str, Path], seen: Optional[Set[Path]] = None) -> tuple[Any, Dict[str, Any], Dict[str, Any]]:
+
+def _load_and_preprocess(
+    path: Union[str, Path], seen: Optional[Set[Path]] = None
+) -> tuple[Any, Dict[str, Any], Dict[str, Any]]:
     p = Path(path).resolve()
     if seen is None:
         seen = set()
@@ -413,7 +459,10 @@ def load_settings(path: str) -> Settings:
     data = _apply_variables(data_any, vars_map)
     return Settings.model_validate(data)
 
-def build_model_from_settings(data: Optional[Dict[str, Any]], model_cls: Type[BaseModel]) -> BaseModel:
+
+def build_model_from_settings(
+    data: Optional[Dict[str, Any]], model_cls: Type[BaseModel]
+) -> BaseModel:
     """
     Populate a Pydantic model from a settings dict.
     Raises ValidationError if the configuration is incorrect.
@@ -421,5 +470,7 @@ def build_model_from_settings(data: Optional[Dict[str, Any]], model_cls: Type[Ba
     if data is None:
         data = {}
     if not isinstance(data, dict):
-        raise TypeError(f"Expected dict for {model_cls.__name__} settings, got {type(data).__name__}")
+        raise TypeError(
+            f"Expected dict for {model_cls.__name__} settings, got {type(data).__name__}"
+        )
     return model_cls.model_validate(data)

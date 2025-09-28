@@ -33,6 +33,8 @@ workflows:
         reset_policy: keep_results
       - $include:
           template: nodes/coder.yaml
+          tools:
+            - vectorops_read_files
       - $include:
           template: nodes/apply_patch.yaml
         confirmation: auto
@@ -77,6 +79,9 @@ workflows:
           template: nodes/architect.yaml
           reset_policy: keep_state
       - $include:
+          template: nodes/file_state.yaml
+        name: coder_files
+      - $include:
           template: nodes/coder.yaml
           confirmation: auto
       - $include:
@@ -84,7 +89,8 @@ workflows:
     edges:
       - prompt.done -> file_state
       - file_state.done -> architect
-      - architect.done -> coder
+      - architect.done -> coder_files
+      - coder_files.done -> coder
       - coder.done -> apply
       - apply.success -> prompt
       - apply.fail -> coder:keep_state
