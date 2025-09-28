@@ -1,6 +1,6 @@
 # Default Vocode configuration
 ui:
-  log_level: debug
+  log_level: info
 tools:
   - name: vectorops_read_files
     auto_approve: true
@@ -33,8 +33,8 @@ workflows:
         reset_policy: keep_results
       - $include:
           template: nodes/coder.yaml
-          tools:
-            - vectorops_read_files
+        tools:
+          - vectorops_read_files
       - $include:
           template: nodes/apply_patch.yaml
         confirmation: auto

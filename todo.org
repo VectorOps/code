@@ -48,7 +48,7 @@ Concrete example: files that were read and already in context.
 ** [ ] Add shortcuts to cancel current input easily
 ** [ ] Simple styling
 *** [ ] Color usage
-*** [ ] Separate tool calls from outputs
+*** [X] Separate tool calls from outputs
 *** [ ] Remove Agent: prefix
 ** [ ] Print node transitions
 ** [ ] Format tool calls

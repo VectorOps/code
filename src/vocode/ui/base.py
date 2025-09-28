@@ -389,20 +389,11 @@ class UIState:
                 # Decide if this event should be forwarded to the UI client.
                 # Suppress node finals when hide_final_output is True and no input is requested.
                 suppress_event = False
-                if (
-                    req.event.kind == PACKET_FINAL_MESSAGE
-                    and not req.input_requested
-                    and self.workflow is not None
-                ):
-                    try:
-                        graph = self.workflow.graph
-                        if graph is not None:
-                            rn = graph.get_runtime_node_by_name(req.node)
-                            if rn is not None and rn.model.hide_final_output:
-                                suppress_event = True
-                    except Exception:
-                        # Be conservative: if we cannot resolve the node, do not suppress.
-                        suppress_event = False
+                if req.event.kind == PACKET_FINAL_MESSAGE and not req.input_requested:
+                    if self.runner is not None:
+                        rn = self.runner.runtime_graph.get_runtime_node_by_name(req.node)
+                        if rn is not None and rn.model.hide_final_output:
+                            suppress_event = True
 
                 # Await UI response only if required
                 if req.input_requested and not suppress_event:

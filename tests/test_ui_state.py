@@ -73,6 +73,13 @@ class FakeRunner:
         self.received_inputs: List[Optional[RunInput]] = []
         self.rewound: Optional[int] = None
         self.replaced_input = None
+        # Simple runtime_graph for UIState lookup. workflow may provide node_hide_map mapping node->bool.
+        node_hide_map = getattr(workflow, "node_hide_map", {})
+        self.runtime_graph = SimpleNamespace(
+            get_runtime_node_by_name=lambda name: SimpleNamespace(
+                model=SimpleNamespace(hide_final_output=bool(node_hide_map.get(name, False)))
+            )
+        )
 
     def cancel(self) -> None:
         self.status = RunnerStatus.canceled
