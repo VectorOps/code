@@ -43,7 +43,7 @@ async def test_file_state_executor_outputs_files_with_fences(tmp_path: Path):
         text = event.event.message.text
 
         # Prompt present
-        assert "STRICT:" in text
+        assert "The following" in text
 
         # File headers and language fences + content included
         assert "File: src/a.py" in text
@@ -68,7 +68,7 @@ async def test_file_state_executor_outputs_files_with_fences(tmp_path: Path):
         text2 = event2.event.message.text
 
         # Prompt present
-        assert "STRICT:" in text2
+        assert "The following" in text2
 
         # Only the changed file should be included
         assert "File: src/a.py" in text2
