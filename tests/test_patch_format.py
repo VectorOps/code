@@ -145,33 +145,36 @@ def test_duplicate_file_entry_error():
     from vocode.runner.executors.apply_patch.patch import process_patch
     from vocode.runner.executors.apply_patch.models import FileApplyStatus
 
-    writes = {}
+    writes: dict[str, str] = {}
 
     def write_fn(path: str, content: str) -> None:
         writes[path] = content
 
     def open_fn(path: str) -> str:
-        return "ignored\n"
+        assert path == "file.txt"
+        return "pre\nold1\nmid\nold2\npost\n"
 
     def delete_fn(path: str) -> None:
         raise AssertionError("delete_fn should not be called")
 
     text = "\n".join(
         [
+            # First block replaces old1 -> new1
             "```text",
-            "a.txt",
+            "file.txt",
             "<<<<<<< SEARCH",
-            "",
+            "old1",
             "=======",
-            "Hello",
+            "new1",
             ">>>>>>> REPLACE",
             "````",
+            # Second block replaces old2 -> new2
             "```text",
-            "a.txt",
+            "file.txt",
             "<<<<<<< SEARCH",
-            "old",
+            "old2",
             "=======",
-            "new",
+            "new2",
             ">>>>>>> REPLACE",
             "````",
         ]
@@ -179,10 +182,10 @@ def test_duplicate_file_entry_error():
 
     statuses, errors = process_patch(text, open_fn, write_fn, delete_fn)
 
-    # Parse error -> early return; nothing applied
-    assert statuses == {}
-    assert "a.txt" not in writes
-    assert any("Duplicate file entry" in e.msg and e.filename == "a.txt" for e in errors)
+    assert errors == []
+    assert statuses == {"file.txt": FileApplyStatus.Update}
+    assert "file.txt" in writes
+    assert writes["file.txt"] == "pre\nnew1\nmid\nnew2\npost\n"
 
 
 def test_absolute_path_rejected():

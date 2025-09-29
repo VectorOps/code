@@ -18,9 +18,6 @@ def _diff_preprocessor(
       - Otherwise, returns the text unchanged.
     """
     fmt = (options or {}).get("format", "v4a")
-
-    print(options)
-
     if isinstance(fmt, str):
         fmt = fmt.lower().strip()
     else:

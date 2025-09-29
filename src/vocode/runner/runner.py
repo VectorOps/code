@@ -50,6 +50,9 @@ from vocode.runner.models import (
 )
 
 
+PACKETS_FOR_HISTORY = (PACKET_FINAL_MESSAGE, PACKET_MESSAGE_REQUEST)
+
+
 class Executor:
     # Subclasses must set 'type' to the Node.type they handle
     type: ClassVar[Optional[str]] = None
@@ -101,8 +104,9 @@ class HistoryStep:
     activity: Activity
     messages: List[Message]
     state: Optional[Any]
-    req: ReqPacket  # will hold only ReqFinalMessage for now
+    req: ReqPacket  # The request packet (e.g. final message, message request)
     response: Optional[RespPacket]
+    step_index: int
 
 
 class Runner:
@@ -357,6 +361,7 @@ class Runner:
                 # Avoid duplication if the transition already provided it as an input
                 if not any(m is last_final for m in initial_user_inputs):
                     base_input_messages.append(last_final)
+
         # Always include the inputs provided by the transition into this step
         base_input_messages.extend(initial_user_inputs)
         return base_input_messages
@@ -470,13 +475,17 @@ class Runner:
 
         # Go back n retriable history steps (finals)
         to_remove = min(n, len(self._history))
+        if to_remove == 0:
+            return
         last_popped: Optional[HistoryStep] = None
         for _ in range(to_remove):
             last_popped = self._history.pop()
-        # Align recorded steps (each final corresponds to one step)
-        for _ in range(min(n, len(task.steps))):
-            if task.steps:
-                task.steps.pop()
+
+        if last_popped:
+            task.steps = task.steps[: last_popped.step_index]
+        else:
+            task.steps.clear()
+
         # Mark resume point at the last popped history step
         self._resume_history_step = last_popped
         # Reset internal flags
@@ -489,55 +498,15 @@ class Runner:
         rn = self._find_runtime_node_by_name(node_name)
         return rn.model.confirmation if rn else None
 
-    def _find_last_retriable_history_index(self) -> Optional[int]:
-        """
-        Find the last history step whose node would request user input on its final
-        (confirmation=prompt/confirm). Returns the index in self._history or None.
-        """
-        for i in range(len(self._history) - 1, -1, -1):
-            h = self._history[i]
-            conf = self._node_confirmation(h.node)
-            if conf in (Confirmation.prompt, Confirmation.confirm):
-                return i
-        return None
-
-    def _find_last_history_with_user_input_index(self) -> Optional[int]:
-        """
-        Find the most recent history step that already has a recorded user response
-        (either a post-final user message or an approval). Returns its index or None.
-        """
-        for i in range(len(self._history) - 1, -1, -1):
-            h = self._history[i]
-            if h.response is not None:
-                return i
-        return None
-
-    def _find_last_user_input_step_index(self, task: Assignment) -> Optional[int]:
-        """
-        Find the most recent step that contains an actual user response (message.role == 'user').
-        This excludes carried messages from previous nodes (which are recorded as user-type activities
-        but have role != 'user').
-        """
-        for i in range(len(task.steps) - 1, -1, -1):
-            s = task.steps[i]
-            for a in s.executions:
-                if (
-                    a.type == ActivityType.user
-                    and a.message is not None
-                    and a.message.role == "user"
-                ):
-                    return i
-        return None
-
     def replace_last_user_input(
         self, task: Assignment, response: Union[RespMessage, RespApproval]
     ) -> None:
         """
-        Prepare to replace the last user input:
-        - If the last replaceable boundary is a final that required input (prompt/confirm),
-          pop all later history/steps, set the stored response on that history step, and resume from it.
-        - Otherwise, target the last step that included a user message (ReqMessageRequest case):
-          pop history and steps including that step to force re-execution; UI should auto-reply with the new message.
+        Finds the last user input boundary in the history (a final message that
+        prompted or a message request), replaces the user's response, and prepares
+        the runner to resume execution from that point.
+        If no input boundary is found, it resets the runner to start from the beginning,
+        using the provided response as the initial message if it is one.
         Leaves runner in stopped state ready to restart.
         """
         if self.status in (RunnerStatus.running, RunnerStatus.waiting_input):
@@ -545,45 +514,49 @@ class Runner:
                 f"Cannot replace input while runner status is '{self.status}'"
             )
 
-        # Case 1: last retriable final (prompt/confirm)
-        hist_idx = self._find_last_retriable_history_index()
-        if hist_idx is not None:
-            # Pop history/steps after the target history index
-            to_pop = len(self._history) - (hist_idx + 1)
-            for _ in range(to_pop):
-                self._history.pop()
-            for _ in range(to_pop):
-                if task.steps:
-                    task.steps.pop()
-            # Set resume point at the target and store the replacement response
-            self._resume_history_step = self._history[hist_idx]
-            self._resume_history_step.response = response
-            # Reset internal flags
-            self._stop_requested = False
-            self._internal_cancel_requested = False
-            self._current_exec_task = None
-            self.status = RunnerStatus.stopped
-            return
+        import devtools
 
-        # Case 2: replace last message_request user input -> pop including that step to re-execute
-        step_idx = self._find_last_user_input_step_index(task)
-        if step_idx is None:
-            raise RuntimeError("No previous user input to replace")
-        # Note: history length typically matches number of finished steps.
-        # We conservatively pop all history entries whose index >= step_idx.
-        to_pop_hist = max(0, len(self._history) - step_idx)
-        for _ in range(to_pop_hist):
-            if self._history:
-                self._history.pop()
-        # Pop steps down to retain only steps before the target
-        while len(task.steps) > step_idx:
-            task.steps.pop()
-        # Force fresh execution (do not preload any saved final)
-        self._resume_history_step = None
-        self._stop_requested = False
-        self._internal_cancel_requested = False
-        self._current_exec_task = None
-        self.status = RunnerStatus.stopped
+        devtools.pprint(self._history)
+
+        # Find the last point in history that corresponds to a user input boundary
+        for i in range(len(self._history) - 1, -1, -1):
+            hist = self._history[i]
+            is_boundary = False
+            if hist.req.kind == PACKET_MESSAGE_REQUEST:
+                is_boundary = True
+            elif hist.req.kind == PACKET_FINAL_MESSAGE:
+                conf = self._node_confirmation(hist.node)
+                # A retriable final is only a boundary if the user actually responded.
+                if (
+                    conf in (Confirmation.prompt, Confirmation.confirm)
+                    and hist.response is not None
+                ):
+                    is_boundary = True
+
+            if is_boundary:
+                # Found our boundary.
+                # For message requests, only message responses are valid.
+                response_to_use: Optional[RespPacket] = response
+
+                # Rewind history and steps to the beginning of the step containing the boundary.
+                step_idx = hist.step_index
+                self._history = self._history[: i + 1]
+                task.steps = task.steps[:step_idx]
+
+                # Set resume point and store the replacement response.
+                self._resume_history_step = self._history[i]
+                self._resume_history_step.response = response_to_use
+
+                # Reset state for run()
+                self._stop_requested = False
+                self._internal_cancel_requested = False
+                self._current_exec_task = None
+                self.status = RunnerStatus.stopped
+                return
+
+        raise RuntimeError(
+            "No previous user input or pending request to replace/respond to"
+        )
 
     async def run(
         self,
@@ -601,42 +574,36 @@ class Runner:
         prev_status = self.status
         self.status = RunnerStatus.running
         incoming_policy_override: Optional[ResetPolicy] = None
+
         # Runner resuming
         pending_input_messages: List[Message] = []
         preloaded_req: Optional[ReqPacket] = None
         preloaded_final_act: Optional[Activity] = None
         preloaded_resp_default: Optional[RespPacket] = None
-        resume_info = None
 
         if (
             prev_status == RunnerStatus.stopped
             and self._resume_history_step is not None
         ):
-            # Resume anchored at the saved history step (exact node+messages)
             rn = self._find_runtime_node_by_name(self._resume_history_step.node)
             if rn is None:
                 self.status = RunnerStatus.finished
                 return
+
+            # Re-enter at the saved node and carry its input messages.
             current_runtime_node = rn
             pending_input_messages = list(self._resume_history_step.messages or [])
+
+            # If no queued replacement response, replay the saved request/state.
+            # Otherwise, do NOT replay; let the executor run with the new response.
             preloaded_req = self._resume_history_step.req
             preloaded_final_act = self._resume_history_step.activity
             preloaded_resp_default = self._resume_history_step.response
         else:
-            if prev_status == RunnerStatus.stopped:
-                resume_info = self._prepare_resume(task)
-            if resume_info is not None:
-                next_rn, next_msgs, incoming_policy_override = resume_info
-                if next_rn is None:
-                    self.status = RunnerStatus.finished
-                    return
-                current_runtime_node = next_rn
-                pending_input_messages = list(next_msgs or [])
-            else:
-                current_runtime_node = self.runtime_graph.root
-                pending_input_messages = (
-                    [self.initial_message] if self.initial_message is not None else []
-                )
+            current_runtime_node = self.runtime_graph.root
+            pending_input_messages = (
+                [self.initial_message] if self.initial_message is not None else []
+            )
 
         def _clear_resume_markers():
             nonlocal preloaded_req, preloaded_final_act, preloaded_resp_default
@@ -692,6 +659,10 @@ class Runner:
             # Runner cycles: repeatedly invoke executor until it yields a final or request we handle externally
             resp: Optional[RespPacket] = None
             last_exec_activity: Optional[Activity] = None
+
+            if preloaded_resp_default:
+                resp = preloaded_resp_default
+
             placeholder_exec = Activity(type=ActivityType.executor)
             pass_messages = (
                 True  # Only pass base_input_messages on the first cycle for this node
@@ -708,9 +679,11 @@ class Runner:
                     req = preloaded_req
                     yielded_state = current_state
                     replaying_history = True
+                    preloaded_req = None
                     # Treat the initial messages as already consumed for this node
                     pass_messages = False
-                else:
+
+                if not replaying_history:
                     # Invoke executor for one cycle
                     msgs_for_cycle = base_input_messages if pass_messages else []
                     agen = executor.run(
@@ -808,54 +781,70 @@ class Runner:
                     req=req, node_conf=current_runtime_node.model.confirmation
                 )
 
-                # Prepare default activity placeholder for UI emission
-                run_event = RunEvent(
-                    node=current_runtime_node.name,
-                    execution=placeholder_exec,
-                    event=req,
-                    input_requested=input_requested,
-                )
-                run_input: Optional[RunInput] = (yield run_event)
-                resp_packet: Optional[RespPacket] = (
-                    run_input.response if run_input is not None else None
-                )
-
-                # PACKET_FINAL_MESSAGE: finalize (with confirm/prompt)
-                if req.kind == PACKET_FINAL_MESSAGE:
-                    # Prefer a preloaded final activity when replaying history
-                    if preloaded_final_act is not None:
-                        final_act = preloaded_final_act
-                    else:
-                        final_act = Activity(
+                # Create history entry for packets that are retriable before yielding
+                hist: Optional[HistoryStep] = None
+                if not replaying_history and req.kind in PACKETS_FOR_HISTORY:
+                    # For final messages, we need to create the final activity now.
+                    # For message requests, use a placeholder.
+                    activity: Activity
+                    if req.kind == PACKET_FINAL_MESSAGE:
+                        activity = Activity(
                             type=ActivityType.executor,
                             message=req.message,
                             outcome_name=req.outcome_name,
                             is_complete=True,
                             state=current_state,
                         )
+                    else:  # PACKET_MESSAGE_REQUEST
+                        activity = placeholder_exec.clone()
 
-                    # Prepare or reuse history entry for this final
-                    if replaying_history and self._resume_history_step is not None:
+                    hist = HistoryStep(
+                        node=current_runtime_node.name,
+                        activity=activity,
+                        messages=list(base_input_messages),
+                        state=current_state,
+                        req=req,
+                        response=None,
+                        step_index=len(task.steps) - 1,
+                    )
+                    self._history.append(hist)
+
+                run_input: Optional[RunInput] = None
+                resp_packet: Optional[RespPacket] = None
+
+                # If resuming with a response, skip yielding to UI. Otherwise, yield.
+                if replaying_history and preloaded_resp_default is not None:
+                    resp_packet = preloaded_resp_default
+                    preloaded_resp_default = None
+                else:
+                    # Prepare default activity placeholder for UI emission
+                    run_event = RunEvent(
+                        node=current_runtime_node.name,
+                        execution=placeholder_exec,
+                        event=req,
+                        input_requested=input_requested,
+                    )
+                    run_input = yield run_event
+                    resp_packet = run_input.response if run_input is not None else None
+
+                # Store response in history if we just created an entry
+                if hist is not None:
+                    hist.response = resp_packet
+
+                print(req.kind, current_runtime_node.model.confirmation, resp_packet)
+
+                # PACKET_FINAL_MESSAGE: finalize (with confirm/prompt)
+                if req.kind == PACKET_FINAL_MESSAGE:
+                    # Get final_act and hist for this step
+                    final_act: Activity
+                    if replaying_history:
                         hist = self._resume_history_step
-                        # restore into history list (we popped it during rewind)
-                        if hist not in self._history:
-                            self._history.append(hist)
+                        final_act = preloaded_final_act
                     else:
-                        hist = HistoryStep(
-                            node=current_runtime_node.name,
-                            activity=final_act,
-                            messages=list(base_input_messages),
-                            state=current_state,
-                            req=req,
-                            response=None,
-                        )
-                        self._history.append(hist)
+                        # hist was created before the yield
+                        final_act = hist.activity
 
                     node_conf = current_runtime_node.model.confirmation
-
-                    # If we have a preloaded default response for resume, apply it when appropriate
-                    if preloaded_resp_default is not None and resp_packet is None:
-                        resp_packet = preloaded_resp_default
 
                     # confirm: require explicit approval
                     if node_conf == Confirmation.confirm:
@@ -904,6 +893,7 @@ class Runner:
                             if replaying_history:
                                 _clear_resume_markers()
                             continue
+
                         # No extra message provided; accept final
                         step.executions.append(final_act)
 
@@ -939,6 +929,11 @@ class Runner:
 
                 # PACKET_MESSAGE_REQUEST: ask for user message then re-run executor with it
                 if req.kind == PACKET_MESSAGE_REQUEST:
+                    if replaying_history:
+                        hist = self._resume_history_step
+
+                    print(hist, resp_packet)
+
                     # Require a message; keep prompting until we get one
                     user_msg_packet: Optional[RespMessage] = None
                     while True:
@@ -948,6 +943,7 @@ class Runner:
                         ):
                             user_msg_packet = resp_packet
                             break
+
                         self.status = RunnerStatus.waiting_input
                         run_event = RunEvent(
                             node=current_runtime_node.name,
@@ -959,12 +955,17 @@ class Runner:
                         resp_packet = (
                             run_input.response if run_input is not None else None
                         )
+                    # Update history with the response
+                    if hist:
+                        hist.response = user_msg_packet
+
                     # Record user message in history
                     step.executions.append(
                         Activity(
                             type=ActivityType.user, message=user_msg_packet.message
                         )
                     )
+
                     # Set response for next executor cycle
                     resp = user_msg_packet
                     continue

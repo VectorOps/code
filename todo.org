@@ -3,6 +3,8 @@
 ** [ ] Autocompleters needs consts at model level
 ** [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 * [ ] Runner
+** [ ] Continue duplicates messages
+** [ ] Add better history management and rollback to previous input
 ** [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
 ** [X] ctrl+c after providing looping llm answer did not continue from that step - it started from initial step.
 ** [X] Change executors to have explicit state

@@ -8,7 +8,7 @@ variables:
 #  LLM_DISCOVERY_MODEL: gemini/gemini-2.5-flash
 #  LLM_ARCHITECT_MODEL: gemini/gemini-2.5-pro
 #  LLM_CODER_MODEL: gemini/gemini-2.5-flash
-  LLM_DIFF_FORMAT: patch
+#  LLM_DIFF_FORMAT: patch
 tools:
   - name: vectorops_read_files
     auto_approve: true
@@ -166,3 +166,23 @@ workflows:
       - prompt.done -> apply
       - apply.success -> prompt
       - apply.fail -> prompt
+  chat:
+    nodes:
+      - name: prompt
+        type: input
+        message: Enter your request
+        confirmation: auto
+        hide_final_output: true
+        system: |
+          You're friendly chat assistant. Take user prompts and provide necessary answers.
+        outcomes:
+          - name: done
+      - name: llm
+        type: llm
+        model: ${LLM_ARCHITECT_MODEL}
+        reset_policy: keep_state
+        outcomes:
+          - name: done
+    edges:
+      - prompt.done -> llm
+      - llm.done -> prompt

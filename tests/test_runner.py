@@ -25,6 +25,7 @@ from vocode.commands import CommandContext
 def msg(role: str, text: str) -> Message:
     return Message(role=role, text=text)
 
+
 @pytest.mark.asyncio
 async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
     # Executor emits a tool call with auto_approve=True; runner should not prompt
@@ -34,6 +35,7 @@ async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
 
     class ToolAutoExec(Executor):
         type = "tool_auto"
+
         async def run(self, inp):
             if inp.response is None:
                 tc = ToolCall(name="nonexistent", arguments={}, auto_approve=True)
@@ -53,6 +55,7 @@ async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
         ev2 = await it.asend(RunInput(response=None))  # no approval needed
         assert ev2.event.kind == "final_message"
 
+
 @pytest.mark.asyncio
 async def test_message_request_reprompt_and_finish(tmp_path: Path):
     # Single-node graph with type 'ask'
@@ -63,6 +66,7 @@ async def test_message_request_reprompt_and_finish(tmp_path: Path):
     # Executor that requires a message, then emits interim and final
     class AskExecutor(Executor):
         type = "ask"
+
         async def run(self, inp):
             # First cycle: request a message
             if inp.response is None:
@@ -135,12 +139,17 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
 
     class AExec(Executor):
         type = "a"
+
         async def run(self, inp):
-            yield (ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB"), None)
+            yield (
+                ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB"),
+                None,
+            )
 
     class BExec(Executor):
         type = "b"
         runs = 0
+
         async def run(self, inp):
             type(self).runs += 1
             yield (ReqFinalMessage(message=msg("agent", f"B{type(self).runs}")), None)
@@ -160,10 +169,231 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_replace_input_for_pending_request(tmp_path: Path):
+    """Scenario: Input node is waiting for input, runner is stopped.
+    A new message should be provided to the input node on restart."""
+    nodes = [{"name": "In", "type": "input", "outcomes": []}]
+    g = Graph(nodes=nodes, edges=[])
+    workflow = Workflow(name="w", graph=g)
+
+    class InputExec(Executor):
+        type = "input"
+
+        async def run(self, inp):
+            if inp.response and inp.response.kind == "message":
+                assert inp.response.message.text == "replaced"
+                yield (ReqFinalMessage(message=msg("agent", "ok")), None)
+            else:
+                yield (ReqMessageRequest(), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        ev1 = await it.__anext__()
+        assert ev1.event.kind == "message_request"
+
+        runner.stop()
+        await it.aclose()
+        assert runner.status == RunnerStatus.stopped
+
+        runner.replace_last_user_input(
+            task, RespMessage(message=msg("user", "replaced"))
+        )
+
+        it2 = runner.run(task)
+        ev2 = await it2.__anext__()
+        assert ev2.event.kind == "final_message"
+        assert ev2.event.message.text == "ok"
+        with pytest.raises(StopAsyncIteration):
+            await it2.asend(None)
+        assert runner.status == RunnerStatus.finished
+
+
+@pytest.mark.asyncio
+async def test_replace_input_for_pending_request_with_approval_is_ignored(
+    tmp_path: Path,
+):
+    """Scenario: Input node waiting, stopped, then an approval is provided.
+    The approval should be ignored, and the input node should re-request input."""
+    nodes = [{"name": "In", "type": "input", "outcomes": []}]
+    g = Graph(nodes=nodes, edges=[])
+    workflow = Workflow(name="w", graph=g)
+
+    class InputExec(Executor):
+        type = "input"
+        runs = 0
+
+        async def run(self, inp):
+            print("RUN")
+            type(self).runs += 1
+            # Should not receive approval; if it does, it will be ignored by logic
+            assert not (inp.response and inp.response.kind == "approval")
+            yield (ReqMessageRequest(), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+        await it.__anext__()  # Get message_request
+
+        runner.stop()
+        await it.aclose()
+
+        runner.replace_last_user_input(task, RespApproval(approved=True))
+
+        it2 = runner.run(task)
+        ev2 = await it2.__anext__()
+        assert ev2.event.kind == "message_request"
+        assert InputExec.runs == 1
+
+        runner.stop()
+        await it2.aclose()
+
+
+@pytest.mark.asyncio
+async def test_replace_input_at_retriable_final_message(tmp_path: Path):
+    """Scenario: Stop after a retriable final message.
+    Replacement with approval should resume from that final message."""
+    nodes = [
+        {
+            "name": "In1",
+            "type": "in1",
+            "outcomes": [OutcomeSlot(name="next")],
+            "confirmation": "prompt",
+        },
+        {"name": "Other", "type": "other", "outcomes": []},
+    ]
+    edges = [Edge(source_node="In1", source_outcome="next", target_node="Other")]
+    g = Graph(nodes=nodes, edges=edges)
+    workflow = Workflow(name="w", graph=g)
+
+    class Input1Exec(Executor):
+        type = "in1"
+
+        async def run(self, inp):
+            yield (
+                ReqFinalMessage(message=msg("agent", "in1 done"), outcome_name="next"),
+                None,
+            )
+
+    class OtherExec(Executor):
+        type = "other"
+
+        async def run(self, inp):
+            yield (ReqMessageRequest(), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project, initial_message=msg("user", "start"))
+        task = Assignment()
+        it = runner.run(task)
+        ev_in1_final = await it.__anext__()
+        assert ev_in1_final.node == "In1" and ev_in1_final.event.kind == "final_message"
+
+        # No user message provided for prompt, so transition to Other
+        ev_other_req = await it.asend(RunInput(response=None))
+        assert (
+            ev_other_req.node == "Other"
+            and ev_other_req.event.kind == "message_request"
+        )
+
+        runner.stop()
+        await it.aclose()
+
+        runner.replace_last_user_input(task, RespApproval(approved=True))
+        it2 = runner.run(task)
+
+        # Since we provided an approval, it should now transition and run Other.
+        # We .asend(None) because the replay does not request new input from the UI.
+        ev_other_req_again = await it2.asend(None)
+        assert (
+            ev_other_req_again.node == "Other"
+            and ev_other_req_again.event.kind == "message_request"
+        )
+
+
+@pytest.mark.asyncio
+async def test_replace_input_with_auto_confirm_node(tmp_path: Path):
+    """Scenario: An auto-confirm input node runs, then next node starts.
+    Replacement should rewind to the auto-confirm node."""
+    nodes = [
+        {
+            "name": "In",
+            "type": "in_auto",
+            "outcomes": [OutcomeSlot(name="next")],
+            "confirmation": "auto",
+        },
+        {"name": "B", "type": "b_auto", "outcomes": []},
+    ]
+    edges = [Edge(source_node="In", source_outcome="next", target_node="B")]
+    g = Graph(nodes=nodes, edges=edges)
+    workflow = Workflow(name="w", graph=g)
+
+    class InputAutoExec(Executor):
+        type = "in_auto"
+
+        async def run(self, inp):
+            if inp.response and inp.response.kind == "message":
+                yield (
+                    ReqFinalMessage(
+                        message=msg("agent", f"in:{inp.response.message.text}"),
+                        outcome_name="next",
+                    ),
+                    None,
+                )
+            else:
+                yield (ReqMessageRequest(), None)
+
+    class BExec(Executor):
+        type = "b_auto"
+
+        async def run(self, inp):
+            yield (ReqMessageRequest(), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        await it.__anext__()  # In reqs
+        ev_in_final = await it.asend(
+            RunInput(response=RespMessage(message=msg("user", "A")))
+        )
+        assert ev_in_final.node == "In" and ev_in_final.event.message.text == "in:A"
+        assert ev_in_final.input_requested is False
+
+        runner.stop()
+        await it.aclose()
+
+        runner.replace_last_user_input(task, RespMessage(message=msg("user", "B")))
+        it2 = runner.run(task)
+
+        # The runner should auto-respond with "B", causing "In" to emit its final message immediately.
+        ev_in_final_again = await it2.__anext__()
+        assert ev_in_final_again.node == "In"
+        assert (
+            ev_in_final_again.node == "In"
+            and ev_in_final_again.event.message.text == "in:B"
+        )
+        assert not ev_in_final_again.input_requested  # auto-confirm node
+
+        # Now we can transition to B
+        ev_b_req = await it2.asend(None)
+        assert ev_b_req.node == "B" and ev_b_req.event.kind == "message_request"
+
+
+@pytest.mark.asyncio
 async def test_reset_policy_keep_final_self_loop_only_final_carried(tmp_path: Path):
     # Graph: K (keep_final, self-loop once) -> End
     nodes = [
-        {"name": "K", "type": "kf", "outcomes": [OutcomeSlot(name="again"), OutcomeSlot(name="done")], "reset_policy": "keep_final", "confirmation": "auto"},
+        {
+            "name": "K",
+            "type": "kf",
+            "outcomes": [OutcomeSlot(name="again"), OutcomeSlot(name="done")],
+            "reset_policy": "keep_final",
+            "confirmation": "auto",
+        },
         {"name": "End", "type": "kend", "outcomes": []},
     ]
     edges = [
@@ -176,6 +406,7 @@ async def test_reset_policy_keep_final_self_loop_only_final_carried(tmp_path: Pa
     class KeepFinalExec(Executor):
         type = "kf"
         runs = 0
+
         async def run(self, inp):
             type(self).runs += 1
             if type(self).runs == 1:
@@ -183,14 +414,21 @@ async def test_reset_policy_keep_final_self_loop_only_final_carried(tmp_path: Pa
                 assert [m.text for m in inp.messages] == ["start"]
                 # Emit an interim, which must NOT persist, then final to loop
                 yield (ReqInterimMessage(message=msg("agent", "INT1")), None)
-                yield (ReqFinalMessage(message=msg("agent", "F1"), outcome_name="again"), None)
+                yield (
+                    ReqFinalMessage(message=msg("agent", "F1"), outcome_name="again"),
+                    None,
+                )
             else:
                 # Second run: keep_final should only pass the previous final "F1"
                 assert [m.text for m in inp.messages] == ["F1"]
-                yield (ReqFinalMessage(message=msg("agent", "F2"), outcome_name="done"), None)
+                yield (
+                    ReqFinalMessage(message=msg("agent", "F2"), outcome_name="done"),
+                    None,
+                )
 
     class EndExec(Executor):
         type = "kend"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "END")), None)
 
@@ -205,10 +443,18 @@ async def test_reset_policy_keep_final_self_loop_only_final_carried(tmp_path: Pa
         assert ev_k_int1.event.message.text == "INT1"
 
         ev_k1 = await it.__anext__()
-        assert ev_k1.node == "K" and ev_k1.event.kind == "final_message" and ev_k1.event.message.text == "F1"
+        assert (
+            ev_k1.node == "K"
+            and ev_k1.event.kind == "final_message"
+            and ev_k1.event.message.text == "F1"
+        )
 
         ev_k2 = await it.asend(None)
-        assert ev_k2.node == "K" and ev_k2.event.kind == "final_message" and ev_k2.event.message.text == "F2"
+        assert (
+            ev_k2.node == "K"
+            and ev_k2.event.kind == "final_message"
+            and ev_k2.event.message.text == "F2"
+        )
         # End
         ev_end = await it.asend(None)
         assert ev_end.node == "End" and ev_end.event.kind == "final_message"
@@ -227,7 +473,12 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
             "reset_policy": "keep_results",
             "message_mode": "all_messages",  # pass inputs + final to B
         },
-        {"name": "B", "type": "b_int", "outcomes": [OutcomeSlot(name="toA")], "confirmation": "auto"},
+        {
+            "name": "B",
+            "type": "b_int",
+            "outcomes": [OutcomeSlot(name="toA")],
+            "confirmation": "auto",
+        },
         {"name": "C", "type": "c_int", "outcomes": []},
     ]
     edges = [
@@ -241,6 +492,7 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
     class AExec(Executor):
         type = "a_int"
         runs = 0
+
         async def run(self, inp):
             type(self).runs += 1
             if type(self).runs == 1:
@@ -248,16 +500,27 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
                 assert [m.text for m in inp.messages] == ["start"]
                 # Emit interim (should not persist), then final to B
                 yield (ReqInterimMessage(message=msg("agent", "INT_A1")), None)
-                yield (ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB"), None)
+                yield (
+                    ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB"),
+                    None,
+                )
             else:
                 # Second run via keep_results: should include prior A user+final plus B's final; no interim
                 texts = [m.text for m in inp.messages]
-                assert texts == ["start", "A1", "B1"], f"unexpected carried messages: {texts}"
-                yield (ReqFinalMessage(message=msg("agent", "A2"), outcome_name="toC"), None)
+                assert texts == [
+                    "start",
+                    "A1",
+                    "B1",
+                ], f"unexpected carried messages: {texts}"
+                yield (
+                    ReqFinalMessage(message=msg("agent", "A2"), outcome_name="toC"),
+                    None,
+                )
 
     class BExec(Executor):
         type = "b_int"
         runs = 0
+
         async def run(self, inp):
             type(self).runs += 1
             # Receives initial + A1 due to all_messages
@@ -267,6 +530,7 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
     class CExec(Executor):
         type = "c_int"
         runs = 0
+
         async def run(self, inp):
             type(self).runs += 1
             yield (ReqFinalMessage(message=msg("agent", "C1")), None)
@@ -277,7 +541,11 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
         it = runner.run(task)
         # A1 -> B1(auto) -> A2 -> C
         ev_a1_int = await it.__anext__()
-        assert ev_a1_int.node == "A" and ev_a1_int.event.kind == "message" and ev_a1_int.event.message.text == "INT_A1"
+        assert (
+            ev_a1_int.node == "A"
+            and ev_a1_int.event.kind == "message"
+            and ev_a1_int.event.message.text == "INT_A1"
+        )
 
         ev_a1 = await it.__anext__()
         assert ev_a1.node == "A" and ev_a1.event.kind == "final_message"
@@ -329,17 +597,20 @@ async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
 
     class AExec(Executor):
         type = "a"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "A"), outcome_name="toB"), None)
 
     class BExec(Executor):
         type = "b"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "B"), outcome_name="toC"), None)
 
     class CExec(Executor):
         type = "c"
         runs = 0
+
         async def run(self, inp):
             type(self).runs += 1
             yield (ReqFinalMessage(message=msg("agent", f"C{type(self).runs}")), None)
@@ -378,7 +649,6 @@ async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
         assert [s.node for s in task.steps] == ["A", "B", "C"]
 
 
-
 @pytest.mark.asyncio
 async def test_tool_call_approved_and_rejected(tmp_path: Path):
     nodes = [{"name": "Tool", "type": "tool", "outcomes": []}]
@@ -387,6 +657,7 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
 
     class ToolExecutor(Executor):
         type = "tool"
+
         async def run(self, inp):
             # First cycle: emit tool call "one"
             if inp.response is None:
@@ -394,7 +665,11 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
                 yield (ReqToolCall(tool_calls=[tc1]), None)
                 return
             # Second cycle: after "one" response, emit tool call "two"
-            if inp.response.kind == "tool_call" and inp.response.tool_calls and inp.response.tool_calls[0].name == "one":
+            if (
+                inp.response.kind == "tool_call"
+                and inp.response.tool_calls
+                and inp.response.tool_calls[0].name == "one"
+            ):
                 tc2 = ToolCall(name="two", arguments={})
                 yield (ReqToolCall(tool_calls=[tc2]), None)
                 return
@@ -446,13 +721,17 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
 
     class EchoExecutor(Executor):
         type = "echo"
+
         async def run(self, inp):
             if not inp.response or inp.response.kind != "message":
                 # First final: trigger post-final user message
                 yield (ReqFinalMessage(message=msg("agent", "ask")), None)
                 return
             # Second cycle: user provided a message
-            assert inp.response.message.role == "user" and inp.response.message.text == "more"
+            assert (
+                inp.response.message.role == "user"
+                and inp.response.message.text == "more"
+            )
             yield (ReqFinalMessage(message=msg("agent", "done")), None)
 
     async with ProjectSandbox.create(tmp_path) as project:
@@ -464,7 +743,9 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
         ev1 = await it.__anext__()
         assert ev1.event.kind == "final_message"
         # Provide a user message to continue same executor (not added to history)
-        ev2 = await it.asend(RunInput(response=RespMessage(message=msg("user", "more"))))
+        ev2 = await it.asend(
+            RunInput(response=RespMessage(message=msg("user", "more")))
+        )
         assert ev2.event.kind == "final_message"
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
@@ -485,7 +766,12 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
 @pytest.mark.parametrize("mode", ["all_messages", "final_response"])
 async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Path):
     nodes = [
-        {"name": "A", "type": "a", "outcomes": [OutcomeSlot(name="toB")], "message_mode": mode},
+        {
+            "name": "A",
+            "type": "a",
+            "outcomes": [OutcomeSlot(name="toB")],
+            "message_mode": mode,
+        },
         {"name": "B", "type": "b", "outcomes": []},
     ]
     edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
@@ -497,7 +783,10 @@ async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Pat
 
         async def run(self, inp):
             # Emit final with outcome to go to B
-            yield (ReqFinalMessage(message=msg("agent", "Aout"), outcome_name="toB"), None)
+            yield (
+                ReqFinalMessage(message=msg("agent", "Aout"), outcome_name="toB"),
+                None,
+            )
 
     class BExec(Executor):
         type = "b"
@@ -558,7 +847,11 @@ async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Pat
 @pytest.mark.asyncio
 async def test_error_multiple_outcomes_without_outcome_name(tmp_path: Path):
     nodes = [
-        {"name": "A", "type": "errA", "outcomes": [OutcomeSlot(name="x"), OutcomeSlot(name="y")]},
+        {
+            "name": "A",
+            "type": "errA",
+            "outcomes": [OutcomeSlot(name="x"), OutcomeSlot(name="y")],
+        },
         {"name": "Bx", "type": "b1", "outcomes": []},
         {"name": "By", "type": "b2", "outcomes": []},
     ]
@@ -579,11 +872,13 @@ async def test_error_multiple_outcomes_without_outcome_name(tmp_path: Path):
     # Child executors (won't be reached)
     class B1(Executor):
         type = "b1"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "Bx")), None)
 
     class B2(Executor):
         type = "b2"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "By")), None)
 
@@ -594,7 +889,9 @@ async def test_error_multiple_outcomes_without_outcome_name(tmp_path: Path):
 
         ev = await it.__anext__()
         assert ev.event.kind == "final_message" and ev.node == "A"
-        with pytest.raises(ValueError, match="did not provide an outcome and has 2 outcomes"):
+        with pytest.raises(
+            ValueError, match="did not provide an outcome and has 2 outcomes"
+        ):
             await it.asend(None)
 
 
@@ -610,11 +907,16 @@ async def test_error_unknown_outcome_name(tmp_path: Path):
 
     class Err2Exec(Executor):
         type = "err2"
+
         async def run(self, inp):
-            yield (ReqFinalMessage(message=msg("agent", "oops"), outcome_name="unknown"), None)
+            yield (
+                ReqFinalMessage(message=msg("agent", "oops"), outcome_name="unknown"),
+                None,
+            )
 
     class BExec(Executor):
         type = "b"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "B")), None)
 
@@ -625,13 +927,10 @@ async def test_error_unknown_outcome_name(tmp_path: Path):
 
         ev = await it.__anext__()
         assert ev.event.kind == "final_message"
-        with pytest.raises(ValueError, match="No edge defined from node 'A' via outcome 'unknown'"):
+        with pytest.raises(
+            ValueError, match="No edge defined from node 'A' via outcome 'unknown'"
+        ):
             await it.asend(None)
-
-
-
-
-
 
 
 @pytest.mark.asyncio
@@ -667,7 +966,9 @@ async def test_run_disallowed_when_running(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_path: Path):
+async def test_reset_policy_auto_confirmation_and_single_outcome_transition(
+    tmp_path: Path,
+):
     # Graph: A -> B -> A -> C.
     # - A has keep_results policy, so its second run accumulates messages.
     # - B has auto confirmation, so it transitions without user input.
@@ -707,11 +1008,17 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_
                 # First run, gets initial message
                 assert len(messages) == 1
                 assert messages[0].role == "user" and messages[0].text == "start"
-                yield (ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB"), None)
+                yield (
+                    ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB"),
+                    None,
+                )
             else:
                 # Second run via keep_results: receives all prior A messages + new input from B
                 assert [m.text for m in messages] == ["start", "A1", "B1"]
-                yield (ReqFinalMessage(message=msg("agent", "A2"), outcome_name="toC"), None)
+                yield (
+                    ReqFinalMessage(message=msg("agent", "A2"), outcome_name="toC"),
+                    None,
+                )
 
     class BExec(Executor):
         type = "b"
@@ -772,6 +1079,7 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(tmp_
         assert runner.status == RunnerStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
 
+
 @pytest.mark.asyncio
 async def test_edge_reset_policy_override_short_syntax(tmp_path: Path):
     # Graph:
@@ -807,14 +1115,27 @@ async def test_edge_reset_policy_override_short_syntax(tmp_path: Path):
             if type(self).global_runs == 0:
                 type(self).global_runs += 1
                 # First final: loop back to B (new instance due to always_reset override)
-                yield (ReqFinalMessage(message=msg("agent", f"B1:{self.instance_id}"), outcome_name="again"), None)
+                yield (
+                    ReqFinalMessage(
+                        message=msg("agent", f"B1:{self.instance_id}"),
+                        outcome_name="again",
+                    ),
+                    None,
+                )
             else:
                 type(self).global_runs += 1
                 # Second final: go to C
-                yield (ReqFinalMessage(message=msg("agent", f"B2:{self.instance_id}"), outcome_name="done"), None)
+                yield (
+                    ReqFinalMessage(
+                        message=msg("agent", f"B2:{self.instance_id}"),
+                        outcome_name="done",
+                    ),
+                    None,
+                )
 
     class CShortExec(Executor):
         type = "cshort"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "C")), None)
 
@@ -842,6 +1163,7 @@ async def test_edge_reset_policy_override_short_syntax(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
 
+
 @pytest.mark.asyncio
 async def test_log_stream_then_final(tmp_path: Path):
     nodes = [{"name": "Log", "type": "logg", "outcomes": []}]
@@ -850,6 +1172,7 @@ async def test_log_stream_then_final(tmp_path: Path):
 
     class LogExec(Executor):
         type = "logg"
+
         async def run(self, inp):
             # Emit a log, then a final message in the same cycle
             yield (ReqLogMessage(text="hello"), None)
@@ -887,7 +1210,9 @@ async def test_log_stream_then_final(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_final_message_confirm_requires_explicit_approval_and_reprompts(tmp_path: Path):
+async def test_final_message_confirm_requires_explicit_approval_and_reprompts(
+    tmp_path: Path,
+):
     # Single-node graph with confirmation=confirm
     nodes = [{"name": "C", "type": "conf", "outcomes": [], "confirmation": "confirm"}]
     g = Graph(nodes=nodes, edges=[])
@@ -895,6 +1220,7 @@ async def test_final_message_confirm_requires_explicit_approval_and_reprompts(tm
 
     class ConfirmExec(Executor):
         type = "conf"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "done")), None)
 
@@ -910,7 +1236,9 @@ async def test_final_message_confirm_requires_explicit_approval_and_reprompts(tm
         assert ev1.input_requested is True
 
         # Sending a user message should NOT be accepted; runner should re-prompt final_message
-        ev2 = await it.asend(RunInput(response=RespMessage(message=msg("user", "not approval"))))
+        ev2 = await it.asend(
+            RunInput(response=RespMessage(message=msg("user", "not approval")))
+        )
         assert ev2.node == "C"
         assert ev2.event.kind == "final_message"
         assert ev2.input_requested is True
@@ -941,6 +1269,7 @@ async def test_final_message_confirm_reject_stops_runner(tmp_path: Path):
 
     class ConfirmExec(Executor):
         type = "conf"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "done")), None)
 
@@ -988,8 +1317,18 @@ async def test_edge_reset_policy_override_full_syntax(tmp_path: Path):
         {"name": "C", "type": "cfull", "outcomes": []},
     ]
     edges = [
-        Edge(source_node="A", source_outcome="toB", target_node="B", reset_policy="keep_state"),
-        Edge(source_node="B", source_outcome="again", target_node="B", reset_policy="keep_state"),
+        Edge(
+            source_node="A",
+            source_outcome="toB",
+            target_node="B",
+            reset_policy="keep_state",
+        ),
+        Edge(
+            source_node="B",
+            source_outcome="again",
+            target_node="B",
+            reset_policy="keep_state",
+        ),
         Edge(source_node="B", source_outcome="done", target_node="C"),
     ]
     g = Graph(nodes=nodes, edges=edges)
@@ -997,12 +1336,17 @@ async def test_edge_reset_policy_override_full_syntax(tmp_path: Path):
 
     class AFullExec(Executor):
         type = "afull"
+
         async def run(self, inp):
-            yield (ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB"), None)
+            yield (
+                ReqFinalMessage(message=msg("agent", "A1"), outcome_name="toB"),
+                None,
+            )
 
     class BFullExec(Executor):
         type = "bfull"
         next_id = 1
+
         def __init__(self, config, project):
             super().__init__(config, project)
             self.instance_id = type(self).next_id
@@ -1031,6 +1375,7 @@ async def test_edge_reset_policy_override_full_syntax(tmp_path: Path):
 
     class CFullExec(Executor):
         type = "cfull"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "C")), None)
 

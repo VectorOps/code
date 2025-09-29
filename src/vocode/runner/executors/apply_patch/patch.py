@@ -63,7 +63,8 @@ class PatchAction:
 
 @dataclass
 class Patch:
-    actions: Dict[str, PatchAction] = field(default_factory=dict)
+    # Map file path -> ordered list of actions (blocks) for that file
+    actions: Dict[str, List[PatchAction]] = field(default_factory=dict)
 
 
 @dataclass
@@ -123,7 +124,8 @@ def parse_patch(text: str) -> Tuple[Patch, List[PatchError]]:
     patch = Patch()
     lines = text.splitlines()
     i = 0
-    seen_paths: set[str] = set()
+    # Multiple blocks per file are allowed; maintain order of appearance
+    # actions will be appended to patch.actions for each block encountered
 
     def add_error(msg: str, *, line: Optional[int] = None, hint: Optional[str] = None, filename: Optional[str] = None):
         errors.append(PatchError(msg=msg, line=line, hint=hint, filename=filename))
@@ -152,16 +154,7 @@ def parse_patch(text: str) -> Tuple[Patch, List[PatchError]]:
             if i < len(lines):
                 i += 1
             continue
-
-        if path in seen_paths:
-            add_error(f"Duplicate file entry: {path}", line=path_line_no, hint="Only one block per file path", filename=path)
-            # Skip rest of block
-            while i < len(lines) and not FENCE_RE.match(lines[i].strip()):
-                i += 1
-            if i < len(lines):
-                i += 1
-            continue
-        seen_paths.add(path)
+        # Multiple blocks per file are allowed; we append each parsed block to patch.actions[path]
 
         # Expect SEARCH marker
         if i >= len(lines) or lines[i].strip() != SEARCH_MARK:
@@ -237,12 +230,14 @@ def parse_patch(text: str) -> Tuple[Patch, List[PatchError]]:
         else:
             add_error("Empty patch block (no SEARCH and no REPLACE content)", line=path_line_no, filename=path)
             continue
-
-        patch.actions[path] = PatchAction(
-            type=action_type,
-            search=search_lines,
-            replace=replace_lines,
-            start_line=path_line_no,
+        # Append block to this file's action list
+        patch.actions.setdefault(path, []).append(
+            PatchAction(
+                type=action_type,
+                search=search_lines,
+                replace=replace_lines,
+                start_line=path_line_no,
+            )
         )
 
     return patch, errors
@@ -291,49 +286,92 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List[Commit], Li
     def add_error(msg: str, *, line: Optional[int] = None, hint: Optional[str] = None, filename: Optional[str] = None):
         errors.append(PatchError(msg=msg, line=line, hint=hint, filename=filename))
 
-    for path, action in patch.actions.items():
-        if action.type == ActionType.ADD:
-            new_content = _join_lines(action.replace, eol=False)
-            changes[path] = FileChange(type=ActionType.ADD, new_content=new_content)
-            status_map[path] = FileApplyStatus.Create
+    for path, actions in patch.actions.items():
+        if not actions:
             continue
 
-        if action.type == ActionType.DELETE:
+        # Determine initial content source
+        first = actions[0]
+        deleted = False
+        any_failed = False
+        applied_any = False  # at least one UPDATE applied successfully
+
+        if first.type == ActionType.ADD:
+            # Start from provided content (no trailing newline by default for patch mode)
+            file_lines = first.replace[:]
+            had_eol = False
+            action_iter = actions[1:]
+            existed = False
+        elif first.type == ActionType.DELETE:
+            # Delete-only sequence: no need to read existing file
+            deleted = True
+            action_iter = []
+            existed = True  # treat as existing target namespace; we won't read content
+        else:
+            # UPDATE sequence must have loaded content
+            original = files.get(path)
+            if original is None:
+                add_error(
+                    f"No loaded content for file: {path}",
+                    hint="Ensure the file exists and is readable for update.",
+                    filename=path,
+                    line=first.start_line,
+                )
+                status_map[path] = FileApplyStatus.PartialUpdate
+                continue
+            had_eol = original.endswith("\n")
+            file_lines = original.splitlines()
+            action_iter = actions
+            existed = True
+            original_content = original
+
+        # Apply actions sequentially (if not already marked for delete)
+        for act in action_iter:
+            if act.type == ActionType.ADD:
+                add_error(
+                    f"Ignoring Add block not at start for {path}",
+                    line=act.start_line,
+                    hint="Only the first block may be an Add for a new file",
+                    filename=path,
+                )
+                any_failed = True
+                continue
+
+            if act.type == ActionType.DELETE:
+                deleted = True
+                break
+
+            # UPDATE
+            start_idx = _find_subsequence(file_lines, act.search)
+            if start_idx is None:
+                add_error(
+                    f"Failed to locate exact SEARCH block in {path}",
+                    hint="SEARCH content must match current file exactly (contiguous block).",
+                    filename=path,
+                    line=act.start_line,
+                )
+                any_failed = True
+                continue
+            end_idx = start_idx + len(act.search)
+            file_lines = file_lines[:start_idx] + act.replace + file_lines[end_idx:]
+            applied_any = True
+
+        # Finalize change for this path
+        if deleted:
             changes[path] = FileChange(type=ActionType.DELETE)
             status_map[path] = FileApplyStatus.Delete
             continue
 
-        # UPDATE
-        original = files.get(path)
-        if original is None:
-            add_error(
-                f"No loaded content for file: {path}",
-                hint="Ensure the file exists and is readable for update.",
-                filename=path,
-                line=action.start_line,
-            )
-            status_map[path] = FileApplyStatus.PartialUpdate
-            continue
-
-        had_eol = original.endswith("\n")
-        file_lines = original.splitlines()
-        start_idx = _find_subsequence(file_lines, action.search)
-        if start_idx is None:
-            add_error(
-                f"Failed to locate exact SEARCH block in {path}",
-                hint="SEARCH content must match current file exactly (contiguous block).",
-                filename=path,
-                line=action.start_line,
-            )
-            status_map[path] = FileApplyStatus.PartialUpdate
-            # Do not add a change if we cannot locate the block
-            continue
-
-        end_idx = start_idx + len(action.search)
-        new_lines = file_lines[:start_idx] + action.replace + file_lines[end_idx:]
-        new_content = _join_lines(new_lines, eol=had_eol)
-        changes[path] = FileChange(type=ActionType.UPDATE, old_content=original, new_content=new_content)
-        status_map[path] = FileApplyStatus.Update
+        if not existed:
+            new_content = _join_lines(file_lines, eol=had_eol)  # had_eol set above for add branch as False
+            changes[path] = FileChange(type=ActionType.ADD, new_content=new_content)
+            status_map[path] = FileApplyStatus.PartialUpdate if any_failed else FileApplyStatus.Create
+        else:
+            # Only emit an UPDATE change if at least one update actually applied
+            status_map[path] = FileApplyStatus.PartialUpdate if any_failed else FileApplyStatus.Update
+            if applied_any:
+                new_content = _join_lines(file_lines, eol=had_eol)
+                changes[path] = FileChange(type=ActionType.UPDATE, old_content=original_content, new_content=new_content)
 
     if changes:
         commits.append(Commit(changes=changes))
@@ -383,9 +421,16 @@ def process_patch(
     patch, parse_errors = parse_patch(text)
     if parse_errors:
         return {}, parse_errors
-
-    # 2) Load files needed for UPDATE actions only
-    to_read = [p for p, a in patch.actions.items() if a.type == ActionType.UPDATE]
+    # 2) Load files needed:
+    #    For paths with UPDATE blocks where the first block is not an ADD.
+    to_read: List[str] = []
+    for p, acts in patch.actions.items():
+        if not acts:
+            continue
+        first = acts[0]
+        needs_read = any(a.type == ActionType.UPDATE for a in acts) and first.type != ActionType.ADD
+        if needs_read:
+            to_read.append(p)
     files, read_errors = load_files(to_read, open_fn)
     if read_errors:
         return {}, read_errors
