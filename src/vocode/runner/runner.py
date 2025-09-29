@@ -310,30 +310,29 @@ class Runner:
 
     def _prepare_resume(self, task: Assignment):
         """
-        Find the last successfully finished step, compute the transition to the next node,
+        Find the last successfully finished step via history, compute the transition to the next node,
         and return (next_runtime_node, input_messages_for_next, incoming_edge_reset_policy).
         If no finished steps are found, return None (start from the graph root).
         If the last finished node has no outgoing edges, return (None, None, None) to indicate completion.
         """
-        if not task.steps:
+        if not self._history:
             return None
-        for step in reversed(task.steps):
-            if step.status == StepStatus.finished:
-                last_exec = next(
-                    (
-                        a
-                        for a in reversed(step.executions)
-                        if a.type == ActivityType.executor and a.is_complete
-                    ),
-                    None,
-                )
-                if last_exec is None:
-                    continue
+
+        for hist in reversed(self._history):
+            # A history entry is only a candidate for resuming if its step is finished.
+            if hist.step_index >= len(task.steps):
+                continue
+            step = task.steps[hist.step_index]
+
+            if step.status == StepStatus.finished and hist.activity.is_complete:
+                # This history entry corresponds to a completed final action.
                 cur_rn = self._find_runtime_node_by_name(step.node)
                 if cur_rn is None:
-                    return None
+                    continue  # Should not happen
+
+                # The activity on the history object is the one that completed the step.
                 next_rn, msgs, edge_policy = self._compute_node_transition(
-                    cur_rn, last_exec, step
+                    cur_rn, hist.activity, step
                 )
                 return next_rn, msgs, edge_policy
         return None
@@ -486,8 +485,9 @@ class Runner:
         else:
             task.steps.clear()
 
-        # Mark resume point at the last popped history step
-        self._resume_history_step = last_popped
+        # By clearing the resume marker, we force a natural resume which re-evaluates
+        # the transition from the last valid step in history. This causes re-execution.
+        self._resume_history_step = None
         # Reset internal flags
         self._stop_requested = False
         self._internal_cancel_requested = False
@@ -612,6 +612,24 @@ class Runner:
             preloaded_req = self._resume_history_step.req
             preloaded_final_act = self._resume_history_step.activity
             preloaded_resp_default = self._resume_history_step.response
+        elif prev_status == RunnerStatus.stopped:
+            # Natural resume: find last finished step and continue from there
+            resume_info = self._prepare_resume(task)
+            if resume_info:
+                (
+                    current_runtime_node,
+                    pending_input_messages,
+                    incoming_policy_override,
+                ) = resume_info
+                if current_runtime_node is None:
+                    self.status = RunnerStatus.finished
+                    return
+            else:
+                # No resume point, start from beginning
+                current_runtime_node = self.runtime_graph.root
+                pending_input_messages = (
+                    [self.initial_message] if self.initial_message is not None else []
+                )
         else:
             current_runtime_node = self.runtime_graph.root
             pending_input_messages = (

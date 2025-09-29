@@ -15,39 +15,49 @@ PACKET_TOKEN_USAGE = "token_usage"
 # Packet kinds that are considered "interim" (do not end an executor cycle)
 INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_LOG, PACKET_TOKEN_USAGE)
 
+
 # Executor -> Runner events (discriminated by 'kind')
 class TokenUsageTotals(BaseModel):
     """
     Aggregate LLM usage totals within the current process.
     """
+
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cost_dollars: float = 0.0
+
 
 class ReqMessageRequest(BaseModel):
     """
     Request a message from a user.
     """
+
     kind: Literal["message_request"] = PACKET_MESSAGE_REQUEST
+
 
 class ReqToolCall(BaseModel):
     """
     Tool call requests to be executed by the runner.
     """
+
     kind: Literal["tool_call"] = PACKET_TOOL_CALL
     tool_calls: List[ToolCall]
+
 
 class ReqInterimMessage(BaseModel):
     """
     Intermediate message provided by a tool or a user
     """
+
     kind: Literal["message"] = PACKET_MESSAGE
     message: Message
+
 
 class ReqFinalMessage(BaseModel):
     """
     Final agent message (optional if node finishes without emitting a message)
     """
+
     kind: Literal["final_message"] = PACKET_FINAL_MESSAGE
     message: Optional[Message] = None
     outcome_name: Optional[str] = None
@@ -58,6 +68,7 @@ class ReqTokenUsage(BaseModel):
     Accumulated token usage/cost report for the project.
     Sent as an interim packet prior to final response.
     """
+
     kind: Literal["token_usage"] = PACKET_TOKEN_USAGE
     acc_prompt_tokens: int
     acc_completion_tokens: int
@@ -70,6 +81,7 @@ class ReqLogMessage(BaseModel):
     """
     Debug/log message emitted by an executor. Never requests input.
     """
+
     kind: Literal["log"] = PACKET_LOG
     text: str
     level: Optional[LogLevel] = None
@@ -87,25 +99,31 @@ ReqPacket = Annotated[
     Field(discriminator="kind"),
 ]
 
+
 # Runner -> Executor responses
 class RespMessage(BaseModel):
     """
     Message provided by a user.
     """
+
     kind: Literal["message"] = PACKET_MESSAGE
     message: Message
+
 
 class RespToolCall(BaseModel):
     """
     Tool call responses.
     """
+
     kind: Literal["tool_call"] = PACKET_TOOL_CALL
     tool_calls: List[ToolCall]
+
 
 class RespApproval(BaseModel):
     """
     Approval response
     """
+
     kind: Literal["approval"] = PACKET_APPROVAL
     approved: bool
 
@@ -137,6 +155,4 @@ class RunEvent(BaseModel):
 
 
 class RunInput(BaseModel):
-    response: Optional[RespPacket] = Field(
-        None, description="Optional response packet"
-    )
+    response: Optional[RespPacket] = Field(None, description="Optional response packet")

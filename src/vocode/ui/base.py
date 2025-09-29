@@ -198,6 +198,7 @@ class UIState:
             # Prevent multiple drivers
             if self._drive_task and not self._drive_task.done():
                 raise RuntimeError("Runner is already active")
+
             self._msg_counter = 0
             self._last_status = None
             self._stop_signal.clear()
@@ -392,7 +393,9 @@ class UIState:
                 suppress_event = False
                 if req.event.kind == PACKET_FINAL_MESSAGE and not req.input_requested:
                     if self.runner is not None:
-                        rn = self.runner.runtime_graph.get_runtime_node_by_name(req.node)
+                        rn = self.runner.runtime_graph.get_runtime_node_by_name(
+                            req.node
+                        )
                         if rn is not None and rn.model.hide_final_output:
                             suppress_event = True
 
@@ -454,7 +457,10 @@ class UIState:
                 delta = await q.get()
                 added = [
                     UICommand(
-                        name=c.name, help=c.help, usage=c.usage, autocompleter=c.autocompleter
+                        name=c.name,
+                        help=c.help,
+                        usage=c.usage,
+                        autocompleter=c.autocompleter,
                     )
                     for c in delta.added
                 ]
