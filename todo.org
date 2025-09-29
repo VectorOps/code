@@ -62,6 +62,12 @@ Concrete example: files that were read and already in context.
 ** [ ] Add syntax name hint to apply formatting
 ** [X] Better event handler loop as current implementation is hacky
 * [ ] Terminal UI
+** [ ] Always show prompt. Add commands to stop/continue workflows
+** [ ] Summarize tool calls for known tools. Create templates for tool calling that map parameters
+** [ ] Ability to snoop into tool call details if needed, collapsed by default
+** [ ] Better multi-line inputs, don't require esc+enter to send
+** [ ] Shortcuts - ESC to stop execution?
+** [ ] Show how long individual steps took, in seconds
 ** [ ] Continue after stopping runner on input shows prompt even though it's not needed
 ** [ ] Continue after stopping shows incorrect prompt label if it is needed
 ** [ ] Continue after stopping does not show agent output upon response, but it's there
@@ -70,6 +76,7 @@ Concrete example: files that were read and already in context.
 ** [ ] Add shortcuts to cancel current input easily
 ** [ ] Simple styling
 *** [ ] Color usage
+*** [ ] Simple animations
 *** [X] Separate tool calls from outputs
 *** [ ] Remove Agent: prefix
 ** [ ] Print node transitions
@@ -146,6 +153,7 @@ Concrete example: files that were read and already in context.
 *** [X] Do not add empty message to output
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled
+*** [ ] Add stats for the number of tokens in the context and context window limits
 *** [X] For some reason tokens are not accumulated for tool calls
 *** [ ] Figure out why pricing estimates are all zeroes
 ** [X] Diff apply node
@@ -163,7 +171,7 @@ Concrete example: files that were read and already in context.
 - How do we extract paths reliably?
 - Maybe offer a tool?
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
-** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?
+** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
 * [ ] Tools
 ** [ ] MCP tool support
 ** [ ] Add a way to reject tool calling automatically if tools with same parameters were already called
