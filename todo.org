@@ -3,8 +3,8 @@
 ** [ ] Autocompleters needs consts at model level
 ** [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 * [ ] Runner
-** [ ] Continue duplicates messages
 ** [ ] [#A] Figure out a way to merge HistoryStep with state (Activity)
+** [X] Continue duplicates messages
 ** [X] Add better history management and rollback to previous input
 ** [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
 ** [X] ctrl+c after providing looping llm answer did not continue from that step - it started from initial step.
@@ -50,8 +50,10 @@ Concrete example: files that were read and already in context.
 ** [ ] Add syntax name hint to apply formatting
 ** [X] Better event handler loop as current implementation is hacky
 * [ ] Terminal UI
+** [ ] Continue after stopping runner on input shows prompt even though it's not needed
+** [ ] Continue after stopping shows incorrect prompt label if it is needed
+** [ ] Continue after stopping does not show agent output upon response, but it's there
 ** [ ] When ctrl+c is pressed while waiting for user input and runner is stopped, need to cancel waiter.
-** [ ] Continue after stopping runner on input does not show correct prompt
 ** [ ] Add command to reload config without restart
 ** [ ] Add shortcuts to cancel current input easily
 ** [ ] Simple styling
