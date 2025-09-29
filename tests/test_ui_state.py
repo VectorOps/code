@@ -90,7 +90,7 @@ class FakeRunner:
     async def rewind(self, task, n: int = 1) -> None:
         self.rewound = n
 
-    def replace_last_user_input(self, task, response) -> None:
+    def replace_user_input(self, task, response, step_index=None) -> None:
         self.replaced_input = response
 
     async def run(self, assignment):
@@ -269,7 +269,7 @@ def test_ui_state_replace_input_guard(monkeypatch):
 
         # Attempt replacing last user input while waiting for input should fail
         with pytest.raises(RuntimeError):
-            await ui.replace_last_user_input(
+            await ui.replace_user_input(
                 RespMessage(message=Message(role="user", text="new"))
             )
 

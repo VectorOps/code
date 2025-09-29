@@ -498,15 +498,17 @@ class Runner:
         rn = self._find_runtime_node_by_name(node_name)
         return rn.model.confirmation if rn else None
 
-    def replace_last_user_input(
-        self, task: Assignment, response: Union[RespMessage, RespApproval]
+    def replace_user_input(
+        self,
+        task: Assignment,
+        response: Union[RespMessage, RespApproval],
+        step_index: Optional[int] = None,
     ) -> None:
         """
-        Finds the last user input boundary in the history (a final message that
-        prompted or a message request), replaces the user's response, and prepares
-        the runner to resume execution from that point.
-        If no input boundary is found, it resets the runner to start from the beginning,
-        using the provided response as the initial message if it is one.
+        Finds a user input boundary in the history, replaces the user's response,
+        and prepares the runner to resume execution from that point.
+        By default it searches from the last step backwards. If step_index is provided,
+        it searches from that step backwards.
         Leaves runner in stopped state ready to restart.
         """
         if self.status in (RunnerStatus.running, RunnerStatus.waiting_input):
@@ -514,12 +516,23 @@ class Runner:
                 f"Cannot replace input while runner status is '{self.status}'"
             )
 
-        import devtools
+        # Determine starting point for search in history
+        start_hist_idx = len(self._history) - 1
+        if step_index is not None:
+            # Find the last history item at or before the given step_index
+            found_idx = -1
+            for i in range(len(self._history) - 1, -1, -1):
+                if self._history[i].step_index <= step_index:
+                    found_idx = i
+                    break
+            if found_idx == -1:
+                raise ValueError(
+                    f"No history found at or before step_index {step_index}"
+                )
+            start_hist_idx = found_idx
 
-        devtools.pprint(self._history)
-
-        # Find the last point in history that corresponds to a user input boundary
-        for i in range(len(self._history) - 1, -1, -1):
+        # Find a user input boundary backwards from the start index
+        for i in range(start_hist_idx, -1, -1):
             hist = self._history[i]
             is_boundary = False
             if hist.req.kind == PACKET_MESSAGE_REQUEST:
@@ -831,8 +844,6 @@ class Runner:
                 if hist is not None:
                     hist.response = resp_packet
 
-                print(req.kind, current_runtime_node.model.confirmation, resp_packet)
-
                 # PACKET_FINAL_MESSAGE: finalize (with confirm/prompt)
                 if req.kind == PACKET_FINAL_MESSAGE:
                     # Get final_act and hist for this step
@@ -931,8 +942,6 @@ class Runner:
                 if req.kind == PACKET_MESSAGE_REQUEST:
                     if replaying_history:
                         hist = self._resume_history_step
-
-                    print(hist, resp_packet)
 
                     # Require a message; keep prompting until we get one
                     user_msg_packet: Optional[RespMessage] = None

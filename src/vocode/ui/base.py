@@ -327,11 +327,12 @@ class UIState:
                 )
             await self.runner.rewind(self.assignment, n)
 
-    async def replace_last_user_input(
-        self, resp: Union[RespMessage, RespApproval]
+    async def replace_user_input(
+        self, resp: Union[RespMessage, RespApproval], step_index: Optional[int] = None
     ) -> None:
         """
-        Replace the last user input (final prompt/confirm or prior message_request) and prepare resume.
+        Replace a user input (final prompt/confirm or prior message_request) and prepare resume.
+        By default, it targets the last user input. A specific step can be targeted with step_index.
         """
         async with self._lock:
             if self.runner is None or self.assignment is None:
@@ -340,7 +341,7 @@ class UIState:
                 raise RuntimeError(
                     "Cannot replace input while runner is running or waiting for input"
                 )
-            self.runner.replace_last_user_input(self.assignment, resp)
+            self.runner.replace_user_input(self.assignment, resp, step_index=step_index)
 
     # ------------------------
     # Internal driver

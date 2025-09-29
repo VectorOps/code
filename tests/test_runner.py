@@ -169,6 +169,81 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_replace_user_input_with_step_index(tmp_path: Path):
+    """Scenario: Run a multi-step workflow, then replace an input from an early step."""
+    nodes = [
+        {"name": "A", "type": "a_replace", "outcomes": [OutcomeSlot(name="next")]},
+        {"name": "B", "type": "b_replace", "outcomes": []},
+    ]
+    edges = [Edge(source_node="A", source_outcome="next", target_node="B")]
+    g = Graph(nodes=nodes, edges=edges)
+    workflow = Workflow(name="w", graph=g)
+
+    class AExec(Executor):
+        type = "a_replace"
+
+        async def run(self, inp):
+            if inp.response and inp.response.kind == "message":
+                yield (
+                    ReqFinalMessage(
+                        message=msg("agent", f"A saw:{inp.response.message.text}"),
+                        outcome_name="next",
+                    ),
+                    None,
+                )
+            else:
+                yield (ReqMessageRequest(), None)
+
+    class BExec(Executor):
+        type = "b_replace"
+
+        async def run(self, inp):
+            yield (ReqFinalMessage(message=msg("agent", "B done")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        # Run 1: A asks, user says "A1"
+        ev1 = await it.__anext__()
+        assert ev1.event.kind == "message_request" and ev1.node == "A"
+        ev2 = await it.asend(RunInput(response=RespMessage(message=msg("user", "A1"))))
+        assert ev2.event.kind == "final_message" and ev2.node == "A"
+        assert "A saw:A1" in ev2.event.message.text
+
+        # Run 1: B runs
+        ev3 = await it.asend(None)
+        assert ev3.event.kind == "final_message" and ev3.node == "B"
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(None)
+
+        assert runner.status == RunnerStatus.finished
+        assert len(task.steps) == 2
+
+        # Replace input at step 0 (node A)
+        runner.replace_user_input(
+            task, RespMessage(message=msg("user", "A2")), step_index=0
+        )
+        assert runner.status == RunnerStatus.stopped
+
+        # Run 2: starts from A with new input
+        it2 = runner.run(task)
+        ev2_1 = await it2.__anext__()
+        assert ev2_1.event.kind == "final_message" and ev2_1.node == "A"
+        assert "A saw:A2" in ev2_1.event.message.text
+
+        # Run 2: B runs
+        ev2_2 = await it2.asend(None)
+        assert ev2_2.event.kind == "final_message" and ev2_2.node == "B"
+        with pytest.raises(StopAsyncIteration):
+            await it2.asend(None)
+
+        assert runner.status == RunnerStatus.finished
+        assert len(task.steps) == 2
+
+
+@pytest.mark.asyncio
 async def test_replace_input_for_pending_request(tmp_path: Path):
     """Scenario: Input node is waiting for input, runner is stopped.
     A new message should be provided to the input node on restart."""
@@ -198,7 +273,7 @@ async def test_replace_input_for_pending_request(tmp_path: Path):
         await it.aclose()
         assert runner.status == RunnerStatus.stopped
 
-        runner.replace_last_user_input(
+        runner.replace_user_input(
             task, RespMessage(message=msg("user", "replaced"))
         )
 
@@ -241,7 +316,7 @@ async def test_replace_input_for_pending_request_with_approval_is_ignored(
         runner.stop()
         await it.aclose()
 
-        runner.replace_last_user_input(task, RespApproval(approved=True))
+        runner.replace_user_input(task, RespApproval(approved=True))
 
         it2 = runner.run(task)
         ev2 = await it2.__anext__()
@@ -301,7 +376,7 @@ async def test_replace_input_at_retriable_final_message(tmp_path: Path):
         runner.stop()
         await it.aclose()
 
-        runner.replace_last_user_input(task, RespApproval(approved=True))
+        runner.replace_user_input(task, RespApproval(approved=True))
         it2 = runner.run(task)
 
         # Since we provided an approval, it should now transition and run Other.
@@ -366,7 +441,7 @@ async def test_replace_input_with_auto_confirm_node(tmp_path: Path):
         runner.stop()
         await it.aclose()
 
-        runner.replace_last_user_input(task, RespMessage(message=msg("user", "B")))
+        runner.replace_user_input(task, RespMessage(message=msg("user", "B")))
         it2 = runner.run(task)
 
         # The runner should auto-respond with "B", causing "In" to emit its final message immediately.

@@ -550,7 +550,7 @@ async def run_terminal(project: Project) -> None:
 
                 # Rewind one retriable history step and restart; next input boundary auto-receives queued_resp.
                 try:
-                    await ui.replace_last_user_input(queued_resp)
+                    await ui.replace_user_input(queued_resp)
                 except Exception as e:
                     out(f"Failed to prepare replacement: {e}")
                     queued_resp = None
