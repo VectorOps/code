@@ -173,6 +173,7 @@ Concrete example: files that were read and already in context.
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
 * [ ] Tools
+** [ ] Parallel tool calling support
 ** [ ] MCP tool support
 ** [ ] Add a way to reject tool calling automatically if tools with same parameters were already called
 * [ ] Nested workflows support
