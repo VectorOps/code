@@ -142,6 +142,7 @@ class RunnerState(BaseModel):
     state: Optional[Any] = None
     req: Optional[ReqPacket] = None
     response: Optional[RespPacket] = None
+    messages: Optional[List[Message]] = None
 
 
 class ExecRunInput(BaseModel):

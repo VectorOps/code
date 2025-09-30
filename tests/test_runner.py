@@ -14,7 +14,7 @@ from vocode.runner.models import (
     RespApproval,
     RunInput,
 )
-from vocode.state import Message, ToolCall, ToolCallStatus, Assignment, RunnerStatus
+from vocode.state import Message, ToolCall, ToolCallStatus, Assignment, RunnerStatus, StepStatus
 from vocode.ui.base import UIState
 from vocode.ui.proto import UIPacketRunEvent, UIPacketStatus
 from vocode.runner.models import PACKET_FINAL_MESSAGE
@@ -278,8 +278,8 @@ async def test_natural_resume_after_stop(tmp_path: Path):
         assert AExec.runs == 1
         assert BExec.runs == 2
         assert CExec.runs == 1
-        assert len(task.steps) == 4
-        assert [s.node for s in task.steps] == ["A", "B", "B", "C"]
+        assert len(task.steps) == 3
+        assert [s.node for s in task.steps] == ["A", "B", "C"]
 
 
 @pytest.mark.asyncio
@@ -844,6 +844,65 @@ async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
         assert runner.status == RunnerStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "C"]
         assert CExec.runs == 2
+
+
+@pytest.mark.asyncio
+async def test_rewind_within_step_and_resume(tmp_path: Path):
+    """Scenario: A single step has multiple retriable activities.
+    Rewinding by 1 should remove only the last activity, not the whole step."""
+    nodes = [{"name": "A", "type": "a_rewind_step", "outcomes": []}]
+    g = Graph(nodes=nodes, edges=[])
+    workflow = Workflow(name="workflow", graph=g)
+
+    class AExec(Executor):
+        type = "a_rewind_step"
+
+        async def run(self, inp):
+            count = (inp.state or {}).get("count", 0)
+
+            if inp.response:
+                count += 1
+
+            if count < 2:
+                yield (ReqMessageRequest(), {"count": count})
+            else:
+                yield (ReqFinalMessage(message=msg("agent", "A done")), {"count": count})
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        # Run through to completion
+        ev1 = await it.__anext__()  # req1
+        assert ev1.event.kind == "message_request"
+        ev2 = await it.asend(RunInput(response=RespMessage(message=msg("user", "msg1"))))
+        assert ev2.event.kind == "message_request"
+        ev3 = await it.asend(RunInput(response=RespMessage(message=msg("user", "msg2"))))
+        assert ev3.event.kind == "final_message"
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(None)
+
+        assert runner.status == RunnerStatus.finished
+        assert len(task.steps) == 1
+        step = task.steps[0]
+        retriable_count = sum(1 for ex in step.executions if not ex.ephemeral)
+        assert retriable_count == 3  # req1, req2, final1
+
+        # Rewind 1 (the final message)
+        await runner.rewind(task, n=1)
+        assert runner.status == RunnerStatus.stopped
+        assert len(task.steps) == 1  # Step should NOT be removed
+        step = task.steps[0]
+        assert step.status == StepStatus.running
+        retriable_count_after = sum(1 for ex in step.executions if not ex.ephemeral)
+        assert retriable_count_after == 2  # req1, req2 should remain
+
+        # Resume. The runner will find the step for node A in a 'running' state
+        # and will continue execution from within that step.
+        it2 = runner.run(task)
+        ev4 = await it2.__anext__()
+        assert ev4.event.kind == "message_request"
 
 
 @pytest.mark.asyncio

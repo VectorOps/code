@@ -4,18 +4,8 @@
 ** [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 * [ ] Runner
 ** [ ] [#A] Figure out a way to merge HistoryStep with state (Activity)
-- Activity will be created for each user interaction or explicit approval
-- Activities will be used to rollback execution state
-- Any executor response (except of tool calls) and any user input should create an Activity. This will make it easier to roll back to a correct history position - either to executor step or to response override.
-Steps:
-- Add runner_state to Activity: state, req, response
-- Remove existing state from Activity
-- Create Activity after receiving req from executor and add it to Step. Populate runner_state.
-- For final messages, also populate additional fields (outcome_name, etc)
-- After receiving correct user response, create a new Activity and set and updated runner_state with original req and new response
-- Create generator to walk activities over steps backwards (step, activity idx) - needed for rewind and user input replacement
-- Remove _history
-- Use generator to go back in history - update rewind() and replace_user_input(). If current position is user activity - run input with stored req, if current position is executor - run the executor.
+- If Activity has req (all do) - skip execution
+- If Activity has response - skip yielding activity
 ** [X] Continue duplicates messages
 ** [X] Add better history management and rollback to previous input
 ** [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
