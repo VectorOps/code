@@ -41,6 +41,7 @@ from vocode.runner.models import (
     RespMessage,
     RespApproval,
     ExecRunInput,
+    RunnerState,
     INTERIM_PACKETS,
     PACKET_MESSAGE_REQUEST,
     PACKET_TOOL_CALL,
@@ -284,8 +285,10 @@ class Runner:
             if s.node != node_name:
                 continue
             for a in reversed(s.executions):
-                if a.type == ActivityType.executor and a.state is not None:
-                    return a.state
+                if a.type == ActivityType.executor and a.runner_state is not None:
+                    rs = a.runner_state
+                    if isinstance(rs, RunnerState) and rs.state is not None:
+                        return rs.state
         return None
 
     def _get_last_final_message_for_node(
@@ -694,7 +697,6 @@ class Runner:
             if preloaded_resp_default:
                 resp = preloaded_resp_default
 
-            placeholder_exec = Activity(type=ActivityType.executor)
             pass_messages = (
                 True  # Only pass base_input_messages on the first cycle for this node
             )
@@ -738,11 +740,24 @@ class Runner:
                                 self._current_exec_task = None
 
                             if pkt.kind in INTERIM_PACKETS:
-                                # Interim message/log: do not generate an Activity or populate message/state.
+                                # Interim events: create a temporary activity for consumer use; do not persist.
                                 self.status = RunnerStatus.running
+                                interim_act = Activity(
+                                    type=ActivityType.executor,
+                                    message=(
+                                        pkt.message
+                                        if pkt.kind == PACKET_MESSAGE
+                                        else None
+                                    ),
+                                    is_complete=False,
+                                    runner_state=RunnerState(
+                                        state=current_state, req=pkt, response=None
+                                    ),
+                                    ephemeral=True,
+                                )
                                 run_event = RunEvent(
                                     node=current_runtime_node.name,
-                                    execution=placeholder_exec,
+                                    execution=interim_act,
                                     event=pkt,
                                     input_requested=False,
                                 )
@@ -812,33 +827,48 @@ class Runner:
                     req=req, node_conf=current_runtime_node.model.confirmation
                 )
 
-                # Create history entry for packets that are retriable before yielding
+                # Create a unified activity for all non-interim packets; persist only retriable ones.
                 hist: Optional[HistoryStep] = None
-                if not replaying_history and req.kind in PACKETS_FOR_HISTORY:
-                    # For final messages, we need to create the final activity now.
-                    # For message requests, use a placeholder.
-                    activity: Activity
-                    if req.kind == PACKET_FINAL_MESSAGE:
-                        activity = Activity(
-                            type=ActivityType.executor,
-                            message=req.message,
-                            outcome_name=req.outcome_name,
-                            is_complete=True,
-                            state=current_state,
-                        )
-                    else:  # PACKET_MESSAGE_REQUEST
-                        activity = placeholder_exec.clone()
-
-                    hist = HistoryStep(
-                        node=current_runtime_node.name,
-                        activity=activity,
-                        messages=list(base_input_messages),
-                        state=current_state,
-                        req=req,
-                        response=None,
-                        step_index=len(task.steps) - 1,
+                if replaying_history:
+                    # For replay, reuse the previously persisted activity.
+                    created_activity = preloaded_final_act
+                else:
+                    # Start with common fields; mark as ephemeral by default.
+                    created_activity = Activity(
+                        type=ActivityType.executor,
+                        message=None,
+                        is_complete=False,
+                        runner_state=RunnerState(
+                            state=current_state, req=req, response=None
+                        ),
+                        ephemeral=True,
                     )
-                    self._history.append(hist)
+                    # Specialize by packet kind.
+                    if req.kind == PACKET_FINAL_MESSAGE:
+                        created_activity.message = req.message
+                        created_activity.outcome_name = req.outcome_name
+                        created_activity.is_complete = True
+                        created_activity.ephemeral = False
+                    elif req.kind == PACKET_MESSAGE_REQUEST:
+                        created_activity.is_complete = False
+                        created_activity.ephemeral = False
+                    else:
+                        # Any other non-interim packets (if added in future) remain ephemeral.
+                        pass
+
+                    # Persist only if retriable
+                    if req.kind in PACKETS_FOR_HISTORY:
+                        step.executions.append(created_activity)
+                        hist = HistoryStep(
+                            node=current_runtime_node.name,
+                            activity=created_activity,
+                            messages=list(base_input_messages),
+                            state=current_state,
+                            req=req,
+                            response=None,
+                            step_index=len(task.steps) - 1,
+                        )
+                        self._history.append(hist)
 
                 run_input: Optional[RunInput] = None
                 resp_packet: Optional[RespPacket] = None
@@ -848,10 +878,9 @@ class Runner:
                     resp_packet = preloaded_resp_default
                     preloaded_resp_default = None
                 else:
-                    # Prepare default activity placeholder for UI emission
                     run_event = RunEvent(
                         node=current_runtime_node.name,
-                        execution=placeholder_exec,
+                        execution=created_activity,
                         event=req,
                         input_requested=input_requested,
                     )
@@ -865,13 +894,9 @@ class Runner:
                 # PACKET_FINAL_MESSAGE: finalize (with confirm/prompt)
                 if req.kind == PACKET_FINAL_MESSAGE:
                     # Get final_act and hist for this step
-                    final_act: Activity
                     if replaying_history:
                         hist = self._resume_history_step
-                        final_act = preloaded_final_act
-                    else:
-                        # hist was created before the yield
-                        final_act = hist.activity
+                    final_act: Activity = created_activity
 
                     node_conf = current_runtime_node.model.confirmation
 
@@ -883,18 +908,29 @@ class Runner:
                                 resp_packet is not None
                                 and resp_packet.kind == PACKET_APPROVAL
                             ):
-                                # Record final activity in step history (and mark response on hist)
-                                step.executions.append(final_act)
+                                # Record user approval as an additional activity
+                                step.executions.append(
+                                    Activity(
+                                        type=ActivityType.user,
+                                        message=None,
+                                        runner_state=RunnerState(
+                                            state=current_state,
+                                            req=req,
+                                            response=resp_packet,
+                                        ),
+                                    )
+                                )
                                 hist.response = resp_packet
                                 if resp_packet.approved:
                                     break
-                                # Rejected: record final and stop runner
+                                # Rejected: stop runner
                                 self.status = RunnerStatus.stopped
                                 step.status = StepStatus.stopped
                                 # consume resume marker
                                 if replaying_history:
                                     _clear_resume_markers()
                                 return
+
                             # Ask again
                             self.status = RunnerStatus.waiting_input
                             run_event = RunEvent(
@@ -914,21 +950,44 @@ class Runner:
                             resp_packet is not None
                             and resp_packet.kind == PACKET_MESSAGE
                         ):
-                            # Record this final, store the response on hist, but continue same node with provided user message (not recorded)
-                            step.executions.append(final_act)
+                            # Record the user message for prompt, then continue this node with provided message
+                            step.executions.append(
+                                Activity(
+                                    type=ActivityType.user,
+                                    message=resp_packet.message,
+                                    runner_state=RunnerState(
+                                        state=current_state,
+                                        req=req,
+                                        response=resp_packet,
+                                    ),
+                                )
+                            )
                             hist.response = resp_packet
                             resp = resp_packet
-                            # clear resume marker if we were replaying
                             if replaying_history:
                                 _clear_resume_markers()
                             continue
 
-                        # No extra message provided; accept final
-                        step.executions.append(final_act)
+                        # No extra message provided; accept final. If a non-message response was supplied, record it.
+                        if (
+                            resp_packet is not None
+                            and resp_packet.kind != PACKET_MESSAGE
+                        ):
+                            step.executions.append(
+                                Activity(
+                                    type=ActivityType.user,
+                                    message=None,
+                                    runner_state=RunnerState(
+                                        state=current_state,
+                                        req=req,
+                                        response=resp_packet,
+                                    ),
+                                )
+                            )
 
                     else:
                         # No confirmation/prompt: accept final
-                        step.executions.append(final_act)
+                        pass
 
                     # Final accepted: finish step and transition
                     step.status = StepStatus.finished
@@ -974,7 +1033,7 @@ class Runner:
                         self.status = RunnerStatus.waiting_input
                         run_event = RunEvent(
                             node=current_runtime_node.name,
-                            execution=placeholder_exec,
+                            execution=created_activity,
                             event=req,
                             input_requested=True,
                         )
@@ -986,10 +1045,14 @@ class Runner:
                     if hist:
                         hist.response = user_msg_packet
 
-                    # Record user message in history
+                    # Record user message in history and attach runner_state
                     step.executions.append(
                         Activity(
-                            type=ActivityType.user, message=user_msg_packet.message
+                            type=ActivityType.user,
+                            message=user_msg_packet.message,
+                            runner_state=RunnerState(
+                                state=current_state, req=req, response=user_msg_packet
+                            ),
                         )
                     )
 

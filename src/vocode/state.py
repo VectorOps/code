@@ -109,8 +109,13 @@ class Activity(BaseModel):
     is_complete: bool = Field(
         False, description="True when this activity represents a completed final result"
     )
-    state: Optional[Any] = Field(
-        default=None, description="Opaque executor state to carry between run cycles"
+    runner_state: Optional[Any] = Field(
+        default=None,
+        description="Partial runner state (BaseModel instance) with optional fields: 'state', 'req', 'response'",
+    )
+    ephemeral: bool = Field(
+        default=True,
+        description="True when this activity is temporary (not persisted to history/step)",
     )
 
     def clone(self, **overrides) -> "Activity":
@@ -121,7 +126,8 @@ class Activity(BaseModel):
             "outcome_name": self.outcome_name,
             "is_canceled": self.is_canceled,
             "is_complete": self.is_complete,
-            "state": self.state,
+            "runner_state": self.runner_state,
+            "ephemeral": self.ephemeral,
         }
         data.update(overrides)
         return Activity(**data)

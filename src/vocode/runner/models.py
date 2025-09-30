@@ -138,6 +138,12 @@ RespPacket = Annotated[
 ]
 
 
+class RunnerState(BaseModel):
+    state: Optional[Any] = None
+    req: Optional[ReqPacket] = None
+    response: Optional[RespPacket] = None
+
+
 class ExecRunInput(BaseModel):
     messages: List[Message] = Field(default_factory=list)
     state: Optional[Any] = None
