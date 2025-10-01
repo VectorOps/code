@@ -760,7 +760,7 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
         assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
 
         # Rewind last step (C)
-        await runner.rewind(task, 1)
+        await runner.rewind(task, 2)
         assert runner.status == RunnerStatus.stopped
         assert [s.node for s in task.steps] == ["A", "B", "A"]
 
@@ -837,7 +837,7 @@ async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
         assert [s.node for s in task.steps] == ["A", "B", "C"]
 
         # Rewind last two steps (B, C)
-        await runner.rewind(task, 2)
+        await runner.rewind(task, 4)
         assert runner.status == RunnerStatus.stopped
         assert [s.node for s in task.steps] == ["A"]
 
@@ -906,16 +906,20 @@ async def test_rewind_within_step_and_resume(tmp_path: Path):
         assert len(task.steps) == 1
         step = task.steps[0]
         retriable_count = sum(1 for ex in step.executions if not ex.ephemeral)
-        assert retriable_count == 5  # req1, user_resp1, req2, user_resp2, final1
+        assert (
+            retriable_count == 6
+        )  # req1, user_resp1, req2, user_resp2, final1, approve
 
         # Rewind 2 to undo the last user message and the executor's final response
-        await runner.rewind(task, n=2)
+        await runner.rewind(task, n=3)
         assert runner.status == RunnerStatus.stopped
         assert len(task.steps) == 1  # Step should NOT be removed
         step = task.steps[0]
         assert step.status == StepStatus.running
         retriable_count_after = sum(1 for ex in step.executions if not ex.ephemeral)
-        assert retriable_count_after == 3  # req1, user_resp1, req2 should remain
+        assert (
+            retriable_count_after == 3
+        )  # req1, user_resp1, req2, approve should remain
 
         # Resume. The runner will find the step for node A in a 'running' state
         # and will continue execution from within that step.
@@ -1029,7 +1033,7 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
         assert runner.status.name == "finished"
         assert len(task.steps) == 1
         step = task.steps[0]
-        assert len(step.executions) == 3
+        assert len(step.executions) == 4
         assert step.executions[0].type.value == "executor"
         assert step.executions[0].message.text == "ask"
         assert step.executions[1].type.value == "user"
@@ -1038,6 +1042,9 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
         assert step.executions[2].type.value == "executor"
         assert step.executions[2].is_complete is True
         assert step.executions[2].message.text == "done"
+        assert step.executions[3].type.value == "user"
+        assert step.executions[3].is_complete is True
+        assert step.executions[3].message is None
 
 
 @pytest.mark.asyncio
@@ -1100,29 +1107,35 @@ async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Pat
         assert runner.status.name == "finished"
     assert [s.node for s in task.steps] == ["A", "B"]
 
-    # Step A: initial user message, A final. No user approval for 'auto' confirmation.
-    assert len(task.steps[0].executions) == 2
+    # Step A: initial user message, A final, and an implicit user approval for 'auto' confirmation.
+    assert len(task.steps[0].executions) == 3
     assert task.steps[0].executions[0].type.value == "user"
     assert task.steps[0].executions[0].message.text == "sys"
     assert task.steps[0].executions[1].type.value == "executor"
     assert task.steps[0].executions[1].message.text == "Aout"
+    assert task.steps[0].executions[2].type.value == "user"
+    assert task.steps[0].executions[2].message is None
 
     if mode == "all_messages":
-        # Step B: carried inputs (sys + Aout), B final. No user approval for 'auto' confirmation.
-        assert len(task.steps[1].executions) == 3
+        # Step B: carried inputs (sys + Aout), B final, and implicit user approval.
+        assert len(task.steps[1].executions) == 4
         assert task.steps[1].executions[0].type.value == "user"
         assert task.steps[1].executions[0].message.text == "sys"
         assert task.steps[1].executions[1].type.value == "user"
         assert task.steps[1].executions[1].message.text == "Aout"
         assert task.steps[1].executions[2].type.value == "executor"
         assert task.steps[1].executions[2].message.text == "Bout"
+        assert task.steps[1].executions[3].type.value == "user"
+        assert task.steps[1].executions[3].message is None
     else:
-        # Step B: carried input (Aout), B final. No user approval for 'auto' confirmation.
-        assert len(task.steps[1].executions) == 2
+        # Step B: carried input (Aout), B final, and implicit user approval.
+        assert len(task.steps[1].executions) == 3
         assert task.steps[1].executions[0].type.value == "user"
         assert task.steps[1].executions[0].message.text == "Aout"
         assert task.steps[1].executions[1].type.value == "executor"
         assert task.steps[1].executions[1].message.text == "Bout"
+        assert task.steps[1].executions[2].type.value == "user"
+        assert task.steps[1].executions[2].message is None
 
 
 @pytest.mark.asyncio
@@ -1478,16 +1491,19 @@ async def test_log_stream_then_final(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
 
-        # Verify only the final executor message is recorded (logs are not recorded)
+        # Verify the final executor message and its implicit approval are recorded (logs are ephemeral).
         assert runner.status.name == "finished"
         assert len(task.steps) == 1
         step = task.steps[0]
         assert step.node == "Log"
-        assert len(step.executions) == 1
+        assert len(step.executions) == 2
         assert step.executions[0].type.value == "executor"
         assert step.executions[0].is_complete is True
         assert step.executions[0].message is not None
         assert step.executions[0].message.text == "done"
+        assert step.executions[1].type.value == "user"
+        assert step.executions[1].is_complete is True
+        assert step.executions[1].message is None
 
 
 @pytest.mark.asyncio

@@ -4,13 +4,6 @@
 ** [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 * [ ] Runner
 ** [ ] [#A] Figure out a way to merge HistoryStep with state (Activity)
-- Continue after stop should just take last Activity and continue from there. If activity has req, then do not run executor. If activity has resp, then we need to skip yielding to UI and continue to response processing.
-  This will require refactoring of resp Activity creation and history replay should not create a copy if nothing has changed. Maybe just mark it as emphemeral.
-- rewind should just go X number of steps back and remove steps that should be skipped. No extra logic.
-- replace_user_input should go backwards and be smart when to stop (existing logic). then it should just remove unnecessary steps/activities and either update existing response in activity if it had one (overwrite) or create a copy with response if node did not have it.
-- cleanup messy code, variable reassignments, etc.
-- remove special handling of rewind vs normal start in run.
-** [X] Continue duplicates messages
 ** [X] Add better history management and rollback to previous input
 ** [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
 ** [X] ctrl+c after providing looping llm answer did not continue from that step - it started from initial step.

@@ -466,9 +466,10 @@ class Runner:
             # In the target step, cut activities from the target one onwards
             target_step.executions = target_step.executions[:act_idx]
 
-            # TODO: Support ephemeral activities - they won't let step to be removed
-
-            if not target_step.executions:
+            # TODO: Fix me - clean up
+            if not any(
+                ex.type == ActivityType.executor for ex in target_step.executions
+            ):
                 # This step is now empty after rewinding. Remove it.
                 # The runner will then resume from the end of the previous step.
                 task.steps.pop(step_idx)
@@ -618,6 +619,11 @@ class Runner:
                 step = Step(node=current_runtime_node.name, status=StepStatus.running)
                 task.steps.append(step)
 
+            # Add any pending input messages (including initial_message or carry-over messages)
+            for m in pending_input_messages:
+                step.executions.append(Activity(type=ActivityType.user, message=m))
+            pending_input_messages = []
+
             # Node selection
             node_model = current_runtime_node.model
             node_name = current_runtime_node.name
@@ -627,8 +633,11 @@ class Runner:
             incoming_policy_override = None
 
             # Collect initial inputs
-            initial_user_inputs = pending_input_messages
-            pending_input_messages = None
+            initial_user_inputs: List[Message] = [
+                a.message
+                for a in step.executions
+                if a.message is not None and a.type == ActivityType.user
+            ]
 
             base_input_messages = self._build_base_input_messages(
                 policy=policy,
@@ -829,6 +838,7 @@ class Runner:
                             response=resp_packet,
                             messages=list(base_input_messages),
                         ),
+                        outcome_name=base_activity.outcome_name,
                         is_complete=base_activity.is_complete,
                         ephemeral=base_activity.ephemeral,
                         execution_done=True,
@@ -863,7 +873,7 @@ class Runner:
                             self.status = RunnerStatus.waiting_input
                             run_event = RunEvent(
                                 node=current_runtime_node.name,
-                                execution=base_activity,
+                                execution=persisted_activity,
                                 event=req,
                                 input_requested=True,
                             )
@@ -926,7 +936,7 @@ class Runner:
                         self.status = RunnerStatus.waiting_input
                         run_event = RunEvent(
                             node=current_runtime_node.name,
-                            execution=base_activity,
+                            execution=persisted_activity,
                             event=req,
                             input_requested=True,
                         )
