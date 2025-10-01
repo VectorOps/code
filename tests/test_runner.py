@@ -14,7 +14,14 @@ from vocode.runner.models import (
     RespApproval,
     RunInput,
 )
-from vocode.state import Message, ToolCall, ToolCallStatus, Assignment, RunnerStatus, StepStatus
+from vocode.state import (
+    Message,
+    ToolCall,
+    ToolCallStatus,
+    Assignment,
+    RunnerStatus,
+    StepStatus,
+)
 from vocode.ui.base import UIState
 from vocode.ui.proto import UIPacketRunEvent, UIPacketStatus
 from vocode.runner.models import PACKET_FINAL_MESSAGE
@@ -176,14 +183,19 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
         assert runner.status == RunnerStatus.finished
         assert BExec.runs == 1
 
-        # Rewind 1 step (which is B)
-        await runner.rewind(task, n=1)
+        # Rewind 2 activities to undo step B completely
+        await runner.rewind(task, n=2)
         assert runner.status == RunnerStatus.stopped
         assert len(task.steps) == 1  # Step B removed
 
         # Resume, B should run again
         it2 = runner.run(task)
         ev_b2 = await it2.__anext__()
+
+        import devtools
+
+        devtools.pprint(task)
+
         assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
         assert ev_b2.event.message.text == "B2"
         with pytest.raises(StopAsyncIteration):
@@ -261,8 +273,8 @@ async def test_natural_resume_after_stop(tmp_path: Path):
         assert task.steps[0].status == "finished"
         assert task.steps[1].status == "running"  # B was started but not finished
 
-        # Resume. Natural resume should find that A was the last finished step,
-        # and should start execution at B again.
+        # Resume. Natural resume should find that B request was started, but not finished
+        # and should start continue execution with B.
         it2 = runner.run(task)
         ev_b2 = await it2.__anext__()
         assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
@@ -276,7 +288,7 @@ async def test_natural_resume_after_stop(tmp_path: Path):
         assert runner.status == RunnerStatus.finished
         # A ran once, B ran twice (once interrupted, once on resume), C ran once.
         assert AExec.runs == 1
-        assert BExec.runs == 2
+        assert BExec.runs == 1
         assert CExec.runs == 1
         assert len(task.steps) == 3
         assert [s.node for s in task.steps] == ["A", "B", "C"]
@@ -866,7 +878,10 @@ async def test_rewind_within_step_and_resume(tmp_path: Path):
             if count < 2:
                 yield (ReqMessageRequest(), {"count": count})
             else:
-                yield (ReqFinalMessage(message=msg("agent", "A done")), {"count": count})
+                yield (
+                    ReqFinalMessage(message=msg("agent", "A done")),
+                    {"count": count},
+                )
 
     async with ProjectSandbox.create(tmp_path) as project:
         runner = Runner(workflow, project)
@@ -876,9 +891,13 @@ async def test_rewind_within_step_and_resume(tmp_path: Path):
         # Run through to completion
         ev1 = await it.__anext__()  # req1
         assert ev1.event.kind == "message_request"
-        ev2 = await it.asend(RunInput(response=RespMessage(message=msg("user", "msg1"))))
+        ev2 = await it.asend(
+            RunInput(response=RespMessage(message=msg("user", "msg1")))
+        )
         assert ev2.event.kind == "message_request"
-        ev3 = await it.asend(RunInput(response=RespMessage(message=msg("user", "msg2"))))
+        ev3 = await it.asend(
+            RunInput(response=RespMessage(message=msg("user", "msg2")))
+        )
         assert ev3.event.kind == "final_message"
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
@@ -887,16 +906,16 @@ async def test_rewind_within_step_and_resume(tmp_path: Path):
         assert len(task.steps) == 1
         step = task.steps[0]
         retriable_count = sum(1 for ex in step.executions if not ex.ephemeral)
-        assert retriable_count == 3  # req1, req2, final1
+        assert retriable_count == 5  # req1, user_resp1, req2, user_resp2, final1
 
-        # Rewind 1 (the final message)
-        await runner.rewind(task, n=1)
+        # Rewind 2 to undo the last user message and the executor's final response
+        await runner.rewind(task, n=2)
         assert runner.status == RunnerStatus.stopped
         assert len(task.steps) == 1  # Step should NOT be removed
         step = task.steps[0]
         assert step.status == StepStatus.running
         retriable_count_after = sum(1 for ex in step.executions if not ex.ephemeral)
-        assert retriable_count_after == 2  # req1, req2 should remain
+        assert retriable_count_after == 3  # req1, user_resp1, req2 should remain
 
         # Resume. The runner will find the step for node A in a 'running' state
         # and will continue execution from within that step.

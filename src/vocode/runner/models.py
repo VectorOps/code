@@ -14,6 +14,7 @@ PACKET_TOKEN_USAGE = "token_usage"
 
 # Packet kinds that are considered "interim" (do not end an executor cycle)
 INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_LOG, PACKET_TOKEN_USAGE)
+PACKETS_FOR_HISTORY = (PACKET_FINAL_MESSAGE, PACKET_MESSAGE_REQUEST)
 
 
 # Executor -> Runner events (discriminated by 'kind')

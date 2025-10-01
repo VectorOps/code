@@ -43,15 +43,13 @@ from vocode.runner.models import (
     ExecRunInput,
     RunnerState,
     INTERIM_PACKETS,
+    PACKETS_FOR_HISTORY,
     PACKET_MESSAGE_REQUEST,
     PACKET_TOOL_CALL,
     PACKET_MESSAGE,
     PACKET_FINAL_MESSAGE,
     PACKET_APPROVAL,
 )
-
-
-PACKETS_FOR_HISTORY = (PACKET_FINAL_MESSAGE, PACKET_MESSAGE_REQUEST)
 
 
 class Executor:
@@ -116,8 +114,6 @@ class Runner:
         }
         self._stop_requested: bool = False
         self._internal_cancel_requested: bool = False
-        # When rewinding, the last resumed activity info is kept here to be replayed
-        self._resume_activity_info: Optional[Dict[str, Any]] = None
 
     def cancel(self) -> None:
         """Cancel the currently running executor step, if any."""
@@ -298,28 +294,6 @@ class Runner:
                     return a.message
         return None
 
-    def _prepare_resume(self, task: Assignment):
-        """
-        Find the last successfully finished step via its activities, compute the transition to the next node,
-        and return (next_runtime_node, input_messages_for_next, incoming_edge_reset_policy).
-        If no finished steps are found, return None (start from the graph root).
-        If the last finished node has no outgoing edges, return (None, None, None) to indicate completion.
-        """
-        for step_idx, act_idx, activity in self._iter_retriable_activities_backward(
-            task
-        ):
-            step = task.steps[step_idx]
-            if step.status == StepStatus.finished and activity.is_complete:
-                cur_rn = self._find_runtime_node_by_name(step.node)
-                if cur_rn is None:
-                    continue  # Should not happen
-
-                next_rn, msgs, edge_policy = self._compute_node_transition(
-                    cur_rn, activity, step
-                )
-                return next_rn, msgs, edge_policy
-        return None
-
     def _build_base_input_messages(
         self,
         policy: ResetPolicy,
@@ -476,6 +450,7 @@ class Runner:
         activities_to_skip = n
 
         for activity_info in self._iter_retriable_activities_backward(task):
+            print(activity_info)
             activities_to_skip -= 1
             if activities_to_skip == 0:
                 target_activity_info = activity_info
@@ -484,41 +459,24 @@ class Runner:
         if target_activity_info:
             step_idx, act_idx, _ = target_activity_info
 
+            # Cut steps after the one we're editing
+            task.steps = task.steps[: step_idx + 1]
             target_step = task.steps[step_idx]
 
-            # Check if there are any retriable activities before this one in the same step
-            has_retriable_before = False
-            for i in range(act_idx):
-                if not target_step.executions[i].ephemeral:
-                    has_retriable_before = True
-                    break
+            # In the target step, cut activities from the target one onwards
+            target_step.executions = target_step.executions[:act_idx]
 
-            if not has_retriable_before:
-                # We are removing the first retriable work in this step, so remove the whole step
-                task.steps = task.steps[:step_idx]
+            # TODO: Support ephemeral activities - they won't let step to be removed
+
+            if not target_step.executions:
+                # This step is now empty after rewinding. Remove it.
+                # The runner will then resume from the end of the previous step.
+                task.steps.pop(step_idx)
             else:
-                # We are rewinding within a step.
-                # Cut steps after the one we're editing
-                task.steps = task.steps[: step_idx + 1]
-                # In the target step, cut activities from the target one onwards
-                target_step.executions = target_step.executions[:act_idx]
                 target_step.status = StepStatus.running
-
-                # After rewinding within a step, find the new last retriable activity
-                # and clear its response to prevent it from being replayed on resume.
-                new_last_retriable = next(
-                    (a for a in reversed(target_step.executions) if not a.ephemeral),
-                    None,
-                )
-                if new_last_retriable and new_last_retriable.runner_state:
-                    new_last_retriable.runner_state.response = None
         else:
             # This happens if n is greater than the number of retriable activities.
             task.steps.clear()
-
-        # By clearing the resume marker, we force a natural resume which re-evaluates
-        # the transition from the last valid step.
-        self._resume_activity_info = None
 
         # Reset internal flags
         self._stop_requested = False
@@ -552,8 +510,6 @@ class Runner:
             task, start_step_index=step_index
         ):
             runner_state = activity.runner_state
-            if not isinstance(runner_state, RunnerState) or not runner_state.req:
-                continue
 
             req = runner_state.req
             is_boundary = False
@@ -580,11 +536,26 @@ class Runner:
 
                 # Set pending response on the boundary activity
                 boundary_activity = target_step.executions[act_idx]
-                if boundary_activity.runner_state:
+                if boundary_activity.type == ActivityType.user:
                     boundary_activity.runner_state.response = response
+                else:
+                    # TODO: Clone
+                    target_step.executions.append(
+                        Activity(
+                            type=ActivityType.user,
+                            runner_state=RunnerState(
+                                state=boundary_activity.runner_state.state,
+                                req=boundary_activity.runner_state.req,
+                                response=response,
+                                messages=list(boundary_activity.runner_state.messages),
+                            ),
+                            is_complete=boundary_activity.is_complete,
+                            ephemeral=boundary_activity.ephemeral,
+                            execution_done=True,
+                        )
+                    )
 
                 # Reset state for run()
-                self._resume_activity_info = None
                 self._stop_requested = False
                 self._internal_cancel_requested = False
                 self._current_exec_task = None
@@ -608,60 +579,33 @@ class Runner:
             raise RuntimeError(
                 f"run() not allowed when runner status is '{self.status}'. Allowed: 'idle', 'stopped'"
             )
-        prev_status = self.status
         self.status = RunnerStatus.running
         incoming_policy_override: Optional[ResetPolicy] = None
 
-        # Runner resuming
+        # Unified resume/start logic
         pending_input_messages: List[Message] = []
-        preloaded_resp_default: Optional[RespPacket] = None
-        initial_state_for_resume: Optional[Any] = None
-        preloaded_req_for_resume: Optional[ReqPacket] = None
+        resume_activity: Optional[Activity] = None
+        step: Optional[Step] = None
 
-        if prev_status == RunnerStatus.stopped:
-            # Check for a running step to resume from (rewind/replace_input)
-            if task.steps and task.steps[-1].status == StepStatus.running:
-                step_to_resume = task.steps[-1]
-                current_runtime_node = self._find_runtime_node_by_name(
-                    step_to_resume.node
-                )
-                if current_runtime_node is None:
-                    self.status = RunnerStatus.finished
-                    return
+        # If step is running, we resume the step. Otherwise just continue with a next step.
+        if task.steps:
+            step = task.steps[-1]
+            current_runtime_node = self._find_runtime_node_by_name(step.node)
+            if current_runtime_node is None:
+                self.status = RunnerStatus.finished
+                return
 
-                # Find last retriable activity to check for a pending response and state
-                last_activity = next(
-                    (a for a in reversed(step_to_resume.executions) if not a.ephemeral),
-                    None,
-                )
-                if last_activity and last_activity.runner_state:
-                    if last_activity.runner_state.response:
-                        preloaded_resp_default = last_activity.runner_state.response
-                        # Clear it so it's not re-used
-                        last_activity.runner_state.response = None
-                    initial_state_for_resume = last_activity.runner_state.state
-                    preloaded_req_for_resume = last_activity.runner_state.req
-            else:
-                # Natural resume: find last finished step and continue from there
-                resume_info = self._prepare_resume(task)
-                if resume_info:
-                    (
-                        current_runtime_node,
-                        pending_input_messages,
-                        incoming_policy_override,
-                    ) = resume_info
-                    if current_runtime_node is None:
-                        self.status = RunnerStatus.finished
-                        return
-                else:
-                    # No resume point, start from beginning
-                    current_runtime_node = self.runtime_graph.root
-                    pending_input_messages = (
-                        [self.initial_message]
-                        if self.initial_message is not None
-                        else []
-                    )
-        else:
+            # Use last non-ephemeral activity
+            last_activity = next(
+                (a for a in reversed(step.executions) if not a.ephemeral),
+                None,
+            )
+
+            if last_activity:
+                resume_activity = last_activity
+
+        # Natural resume from the last finished step; otherwise start from root
+        if resume_activity is None:
             current_runtime_node = self.runtime_graph.root
             pending_input_messages = (
                 [self.initial_message] if self.initial_message is not None else []
@@ -669,33 +613,22 @@ class Runner:
 
         # Main loop
         while True:
-            if (
-                task.steps
-                and task.steps[-1].node == current_runtime_node.name
-                and task.steps[-1].status == StepStatus.running
-            ):
-                step = task.steps[-1]
-            else:
+            # Create new step for new executions
+            if step is None:
                 step = Step(node=current_runtime_node.name, status=StepStatus.running)
                 task.steps.append(step)
-            # Add any pending input messages (including initial_message or carry-over messages)
-            for m in pending_input_messages:
-                step.executions.append(Activity(type=ActivityType.user, message=m))
-            pending_input_messages = []
 
             # Node selection
             node_model = current_runtime_node.model
             node_name = current_runtime_node.name
+
             # Determine reset policy for this run (edge override wins once)
             policy = incoming_policy_override or node_model.reset_policy
             incoming_policy_override = None
 
-            # Collect initial inputs (added when the step was created)
-            initial_user_inputs: List[Message] = [
-                a.message
-                for a in step.executions
-                if a.message is not None and a.type == ActivityType.user
-            ]
+            # Collect initial inputs
+            initial_user_inputs = pending_input_messages
+            pending_input_messages = None
 
             base_input_messages = self._build_base_input_messages(
                 policy=policy,
@@ -705,15 +638,15 @@ class Runner:
                 initial_user_inputs=initial_user_inputs,
             )
 
-            current_state = self._initial_state_for_policy(
-                policy=policy,
-                task=task,
-                node_name=node_name,
-                step=step,
-            )
-            if initial_state_for_resume is not None:
-                current_state = initial_state_for_resume
-                initial_state_for_resume = None
+            if resume_activity and resume_activity.runner_state.state is not None:
+                current_state = resume_activity.runner_state.state
+            else:
+                current_state = self._initial_state_for_policy(
+                    policy=policy,
+                    task=task,
+                    node_name=node_name,
+                    step=step,
+                )
 
             executor = self._get_executor_for_policy(
                 policy=policy,
@@ -725,9 +658,6 @@ class Runner:
             resp: Optional[RespPacket] = None
             last_exec_activity: Optional[Activity] = None
 
-            if preloaded_resp_default:
-                resp = preloaded_resp_default
-
             pass_messages = (
                 True  # Only pass base_input_messages on the first cycle for this node
             )
@@ -736,21 +666,12 @@ class Runner:
                 req: Optional[ReqPacket] = None
                 yielded_state = None
 
-                skip_ui_yield_and_use_resp = False
-
-                if preloaded_resp_default:
-                    resp = preloaded_resp_default
-                    preloaded_resp_default = None
-
-                # If we are resuming with a pre-loaded response for a known request,
-                # skip the executor call and jump directly to handling that response.
-                if preloaded_req_for_resume and resp:
-                    req = preloaded_req_for_resume
-                    preloaded_req_for_resume = None
-                    skip_ui_yield_and_use_resp = True
+                if resume_activity is not None:
+                    req = resume_activity.runner_state.req
                 else:
                     # Invoke executor for one cycle
                     msgs_for_cycle = base_input_messages if pass_messages else []
+                    pass_messages = False  # only pass base messages on the first cycle
                     agen = executor.run(
                         ExecRunInput(
                             messages=msgs_for_cycle, state=current_state, response=resp
@@ -761,7 +682,9 @@ class Runner:
                     try:
                         while True:
                             try:
-                                self._current_exec_task = asyncio.create_task(anext(agen))
+                                self._current_exec_task = asyncio.create_task(
+                                    anext(agen)
+                                )
                                 pkt, yielded_state = await self._current_exec_task
                             finally:
                                 self._current_exec_task = None
@@ -772,7 +695,9 @@ class Runner:
                                 interim_act = Activity(
                                     type=ActivityType.executor,
                                     message=(
-                                        pkt.message if pkt.kind == PACKET_MESSAGE else None
+                                        pkt.message
+                                        if pkt.kind == PACKET_MESSAGE
+                                        else None
                                     ),
                                     is_complete=False,
                                     runner_state=RunnerState(
@@ -844,6 +769,7 @@ class Runner:
                     current_runtime_node = next_runtime_node
                     pending_input_messages = list(next_input_messages)
                     incoming_policy_override = next_edge_policy
+                    step = None  # force a new Step for the next node
                     break
 
                 # Handle completion packet kinds
@@ -852,64 +778,68 @@ class Runner:
                     req=req, node_conf=current_runtime_node.model.confirmation
                 )
 
-                # Create a unified activity for all non-interim packets; persist only retriable ones.
-                # Start with common fields; mark as ephemeral by default.
-                created_activity = Activity(
-                    type=ActivityType.executor,
-                    message=None,
-                    is_complete=False,
-                    runner_state=RunnerState(
-                        state=current_state,
-                        req=req,
-                        response=None,
-                        messages=list(base_input_messages),
-                    ),
-                    ephemeral=True,
-                )
-                # Specialize by packet kind.
-                if req.kind == PACKET_FINAL_MESSAGE:
-                    created_activity.message = req.message
-                    created_activity.outcome_name = req.outcome_name
-                    created_activity.is_complete = True
-                    created_activity.ephemeral = False
-                elif req.kind == PACKET_MESSAGE_REQUEST:
-                    created_activity.is_complete = False
-                    created_activity.ephemeral = False
+                # Build a base activity; do not persist yet — we’ll persist a clone after we receive a response.
+                if resume_activity is not None:
+                    base_activity = resume_activity
                 else:
-                    # Any other non-interim packets (if added in future) remain ephemeral.
-                    pass
-
-                # Persist only if retriable (i.e., not ephemeral)
-                if not created_activity.ephemeral:
-                    step.executions.append(created_activity)
+                    base_activity = Activity(
+                        type=ActivityType.executor,
+                        message=(
+                            req.message if req.kind == PACKET_FINAL_MESSAGE else None
+                        ),
+                        outcome_name=(
+                            req.outcome_name
+                            if req.kind == PACKET_FINAL_MESSAGE
+                            else None
+                        ),
+                        is_complete=(req.kind == PACKET_FINAL_MESSAGE),
+                        runner_state=RunnerState(
+                            state=current_state,
+                            req=req,
+                            response=None,
+                            messages=list(base_input_messages),
+                        ),
+                        ephemeral=(req.kind not in PACKETS_FOR_HISTORY),
+                    )
+                    if not base_activity.ephemeral:
+                        step.executions.append(base_activity)
 
                 run_input: Optional[RunInput] = None
                 resp_packet: Optional[RespPacket] = None
 
-                if skip_ui_yield_and_use_resp:
-                    resp_packet = resp
-                    resp = None
-                elif preloaded_resp_default:
-                    resp_packet = preloaded_resp_default
-                    preloaded_resp_default = None
+                if resume_activity is not None and resume_activity.execution_done:
+                    resp_packet = resume_activity.runner_state.response
+                    persisted_activity = resume_activity
                 else:
                     run_event = RunEvent(
                         node=current_runtime_node.name,
-                        execution=created_activity,
+                        execution=base_activity,
                         event=req,
                         input_requested=input_requested,
                     )
                     run_input = yield run_event
                     resp_packet = run_input.response if run_input is not None else None
 
-                # Store response on the activity's runner state if it's persisted
-                if not created_activity.ephemeral and created_activity.runner_state:
-                    created_activity.runner_state.response = resp_packet
+                    # Persist a clone with the response, only for history packets.
+                    persisted_activity = Activity(
+                        type=ActivityType.user,
+                        runner_state=RunnerState(
+                            state=current_state,
+                            req=req,
+                            response=resp_packet,
+                            messages=list(base_input_messages),
+                        ),
+                        is_complete=base_activity.is_complete,
+                        ephemeral=base_activity.ephemeral,
+                        execution_done=True,
+                    )
+                    if not persisted_activity.ephemeral:
+                        step.executions.append(persisted_activity)
+
+                resume_activity = None
 
                 # PACKET_FINAL_MESSAGE: finalize (with confirm/prompt)
                 if req.kind == PACKET_FINAL_MESSAGE:
-                    final_act: Activity = created_activity
-
                     node_conf = current_runtime_node.model.confirmation
 
                     # confirm: require explicit approval
@@ -920,20 +850,7 @@ class Runner:
                                 resp_packet is not None
                                 and resp_packet.kind == PACKET_APPROVAL
                             ):
-                                # Record user approval as an additional activity
-                                step.executions.append(
-                                    Activity(
-                                        type=ActivityType.user,
-                                        message=None,
-                                        runner_state=RunnerState(
-                                            state=current_state,
-                                            req=req,
-                                            response=resp_packet,
-                                        ),
-                                    )
-                                )
-                                if created_activity.runner_state:
-                                    created_activity.runner_state.response = resp_packet
+                                persisted_activity.runner_state.response = resp_packet
                                 if resp_packet.approved:
                                     break
                                 # Rejected: stop runner
@@ -946,7 +863,7 @@ class Runner:
                             self.status = RunnerStatus.waiting_input
                             run_event = RunEvent(
                                 node=current_runtime_node.name,
-                                execution=final_act,
+                                execution=base_activity,
                                 event=req,
                                 input_requested=True,
                             )
@@ -961,59 +878,29 @@ class Runner:
                             resp_packet is not None
                             and resp_packet.kind == PACKET_MESSAGE
                         ):
-                            # Record the user message for prompt, then continue this node with provided message
-                            step.executions.append(
-                                Activity(
-                                    type=ActivityType.user,
-                                    message=resp_packet.message,
-                                    runner_state=RunnerState(
-                                        state=current_state,
-                                        req=req,
-                                        response=resp_packet,
-                                    ),
-                                )
-                            )
-                            if created_activity.runner_state:
-                                created_activity.runner_state.response = resp_packet
+                            persisted_activity.message = resp_packet.message
                             resp = resp_packet
                             continue
-
-                        # No extra message provided; accept final. If a non-message response was supplied, record it.
-                        if (
-                            resp_packet is not None
-                            and resp_packet.kind != PACKET_MESSAGE
-                        ):
-                            step.executions.append(
-                                Activity(
-                                    type=ActivityType.user,
-                                    message=None,
-                                    runner_state=RunnerState(
-                                        state=current_state,
-                                        req=req,
-                                        response=resp_packet,
-                                    ),
-                                )
-                            )
-
                     else:
                         # No confirmation/prompt: accept final
                         pass
 
                     # Final accepted: finish step and transition
                     step.status = StepStatus.finished
-                    last_exec_activity = final_act
 
                     next_runtime_node, next_input_messages, next_edge_policy = (
                         self._compute_node_transition(
-                            current_runtime_node, last_exec_activity, step
+                            current_runtime_node, persisted_activity, step
                         )
                     )
                     if next_runtime_node is None:
                         self.status = RunnerStatus.finished
                         return
+
                     current_runtime_node = next_runtime_node
                     pending_input_messages = list(next_input_messages)
                     incoming_policy_override = next_edge_policy
+                    step = None  # force a new Step for the next node
                     break  # move to next node
 
                 # PACKET_TOOL_CALL: execute tools and re-run executor with results
@@ -1026,17 +913,20 @@ class Runner:
                     # Require a message; keep prompting until we get one
                     user_msg_packet: Optional[RespMessage] = None
                     while True:
+                        persisted_activity.runner_state.response = resp_packet
+
                         if (
                             resp_packet is not None
                             and resp_packet.kind == PACKET_MESSAGE
                         ):
+                            persisted_activity.message = resp_packet.message
                             user_msg_packet = resp_packet
                             break
 
                         self.status = RunnerStatus.waiting_input
                         run_event = RunEvent(
                             node=current_runtime_node.name,
-                            execution=created_activity,
+                            execution=base_activity,
                             event=req,
                             input_requested=True,
                         )
@@ -1044,20 +934,9 @@ class Runner:
                         resp_packet = (
                             run_input.response if run_input is not None else None
                         )
-                    # Update activity with the response
-                    if not created_activity.ephemeral and created_activity.runner_state:
-                        created_activity.runner_state.response = user_msg_packet
 
-                    # Record user message in history and attach runner_state
-                    step.executions.append(
-                        Activity(
-                            type=ActivityType.user,
-                            message=user_msg_packet.message,
-                            runner_state=RunnerState(
-                                state=current_state, req=req, response=user_msg_packet
-                            ),
-                        )
-                    )
+                    # Update persisted executor request with the response (mutate, do not re-append)
+                    persisted_activity.runner_state.response = user_msg_packet
 
                     # Set response for next executor cycle
                     resp = user_msg_packet
