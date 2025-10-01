@@ -433,6 +433,32 @@ class Runner:
                 if not activity.ephemeral:
                     yield step_idx, act_idx, activity
 
+    def _trim_history(
+        self, task: Assignment, step_idx: int, act_idx: int, *, keep_target: bool
+    ) -> None:
+        """
+        Trims task history to a specific point.
+        - Cuts all steps after step_idx.
+        - Cuts activities in the target step after act_idx.
+        - If keep_target is True, the activity at act_idx is kept; otherwise it's removed.
+        - If the target step becomes empty of non-ephemeral activities, it is removed.
+        - Otherwise, the target step's status is set to 'running'.
+        """
+        # Cut steps after the one we're editing
+        task.steps = task.steps[: step_idx + 1]
+        target_step = task.steps[step_idx]
+
+        # In the target step, cut activities from the target one onwards
+        slice_end = act_idx + 1 if keep_target else act_idx
+        target_step.executions = target_step.executions[:slice_end]
+
+        # If the step is now effectively empty (no persisted activities), remove it.
+        # This can happen if we rewind past the first non-ephemeral activity in a step.
+        if not any(not ex.ephemeral for ex in target_step.executions):
+            task.steps.pop(step_idx)
+        else:
+            target_step.status = StepStatus.running
+
     async def rewind(self, task: Assignment, n: int = 1) -> None:
         """
         Rewind history by removing the last n retriable activities from the assignment
@@ -458,23 +484,7 @@ class Runner:
 
         if target_activity_info:
             step_idx, act_idx, _ = target_activity_info
-
-            # Cut steps after the one we're editing
-            task.steps = task.steps[: step_idx + 1]
-            target_step = task.steps[step_idx]
-
-            # In the target step, cut activities from the target one onwards
-            target_step.executions = target_step.executions[:act_idx]
-
-            # TODO: Fix me - clean up
-            if not any(
-                ex.type == ActivityType.executor for ex in target_step.executions
-            ):
-                # This step is now empty after rewinding. Remove it.
-                # The runner will then resume from the end of the previous step.
-                task.steps.pop(step_idx)
-            else:
-                target_step.status = StepStatus.running
+            self._trim_history(task, step_idx, act_idx, keep_target=False)
         else:
             # This happens if n is greater than the number of retriable activities.
             task.steps.clear()
@@ -530,10 +540,8 @@ class Runner:
 
             if is_boundary:
                 # Truncate history to resume from this boundary request
-                task.steps = task.steps[: step_idx + 1]
+                self._trim_history(task, step_idx, act_idx, keep_target=True)
                 target_step = task.steps[step_idx]
-                target_step.executions = target_step.executions[: act_idx + 1]
-                target_step.status = StepStatus.running
 
                 # Set pending response on the boundary activity
                 boundary_activity = target_step.executions[act_idx]
