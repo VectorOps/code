@@ -113,7 +113,7 @@ workflows:
           - name: done
       - name: pause
         type: noop
-        sleep_seconds: 15
+        sleep_seconds: 5
         outcomes:
           - name: done
       - name: debug

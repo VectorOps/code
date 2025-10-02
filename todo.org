@@ -3,6 +3,7 @@
 ** [ ] Autocompleters needs consts at model level
 ** [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 * [ ] Runner
+** [ ] If workflow finished (no more steps possible), run would start execution on same workflow from the beginning. This might be confusing: figure out if we should just show that workflow finished and handle restarts in the UI?
 ** [X] Figure out a way to merge HistoryStep with state (Activity)
 ** [X] Add better history management and rollback to previous input
 ** [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
@@ -18,7 +19,7 @@
 ** [X] Figure out if we can store node reset semantics at the edge level? So failure might keep the state, but initial entry should not?
 - Patch node failing and going back to coder should persist coder state and append patch error
 ** [X] Figure out why final messages can be duplicated sometimes
-** [ ] Move replace_last_message logic to UIState from runner
+** [X] Move replace_last_message logic to UIState from runner
 ** [X] Add VIM mode
 ** [X] Add multi-line input
 ** [X] Add a flag to not show node output in the UI. Useful for input node, etc

@@ -329,7 +329,7 @@ class UIState:
             await self.runner.rewind(self.assignment, n)
 
     async def replace_user_input(
-        self, resp: Union[RespMessage, RespApproval], step_index: Optional[int] = None
+        self, resp: Union[RespMessage, RespApproval], n: Optional[int] = 1
     ) -> None:
         """
         Replace a user input (final prompt/confirm or prior message_request) and prepare resume.
@@ -342,7 +342,7 @@ class UIState:
                 raise RuntimeError(
                     "Cannot replace input while runner is running or waiting for input"
                 )
-            self.runner.replace_user_input(self.assignment, resp, step_index=step_index)
+            self.runner.replace_user_input(self.assignment, resp, n=n)
 
     # ------------------------
     # Internal driver

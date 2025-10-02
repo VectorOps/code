@@ -361,14 +361,6 @@ class Runner:
             return node_conf in (Confirmation.prompt, Confirmation.confirm)
         return False
 
-    def _split_tool_calls(self, req: ReqToolCall):
-        """Split tool calls into (auto_approved, manual) based on tc.auto_approve flag."""
-        auto_calls = [tc for tc in req.tool_calls if getattr(tc, "auto_approve", False)]
-        manual_calls = [
-            tc for tc in req.tool_calls if not getattr(tc, "auto_approve", False)
-        ]
-        return auto_calls, manual_calls
-
     async def _run_tools(
         self,
         req: ReqToolCall,
@@ -613,25 +605,28 @@ class Runner:
         resume_activity: Optional[Activity] = None
         step: Optional[Step] = None
 
-        # If step is running, we resume the step. Otherwise just continue with a next step.
+        # If there are steps, we are resuming. Otherwise, start from root.
         if task.steps and task.steps[-1].status != StepStatus.finished:
-            step = task.steps[-1]
-            current_runtime_node = self._find_runtime_node_by_name(step.node)
+            # Find the last non-ephemeral activity across all steps to resume from.
+            last_activity_info = next(
+                self._iter_retriable_activities_backward(task), None
+            )
+
+            if last_activity_info:
+                step_idx, _, resume_activity = last_activity_info
+                step = task.steps[step_idx]
+                current_runtime_node = self._find_runtime_node_by_name(step.node)
+            else:
+                # No non-ephemeral activities found, but there are steps.
+                # Resume from the last step's node, but without a prior activity.
+                step = task.steps[-1]
+                current_runtime_node = self._find_runtime_node_by_name(step.node)
+
             if current_runtime_node is None:
                 self.status = RunnerStatus.finished
                 return
-
-            # Use last non-ephemeral activity
-            last_activity = next(
-                (a for a in reversed(step.executions) if not a.ephemeral),
-                None,
-            )
-
-            if last_activity:
-                resume_activity = last_activity
-
-        # Natural resume from the last finished step; otherwise start from root
-        if resume_activity is None:
+        else:
+            # No steps, start from the beginning.
             current_runtime_node = self.runtime_graph.root
             pending_input_messages = (
                 [self.initial_message] if self.initial_message is not None else []
@@ -797,9 +792,11 @@ class Runner:
                             current_runtime_node, last_exec_activity, step
                         )
                     )
+
                     if next_runtime_node is None:
                         self.status = RunnerStatus.finished
                         return
+
                     current_runtime_node = next_runtime_node
                     pending_input_messages = list(next_input_messages)
                     incoming_policy_override = next_edge_policy
