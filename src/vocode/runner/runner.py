@@ -438,11 +438,6 @@ class Runner:
     ) -> None:
         """
         Trims task history to a specific point.
-        - Cuts all steps after step_idx.
-        - Cuts activities in the target step after act_idx.
-        - If keep_target is True, the activity at act_idx is kept; otherwise it's removed.
-        - If the target step becomes empty of non-ephemeral activities, it is removed.
-        - Otherwise, the target step's status is set to 'running'.
         """
         # Cut steps after the one we're editing
         task.steps = task.steps[: step_idx + 1]
@@ -458,6 +453,21 @@ class Runner:
             task.steps.pop(step_idx)
         else:
             target_step.status = StepStatus.running
+
+    def _create_response_activity(self, activity, resp):
+        return Activity(
+            type=ActivityType.user,
+            runner_state=RunnerState(
+                state=activity.runner_state.state,
+                req=activity.runner_state.req,
+                response=resp,
+                messages=list(activity.runner_state.messages),
+            ),
+            outcome_name=activity.outcome_name,
+            is_complete=activity.is_complete,
+            ephemeral=activity.ephemeral,
+            execution_done=True,
+        )
 
     async def rewind(self, task: Assignment, n: int = 1) -> None:
         """
@@ -548,20 +558,8 @@ class Runner:
                 if boundary_activity.type == ActivityType.user:
                     boundary_activity.runner_state.response = response
                 else:
-                    # TODO: Clone
                     target_step.executions.append(
-                        Activity(
-                            type=ActivityType.user,
-                            runner_state=RunnerState(
-                                state=boundary_activity.runner_state.state,
-                                req=boundary_activity.runner_state.req,
-                                response=response,
-                                messages=list(boundary_activity.runner_state.messages),
-                            ),
-                            is_complete=boundary_activity.is_complete,
-                            ephemeral=boundary_activity.ephemeral,
-                            execution_done=True,
-                        )
+                        self._create_response_activity(boundary_activity, response)
                     )
 
                 # Reset state for run()
@@ -838,18 +836,8 @@ class Runner:
                     resp_packet = run_input.response if run_input is not None else None
 
                     # Persist a clone with the response, only for history packets.
-                    persisted_activity = Activity(
-                        type=ActivityType.user,
-                        runner_state=RunnerState(
-                            state=current_state,
-                            req=req,
-                            response=resp_packet,
-                            messages=list(base_input_messages),
-                        ),
-                        outcome_name=base_activity.outcome_name,
-                        is_complete=base_activity.is_complete,
-                        ephemeral=base_activity.ephemeral,
-                        execution_done=True,
+                    persisted_activity = self._create_response_activity(
+                        base_activity, resp_packet
                     )
                     if not persisted_activity.ephemeral:
                         step.executions.append(persisted_activity)
