@@ -118,10 +118,6 @@ class Activity(BaseModel):
         description="True when this activity is temporary (not persisted to history/step)",
     )
 
-    execution_done: bool = Field(
-        default=False,
-        description="True when execution was completed for this activity and response was received.",
-    )
 
     def clone(self, **overrides) -> "Activity":
         data = {

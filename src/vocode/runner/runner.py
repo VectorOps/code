@@ -466,7 +466,6 @@ class Runner:
             outcome_name=activity.outcome_name,
             is_complete=activity.is_complete,
             ephemeral=activity.ephemeral,
-            execution_done=True,
         )
 
     async def rewind(self, task: Assignment, n: int = 1) -> None:
@@ -842,7 +841,7 @@ class Runner:
                 run_input: Optional[RunInput] = None
                 resp_packet: Optional[RespPacket] = None
 
-                if resume_activity is not None and resume_activity.execution_done:
+                if resume_activity is not None and resume_activity.type == ActivityType.user:
                     resp_packet = resume_activity.runner_state.response
                     persisted_activity = resume_activity
                 else:
