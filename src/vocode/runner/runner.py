@@ -495,6 +495,8 @@ class Runner:
         if target_activity_info:
             step_idx, act_idx, _ = target_activity_info
             self._trim_history(task, step_idx, act_idx, keep_target=False)
+
+            task.steps[-1].status = StepStatus.running
         else:
             # This happens if n is greater than the number of retriable activities.
             task.steps.clear()
@@ -513,7 +515,7 @@ class Runner:
         self,
         task: Assignment,
         response: Union[RespMessage, RespApproval],
-        step_index: Optional[int] = None,
+        n: Optional[int] = 1,
     ) -> None:
         """
         Finds a user input boundary in the history, replaces the user's response,
@@ -522,14 +524,23 @@ class Runner:
         it searches from that step backwards.
         Leaves runner in stopped state ready to restart.
         """
+        if n <= 0:
+            raise ValueError("replace_user_input 'n' must be >= 1")
+
         if self.status in (RunnerStatus.running, RunnerStatus.waiting_input):
             raise RuntimeError(
                 f"Cannot replace input while runner status is '{self.status}'"
             )
 
+        target_activity_info = None
+        boundaries_to_skip = n
+
         for step_idx, act_idx, activity in self._iter_retriable_activities_backward(
-            task, start_step_index=step_index
+            task
         ):
+            if activity.ephemeral:
+                continue
+
             runner_state = activity.runner_state
 
             req = runner_state.req
@@ -549,25 +560,34 @@ class Runner:
                     is_boundary = True
 
             if is_boundary:
-                # Truncate history to resume from this boundary request
-                self._trim_history(task, step_idx, act_idx, keep_target=True)
-                target_step = task.steps[step_idx]
+                boundaries_to_skip -= 1
+                if boundaries_to_skip == 0:
+                    target_activity_info = (step_idx, act_idx, activity)
+                    break
 
-                # Set pending response on the boundary activity
-                boundary_activity = target_step.executions[act_idx]
-                if boundary_activity.type == ActivityType.user:
-                    boundary_activity.runner_state.response = response
-                else:
-                    target_step.executions.append(
-                        self._create_response_activity(boundary_activity, response)
-                    )
+        if target_activity_info:
+            step_idx, act_idx, boundary_activity = target_activity_info
 
-                # Reset state for run()
-                self._stop_requested = False
-                self._internal_cancel_requested = False
-                self._current_exec_task = None
-                self.status = RunnerStatus.stopped
-                return
+            # Truncate history to resume from this boundary request
+            self._trim_history(task, step_idx, act_idx, keep_target=True)
+            target_step = task.steps[step_idx]
+            target_step.status = StepStatus.running
+
+            # Set pending response on the boundary activity
+            boundary_activity = target_step.executions[act_idx]
+            if boundary_activity.type == ActivityType.user:
+                boundary_activity.runner_state.response = response
+            else:
+                target_step.executions.append(
+                    self._create_response_activity(boundary_activity, response)
+                )
+
+            # Reset state for run()
+            self._stop_requested = False
+            self._internal_cancel_requested = False
+            self._current_exec_task = None
+            self.status = RunnerStatus.stopped
+            return
 
         raise RuntimeError(
             "No previous user input or pending request to replace/respond to"
@@ -595,7 +615,7 @@ class Runner:
         step: Optional[Step] = None
 
         # If step is running, we resume the step. Otherwise just continue with a next step.
-        if task.steps:
+        if task.steps and task.steps[-1].status != StepStatus.finished:
             step = task.steps[-1]
             current_runtime_node = self._find_runtime_node_by_name(step.node)
             if current_runtime_node is None:
@@ -899,6 +919,7 @@ class Runner:
                             current_runtime_node, persisted_activity, step
                         )
                     )
+
                     if next_runtime_node is None:
                         self.status = RunnerStatus.finished
                         return

@@ -295,7 +295,7 @@ async def test_natural_resume_after_stop(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_replace_user_input_with_step_index(tmp_path: Path):
+async def test_replace_user_input_by_count(tmp_path: Path):
     """Scenario: Run a multi-step workflow, then replace an input from an early step."""
     nodes = [
         {"name": "A", "type": "a_replace", "outcomes": [OutcomeSlot(name="next")]},
@@ -347,10 +347,8 @@ async def test_replace_user_input_with_step_index(tmp_path: Path):
         assert runner.status == RunnerStatus.finished
         assert len(task.steps) == 2
 
-        # Replace input at step 0 (node A)
-        runner.replace_user_input(
-            task, RespMessage(message=msg("user", "A2")), step_index=0
-        )
+        # Replace input at step 0 (node A) - which is the 1st (and only) boundary from the end
+        runner.replace_user_input(task, RespMessage(message=msg("user", "A2")), n=1)
         assert runner.status == RunnerStatus.stopped
 
         # Run 2: starts from A with new input
@@ -454,7 +452,7 @@ async def test_replace_input_for_pending_request_with_approval_is_ignored(
 @pytest.mark.asyncio
 async def test_replace_input_at_retriable_final_message(tmp_path: Path):
     """Scenario: Stop after a retriable final message.
-    Replacement with approval should resume from that final message."""
+    Replacement with a new message should resume from that final message."""
     nodes = [
         {
             "name": "In1",
@@ -472,10 +470,23 @@ async def test_replace_input_at_retriable_final_message(tmp_path: Path):
         type = "in1"
 
         async def run(self, inp):
-            yield (
-                ReqFinalMessage(message=msg("agent", "in1 done"), outcome_name="next"),
-                None,
-            )
+            if inp.response and inp.response.kind == "message":
+                yield (
+                    ReqFinalMessage(
+                        message=msg(
+                            "agent", f"in1 saw: {inp.response.message.text}"
+                        ),
+                        outcome_name="next",
+                    ),
+                    None,
+                )
+            else:
+                yield (
+                    ReqFinalMessage(
+                        message=msg("agent", "in1 done"), outcome_name="next"
+                    ),
+                    None,
+                )
 
     class OtherExec(Executor):
         type = "other"
@@ -490,7 +501,16 @@ async def test_replace_input_at_retriable_final_message(tmp_path: Path):
         ev_in1_final = await it.__anext__()
         assert ev_in1_final.node == "In1" and ev_in1_final.event.kind == "final_message"
 
-        # No user message provided for prompt, so transition to Other
+        # Provide a message. Because In1 is a prompt node and gets a response, this is a boundary.
+        ev_in1_final_2 = await it.asend(
+            RunInput(response=RespMessage(message=msg("user", "first")))
+        )
+        assert (
+            ev_in1_final_2.node == "In1"
+            and "in1 saw: first" in ev_in1_final_2.event.message.text
+        )
+
+        # Now transition to Other by providing no message
         ev_other_req = await it.asend(RunInput(response=None))
         assert (
             ev_other_req.node == "Other"
@@ -500,11 +520,21 @@ async def test_replace_input_at_retriable_final_message(tmp_path: Path):
         runner.stop()
         await it.aclose()
 
-        runner.replace_user_input(task, RespApproval(approved=True))
+        # There are now two boundaries: Other's message_request, and In1's final_message that got a response.
+        # We want to replace In1's response. It is the 2nd from the end.
+        runner.replace_user_input(
+            task, RespMessage(message=msg("user", "second")), n=2
+        )
         it2 = runner.run(task)
 
-        # Since we provided an approval, it should now transition and run Other.
-        # We .asend(None) because the replay does not request new input from the UI.
+        # Runner should resume from In1, with the new message.
+        ev_in1_final_3 = await it2.__anext__()
+        assert (
+            ev_in1_final_3.node == "In1"
+            and "in1 saw: second" in ev_in1_final_3.event.message.text
+        )
+
+        # Now it will transition to Other
         ev_other_req_again = await it2.asend(None)
         assert (
             ev_other_req_again.node == "Other"
