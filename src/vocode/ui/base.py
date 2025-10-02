@@ -402,7 +402,10 @@ class UIState:
                 # Await UI response only if required
                 if req.input_requested and not suppress_event:
                     self._current_node_name = req.node
-                    response_payload = await self._rpc.call(UIPacketRunEvent(event=req))
+                    # Disable timeout while waiting for user input: block indefinitely
+                    response_payload = await self._rpc.call(
+                        UIPacketRunEvent(event=req), timeout=None
+                    )
 
                     if response_payload and response_payload.kind == PACKET_RUN_INPUT:
                         to_send = response_payload.input

@@ -29,9 +29,9 @@ class RpcHelper:
         return self._msg_id_counter
 
     async def call(
-        self, payload: UIPacket, timeout: float = 300.0
+        self, payload: UIPacket, timeout: Optional[float] = 300.0
     ) -> Optional[UIPacket]:
-        """Sends a request payload and waits for a response payload."""
+        """Sends a request payload and waits for a response payload. timeout=None disables timeout."""
         msg_id = self._next_msg_id()
         fut: "asyncio.Future[UIPacketEnvelope]" = (
             asyncio.get_running_loop().create_future()
