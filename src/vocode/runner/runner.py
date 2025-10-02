@@ -812,11 +812,11 @@ class Runner:
                     req=req, node_conf=current_runtime_node.model.confirmation
                 )
 
-                # Build a base activity; do not persist yet — we’ll persist a clone after we receive a response.
+                # Build a request activity; do not persist yet — we’ll persist a clone after we receive a response.
                 if resume_activity is not None:
-                    base_activity = resume_activity
+                    req_activity = resume_activity
                 else:
-                    base_activity = Activity(
+                    req_activity = Activity(
                         type=ActivityType.executor,
                         message=(
                             req.message if req.kind == PACKET_FINAL_MESSAGE else None
@@ -835,19 +835,19 @@ class Runner:
                         ),
                         ephemeral=(req.kind not in PACKETS_FOR_HISTORY),
                     )
-                    if not base_activity.ephemeral:
-                        step.executions.append(base_activity)
+                    if not req_activity.ephemeral:
+                        step.executions.append(req_activity)
 
                 run_input: Optional[RunInput] = None
                 resp_packet: Optional[RespPacket] = None
 
                 if resume_activity is not None and resume_activity.type == ActivityType.user:
                     resp_packet = resume_activity.runner_state.response
-                    persisted_activity = resume_activity
+                    resp_activity = resume_activity
                 else:
                     run_event = RunEvent(
                         node=current_runtime_node.name,
-                        execution=base_activity,
+                        execution=req_activity,
                         event=req,
                         input_requested=input_requested,
                     )
@@ -855,11 +855,11 @@ class Runner:
                     resp_packet = run_input.response if run_input is not None else None
 
                     # Persist a clone with the response, only for history packets.
-                    persisted_activity = self._create_response_activity(
-                        base_activity, resp_packet
+                    resp_activity = self._create_response_activity(
+                        req_activity, resp_packet
                     )
-                    if not persisted_activity.ephemeral:
-                        step.executions.append(persisted_activity)
+                    if not resp_activity.ephemeral:
+                        step.executions.append(resp_activity)
 
                 resume_activity = None
 
@@ -875,7 +875,7 @@ class Runner:
                                 resp_packet is not None
                                 and resp_packet.kind == PACKET_APPROVAL
                             ):
-                                persisted_activity.runner_state.response = resp_packet
+                                resp_activity.runner_state.response = resp_packet
                                 if resp_packet.approved:
                                     break
                                 # Rejected: stop runner
@@ -888,7 +888,7 @@ class Runner:
                             self.status = RunnerStatus.waiting_input
                             run_event = RunEvent(
                                 node=current_runtime_node.name,
-                                execution=persisted_activity,
+                                execution=resp_activity,
                                 event=req,
                                 input_requested=True,
                             )
@@ -903,7 +903,7 @@ class Runner:
                             resp_packet is not None
                             and resp_packet.kind == PACKET_MESSAGE
                         ):
-                            persisted_activity.message = resp_packet.message
+                            resp_activity.message = resp_packet.message
                             resp = resp_packet
                             continue
                     else:
@@ -915,7 +915,7 @@ class Runner:
 
                     next_runtime_node, next_input_messages, next_edge_policy = (
                         self._compute_node_transition(
-                            current_runtime_node, persisted_activity, step
+                            current_runtime_node, resp_activity, step
                         )
                     )
 
@@ -939,20 +939,20 @@ class Runner:
                     # Require a message; keep prompting until we get one
                     user_msg_packet: Optional[RespMessage] = None
                     while True:
-                        persisted_activity.runner_state.response = resp_packet
+                        resp_activity.runner_state.response = resp_packet
 
                         if (
                             resp_packet is not None
                             and resp_packet.kind == PACKET_MESSAGE
                         ):
-                            persisted_activity.message = resp_packet.message
+                            resp_activity.message = resp_packet.message
                             user_msg_packet = resp_packet
                             break
 
                         self.status = RunnerStatus.waiting_input
                         run_event = RunEvent(
                             node=current_runtime_node.name,
-                            execution=persisted_activity,
+                            execution=resp_activity,
                             event=req,
                             input_requested=True,
                         )
@@ -962,7 +962,7 @@ class Runner:
                         )
 
                     # Update persisted executor request with the response (mutate, do not re-append)
-                    persisted_activity.runner_state.response = user_msg_packet
+                    resp_activity.runner_state.response = user_msg_packet
 
                     # Set response for next executor cycle
                     resp = user_msg_packet
