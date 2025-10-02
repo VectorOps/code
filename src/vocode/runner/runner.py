@@ -25,7 +25,7 @@ from vocode.state import (
     ToolCallStatus,
     Step,
     Activity,
-    StepStatus,
+    RunStatus,
     ActivityType,
 )
 from vocode.runner.models import (
@@ -444,7 +444,7 @@ class Runner:
         if not any(not ex.ephemeral for ex in target_step.executions):
             task.steps.pop(step_idx)
         else:
-            target_step.status = StepStatus.running
+            target_step.status = RunStatus.running
 
     def _create_response_activity(self, activity, resp):
         return Activity(
@@ -487,7 +487,7 @@ class Runner:
             step_idx, act_idx, _ = target_activity_info
             self._trim_history(task, step_idx, act_idx, keep_target=False)
 
-            task.steps[-1].status = StepStatus.running
+            task.steps[-1].status = RunStatus.running
         else:
             # This happens if n is greater than the number of retriable activities.
             task.steps.clear()
@@ -562,7 +562,7 @@ class Runner:
             # Truncate history to resume from this boundary request
             self._trim_history(task, step_idx, act_idx, keep_target=True)
             target_step = task.steps[step_idx]
-            target_step.status = StepStatus.running
+            target_step.status = RunStatus.running
 
             # Set pending response on the boundary activity
             boundary_activity = target_step.executions[act_idx]
@@ -597,7 +597,10 @@ class Runner:
             raise RuntimeError(
                 f"run() not allowed when runner status is '{self.status}'. Allowed: 'idle', 'stopped'"
             )
+
         self.status = RunnerStatus.running
+        task.status = RunStatus.running
+
         incoming_policy_override: Optional[ResetPolicy] = None
 
         # Unified resume/start logic
@@ -606,7 +609,7 @@ class Runner:
         step: Optional[Step] = None
 
         # If there are steps, we are resuming. Otherwise, start from root.
-        if task.steps and task.steps[-1].status != StepStatus.finished:
+        if task.steps:
             # Find the last non-ephemeral activity across all steps to resume from.
             last_activity_info = next(
                 self._iter_retriable_activities_backward(task), None
@@ -624,6 +627,7 @@ class Runner:
 
             if current_runtime_node is None:
                 self.status = RunnerStatus.finished
+                task.status = RunStatus.finished
                 return
         else:
             # No steps, start from the beginning.
@@ -636,7 +640,7 @@ class Runner:
         while True:
             # Create new step for new executions
             if step is None:
-                step = Step(node=current_runtime_node.name, status=StepStatus.running)
+                step = Step(node=current_runtime_node.name, status=RunStatus.running)
                 task.steps.append(step)
 
             # Add any pending input messages (including initial_message or carry-over messages)
@@ -757,7 +761,7 @@ class Runner:
 
                 # If nothing returned, mark step finished and transition
                 if req is None:
-                    step.status = StepStatus.finished
+                    step.status = RunStatus.finished
 
                     # Find last complete executor activity for transition (may be from previous cycles)
                     last_exec_activity = next(
@@ -795,6 +799,7 @@ class Runner:
 
                     if next_runtime_node is None:
                         self.status = RunnerStatus.finished
+                        task.status = RunStatus.finished
                         return
 
                     current_runtime_node = next_runtime_node
@@ -880,7 +885,7 @@ class Runner:
                                     break
                                 # Rejected: stop runner
                                 self.status = RunnerStatus.stopped
-                                step.status = StepStatus.stopped
+                                step.status = RunStatus.stopped
                                 # consume resume marker
                                 return
 
@@ -911,7 +916,7 @@ class Runner:
                         pass
 
                     # Final accepted: finish step and transition
-                    step.status = StepStatus.finished
+                    step.status = RunStatus.finished
 
                     next_runtime_node, next_input_messages, next_edge_policy = (
                         self._compute_node_transition(
@@ -921,6 +926,7 @@ class Runner:
 
                     if next_runtime_node is None:
                         self.status = RunnerStatus.finished
+                        task.status = RunStatus.finished
                         return
 
                     current_runtime_node = next_runtime_node

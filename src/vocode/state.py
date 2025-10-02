@@ -17,7 +17,7 @@ class RunnerStatus(str, Enum):
     finished = "finished"
 
 
-class StepStatus(str, Enum):
+class RunStatus(str, Enum):
     running = "running"
     finished = "finished"
     canceled = "canceled"
@@ -140,8 +140,8 @@ class Step(BaseModel):
     )
     node: str = Field(..., description="Node name this step pertains to")
     executions: List[Activity] = Field(default_factory=list)
-    status: StepStatus = Field(
-        default=StepStatus.running,
+    status: RunStatus = Field(
+        default=RunStatus.running,
         description="Current status of this step: running until finalized as finished, canceled, or stopped",
     )
 
@@ -149,5 +149,9 @@ class Step(BaseModel):
 class Assignment(BaseModel):
     id: UUID = Field(
         default_factory=uuid4, description="Unique identifier for this assignment"
+    )
+    status: RunStatus = Field(
+        default=RunStatus.running,
+        description="Current status of this assignment",
     )
     steps: List[Step] = Field(default_factory=list)

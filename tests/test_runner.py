@@ -20,7 +20,7 @@ from vocode.state import (
     ToolCallStatus,
     Assignment,
     RunnerStatus,
-    StepStatus,
+    RunStatus,
 )
 from vocode.ui.base import UIState
 from vocode.ui.proto import UIPacketRunEvent, UIPacketStatus
@@ -120,6 +120,7 @@ async def test_message_request_reprompt_and_finish(tmp_path: Path):
             await it.asend(RunInput(response=RespApproval(approved=True)))
 
         assert runner.status.name == "finished"
+        assert task.status == RunStatus.finished
         assert len(task.steps) == 1
         step = task.steps[0]
         assert step.node == "Ask"
@@ -181,6 +182,7 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
             await it.asend(None)
 
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         assert BExec.runs == 1
 
         # Rewind 2 activities to undo step B completely
@@ -202,6 +204,7 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
             await it2.asend(None)
 
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         assert BExec.runs == 2
 
 
@@ -270,8 +273,8 @@ async def test_natural_resume_after_stop(tmp_path: Path):
         assert BExec.runs == 1
         assert CExec.runs == 0
         assert len(task.steps) == 2
-        assert task.steps[0].status == "finished"
-        assert task.steps[1].status == "running"  # B was started but not finished
+        assert task.steps[0].status == RunStatus.finished
+        assert task.steps[1].status == RunStatus.running  # B was started but not finished
 
         # Resume. Natural resume should find that B request was started, but not finished
         # and should start continue execution with B.
@@ -286,6 +289,7 @@ async def test_natural_resume_after_stop(tmp_path: Path):
             await it2.asend(None)
 
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         # A ran once, B ran twice (once interrupted, once on resume), C ran once.
         assert AExec.runs == 1
         assert BExec.runs == 1
@@ -345,6 +349,7 @@ async def test_replace_user_input_by_count(tmp_path: Path):
             await it.asend(None)
 
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         assert len(task.steps) == 2
 
         # Replace input at step 0 (node A) - which is the 1st (and only) boundary from the end
@@ -364,6 +369,7 @@ async def test_replace_user_input_by_count(tmp_path: Path):
             await it2.asend(None)
 
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         assert len(task.steps) == 2
 
 
@@ -406,6 +412,7 @@ async def test_replace_input_for_pending_request(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await it2.asend(None)
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
 
 
 @pytest.mark.asyncio
@@ -783,6 +790,7 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
 
         # Rewind last step (C)
@@ -802,6 +810,7 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await it2.asend(None)
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
 
 
@@ -860,6 +869,7 @@ async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "C"]
 
         # Rewind last two steps (B, C)
@@ -880,6 +890,7 @@ async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await it2.asend(None)
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "C"]
         assert CExec.runs == 2
 
@@ -929,6 +940,7 @@ async def test_rewind_within_step_and_resume(tmp_path: Path):
             await it.asend(None)
 
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         assert len(task.steps) == 1
         step = task.steps[0]
         retriable_count = sum(1 for ex in step.executions if not ex.ephemeral)
@@ -941,7 +953,7 @@ async def test_rewind_within_step_and_resume(tmp_path: Path):
         assert runner.status == RunnerStatus.stopped
         assert len(task.steps) == 1  # Step should NOT be removed
         step = task.steps[0]
-        assert step.status == StepStatus.running
+        assert step.status == RunStatus.running
         retriable_count_after = sum(1 for ex in step.executions if not ex.ephemeral)
         assert (
             retriable_count_after == 3
@@ -1012,6 +1024,7 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
 
         # State
         assert runner.status.name == "finished"
+        assert task.status == RunStatus.finished
         assert len(task.steps) == 1
         ex = task.steps[0].executions[0]
         assert ex.is_complete is True
@@ -1057,6 +1070,7 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
 
         # Verify two executions within the same step; no user message recorded
         assert runner.status.name == "finished"
+        assert task.status == RunStatus.finished
         assert len(task.steps) == 1
         step = task.steps[0]
         assert len(step.executions) == 4
@@ -1131,6 +1145,7 @@ async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Pat
 
         # Steps per node
         assert runner.status.name == "finished"
+        assert task.status == RunStatus.finished
     assert [s.node for s in task.steps] == ["A", "B"]
 
     # Step A: initial user message, A final, and an implicit user approval for 'auto' confirmation.
@@ -1397,6 +1412,7 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(
             await it.asend(None)
 
         assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
 
 
@@ -1519,6 +1535,7 @@ async def test_log_stream_then_final(tmp_path: Path):
 
         # Verify the final executor message and its implicit approval are recorded (logs are ephemeral).
         assert runner.status.name == "finished"
+        assert task.status == RunStatus.finished
         assert len(task.steps) == 1
         step = task.steps[0]
         assert step.node == "Log"
@@ -1573,10 +1590,11 @@ async def test_final_message_confirm_requires_explicit_approval_and_reprompts(
 
         # Runner state and recorded activities: executor final + user approval are recorded
         assert runner.status.name == "finished"
+        assert task.status == RunStatus.finished
         assert len(task.steps) == 1
         step = task.steps[0]
         assert step.node == "C"
-        assert step.status.name == "finished"
+        assert step.status == RunStatus.finished
         assert len(step.executions) == 2
         assert step.executions[0].type.value == "executor"
         assert step.executions[0].is_complete is True
@@ -1614,7 +1632,7 @@ async def test_final_message_confirm_reject_stops_runner(tmp_path: Path):
         assert len(task.steps) == 1
         step = task.steps[0]
         assert step.node == "C"
-        assert step.status.name == "stopped"
+        assert step.status == RunStatus.stopped
         # Final executor message and user rejection are recorded before stop
         assert len(step.executions) == 2
         ex0 = step.executions[0]
@@ -1799,6 +1817,7 @@ async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Pat
 
         # Steps per node
         assert runner.status.name == "finished"
+        assert task.status == RunStatus.finished
     assert [s.node for s in task.steps] == ["A", "B"]
 
     # Step A: initial user message, A final, and an implicit user approval for 'auto' confirmation.

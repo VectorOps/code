@@ -4,6 +4,7 @@
 ** [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 * [ ] Runner
 ** [ ] If workflow finished (no more steps possible), run would start execution on same workflow from the beginning. This might be confusing: figure out if we should just show that workflow finished and handle restarts in the UI?
+*** [ ] If Assignment (rename!) is finished, we need to reject run()?
 ** [X] Figure out a way to merge HistoryStep with state (Activity)
 ** [X] Add better history management and rollback to previous input
 ** [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
