@@ -473,9 +473,7 @@ async def test_replace_input_at_retriable_final_message(tmp_path: Path):
             if inp.response and inp.response.kind == "message":
                 yield (
                     ReqFinalMessage(
-                        message=msg(
-                            "agent", f"in1 saw: {inp.response.message.text}"
-                        ),
+                        message=msg("agent", f"in1 saw: {inp.response.message.text}"),
                         outcome_name="next",
                     ),
                     None,
@@ -522,9 +520,7 @@ async def test_replace_input_at_retriable_final_message(tmp_path: Path):
 
         # There are now two boundaries: Other's message_request, and In1's final_message that got a response.
         # We want to replace In1's response. It is the 2nd from the end.
-        runner.replace_user_input(
-            task, RespMessage(message=msg("user", "second")), n=2
-        )
+        runner.replace_user_input(task, RespMessage(message=msg("user", "second")), n=2)
         it2 = runner.run(task)
 
         # Runner should resume from In1, with the new message.
@@ -1738,3 +1734,102 @@ async def test_edge_reset_policy_override_full_syntax(tmp_path: Path):
         # Approve -> finish
         with pytest.raises(StopAsyncIteration):
             await it.asend(None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode", ["all_messages", "final_response", "concatenate_final"]
+)
+async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Path):
+    nodes = [
+        {
+            "name": "A",
+            "type": "a",
+            "outcomes": [OutcomeSlot(name="toB")],
+            "message_mode": mode,
+        },
+        {"name": "B", "type": "b", "outcomes": []},
+    ]
+    edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
+    g = Graph(nodes=nodes, edges=edges)
+    workflow = Workflow(name="workflow", graph=g)
+
+    class AExec(Executor):
+        type = "a"
+
+        async def run(self, inp):
+            # Emit final with outcome to go to B
+            yield (
+                ReqFinalMessage(message=msg("agent", "Aout"), outcome_name="toB"),
+                None,
+            )
+
+    class BExec(Executor):
+        type = "b"
+
+        async def run(self, inp):
+            messages = inp.messages
+            # Expect messages based on mode and initial messages
+            if mode == "all_messages":
+                assert len(messages) == 2  # initial system + A's output
+                assert messages[0].role == "system"
+                assert messages[0].text == "sys"
+                assert messages[1].text == "Aout"
+            elif mode == "concatenate_final":
+                assert len(messages) == 1
+                assert messages[0].text == "sys\nAout"
+            else:
+                assert len(messages) == 1
+                assert messages[0].text == "Aout"
+            yield (ReqFinalMessage(message=msg("agent", "Bout")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project, initial_message=msg("system", "sys"))
+        task = Assignment()
+        it = runner.run(task)
+
+        # A final -> approve
+        ev1 = await it.__anext__()
+        assert ev1.event.kind == "final_message" and ev1.node == "A"
+        ev2 = await it.asend(None)
+        # Now B final -> approve
+        assert ev2.event.kind == "final_message" and ev2.node == "B"
+        with pytest.raises(StopAsyncIteration):
+            await it.asend(None)
+
+        # Steps per node
+        assert runner.status.name == "finished"
+    assert [s.node for s in task.steps] == ["A", "B"]
+
+    # Step A: initial user message, A final, and an implicit user approval for 'auto' confirmation.
+    assert len(task.steps[0].executions) == 3
+    assert task.steps[0].executions[0].type.value == "user"
+    assert task.steps[0].executions[0].message.text == "sys"
+    assert task.steps[0].executions[1].type.value == "executor"
+    assert task.steps[0].executions[1].message.text == "Aout"
+    assert task.steps[0].executions[2].type.value == "user"
+    assert task.steps[0].executions[2].message is None
+
+    if mode == "all_messages":
+        # Step B: carried inputs (sys + Aout), B final, and implicit user approval.
+        assert len(task.steps[1].executions) == 4
+        assert task.steps[1].executions[0].type.value == "user"
+        assert task.steps[1].executions[0].message.text == "sys"
+        assert task.steps[1].executions[1].type.value == "user"
+        assert task.steps[1].executions[1].message.text == "Aout"
+        assert task.steps[1].executions[2].type.value == "executor"
+        assert task.steps[1].executions[2].message.text == "Bout"
+        assert task.steps[1].executions[3].type.value == "user"
+        assert task.steps[1].executions[3].message is None
+    else:
+        # Step B: carried input (Aout or concatenated), B final, and implicit user approval.
+        assert len(task.steps[1].executions) == 3
+        assert task.steps[1].executions[0].type.value == "user"
+        if mode == "concatenate_final":
+            assert task.steps[1].executions[0].message.text == "sys\nAout"
+        else:  # final_response
+            assert task.steps[1].executions[0].message.text == "Aout"
+        assert task.steps[1].executions[1].type.value == "executor"
+        assert task.steps[1].executions[1].message.text == "Bout"
+        assert task.steps[1].executions[2].type.value == "user"
+        assert task.steps[1].executions[2].message is None

@@ -841,7 +841,10 @@ class Runner:
                 run_input: Optional[RunInput] = None
                 resp_packet: Optional[RespPacket] = None
 
-                if resume_activity is not None and resume_activity.type == ActivityType.user:
+                if (
+                    resume_activity is not None
+                    and resume_activity.type == ActivityType.user
+                ):
                     resp_packet = resume_activity.runner_state.response
                     resp_activity = resume_activity
                 else:
@@ -915,7 +918,7 @@ class Runner:
 
                     next_runtime_node, next_input_messages, next_edge_policy = (
                         self._compute_node_transition(
-                            current_runtime_node, resp_activity, step
+                            current_runtime_node, req_activity, step
                         )
                     )
 
