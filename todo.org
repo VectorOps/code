@@ -124,7 +124,7 @@ Concrete example: files that were read and already in context.
 *** [X] Add UI support for file context management
 *** [ ] Show files added and removed, as well as current list of files for /fadd and /fdel
 *** [ ] Figure out a way to inject files into patch without apply_patch having access to readfile
-*** [ ] Add a way to manage context and inject files to context while looping in LLM node
+*** [ ] [#A] Add a way to manage context and inject files to context while looping in LLM node
 ** [X] [#A] Think how to manage state for a run
 ** [X] Base node runner class
 ** [ ] LLM node
