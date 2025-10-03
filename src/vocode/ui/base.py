@@ -20,6 +20,7 @@ from .proto import (
     UIPacket,
     UIPacketEnvelope,
     UIPacketRunEvent,
+    UIPacketUIReset,
     UIPacketStatus,
     UIPacketRunInput,
     UIPacketCustomCommands,
@@ -140,7 +141,7 @@ class UIState:
             self.workflow = workflow
             if workflow.name:
                 self._selected_workflow_name = workflow.name
-            
+
             if assignment and assignment.status == RunStatus.finished:
                 self.assignment = Assignment()
             else:
@@ -153,6 +154,8 @@ class UIState:
             self._msg_counter = 0
             self._last_status = None
             self._stop_signal.clear()
+            # Always instruct UI to reset when a runner starts.
+            await self._send_ui_reset()
             self._drive_task = asyncio.create_task(self._drive_runner())
             self._stop_watcher_task = asyncio.create_task(self._watch_stop_signal())
 
@@ -182,6 +185,7 @@ class UIState:
         If it has finished or been canceled, a fresh Runner is created with the last workflow.
         """
         async with self._lock:
+            prev_status = self.status
             if self.workflow is None:
                 raise RuntimeError("No workflow available to restart")
 
@@ -207,6 +211,8 @@ class UIState:
             self._msg_counter = 0
             self._last_status = None
             self._stop_signal.clear()
+            # Always instruct UI to reset when a runner restarts.
+            await self._send_ui_reset()
             self._drive_task = asyncio.create_task(self._drive_runner())
 
     # ------------------------
@@ -352,6 +358,13 @@ class UIState:
     # ------------------------
     # Internal driver
     # ------------------------
+    async def _send_ui_reset(self) -> None:
+        await self._outgoing.put(
+            UIPacketEnvelope(
+                msg_id=self._next_msg_id(),
+                payload=UIPacketUIReset(),
+            )
+        )
 
     async def _emit_status_if_changed(self) -> None:
         if self.runner is None:

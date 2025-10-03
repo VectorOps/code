@@ -32,6 +32,8 @@ from vocode.ui.proto import (
     UIPacketRunInput,
     PACKET_RUN_EVENT,
     PACKET_STATUS,
+    UIPacketUIReset,
+    PACKET_UI_RESET,
     PACKET_CUSTOM_COMMANDS,
     PACKET_COMMAND_RESULT,
     PACKET_RUN_COMMAND,
@@ -291,6 +293,10 @@ async def run_terminal(project: Project) -> None:
     # Track dynamic custom CLI commands to avoid affecting built-ins
     dynamic_cli_commands: set[str] = set()
     queued_resp: Optional[Union[RespMessage, RespApproval]] = None
+    # Hide toolbar until activity arrives (set on UI reset directive).
+    hide_toolbar: bool = False
+    # Suppress prompting until a status or run event arrives.
+    suppress_prompt_until_change: bool = False
 
     stream_buffer: Optional[MessageBuffer] = None
 
@@ -401,6 +407,9 @@ async def run_terminal(project: Project) -> None:
 
         if ev.kind == PACKET_MESSAGE_REQUEST:
             _finish_stream()
+            # If the request includes a message to display, render it before prompting.
+            if ev.message:
+                out_fmt(colors.render_markdown(ev.message))
             pending_req_env = envelope if req_payload.event.input_requested else None
             # Auto-respond if we have a queued response
             if pending_req_env is not None and queued_resp is not None:
@@ -444,7 +453,7 @@ async def run_terminal(project: Project) -> None:
             return
 
     async def event_consumer():
-        nonlocal pending_req_env, pending_cmd
+        nonlocal pending_req_env, pending_cmd, hide_toolbar, suppress_prompt_until_change, queued_resp
         while True:
             try:
                 envelope = await ui.recv()
@@ -455,10 +464,26 @@ async def run_terminal(project: Project) -> None:
                 msg = envelope.payload
                 if msg.kind == PACKET_STATUS:
                     reset_interrupt()
+                    # Any status change counts as activity.
+                    hide_toolbar = False
+                    suppress_prompt_until_change = False
                     change_event.set()
                     continue
                 if msg.kind == PACKET_RUN_EVENT:
                     await handle_run_event(envelope)
+                    hide_toolbar = False
+                    suppress_prompt_until_change = False
+                    change_event.set()
+                    continue
+                if msg.kind == PACKET_UI_RESET:
+                    pending_req_env = None
+                    queued_resp = None
+                    hide_toolbar = True
+                    suppress_prompt_until_change = True
+                    # Abort any in-flight prompt so it disappears immediately.
+                    # This ensures the prompt is hidden between reset and the next status/run event.
+                    with contextlib.suppress(Exception):
+                        session.app.exit(result="")
                     change_event.set()
                     continue
                 if msg.kind == PACKET_CUSTOM_COMMANDS:
@@ -506,8 +531,10 @@ async def run_terminal(project: Project) -> None:
     try:
         while True:
             # Wait until we should show a prompt:
-            while (pending_cmd is not None) or (
-                ui.is_active() and pending_req_env is None
+            while (
+                suppress_prompt_until_change
+                or (pending_cmd is not None)
+                or (ui.is_active() and pending_req_env is None)
             ):
                 await change_event.wait()
                 change_event.clear()
@@ -521,7 +548,9 @@ async def run_terminal(project: Project) -> None:
                 lambda: build_prompt(ui, prompt_payload),
                 key_bindings=kb,
                 default="",
-                bottom_toolbar=lambda: build_toolbar(ui, prompt_payload),
+                bottom_toolbar=(
+                    None if hide_toolbar else (lambda: build_toolbar(ui, prompt_payload))
+                ),
             )
             text = line.rstrip("\n")
 

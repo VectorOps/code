@@ -34,6 +34,7 @@ class ReqMessageRequest(BaseModel):
     """
 
     kind: Literal["message_request"] = PACKET_MESSAGE_REQUEST
+    message: Optional[str] = None
 
 
 class ReqToolCall(BaseModel):

@@ -8,7 +8,6 @@ from vocode.state import Message
 from vocode.runner.models import (
     ReqPacket,
     ReqMessageRequest,
-    ReqInterimMessage,
     ReqFinalMessage,
     ExecRunInput,
     PACKET_MESSAGE,
@@ -43,9 +42,5 @@ class InputExecutor(Executor):
             final_msg = Message(role="user", text=user_text)
             yield ReqFinalMessage(message=final_msg), inp.state
             return
-        # Otherwise, prompt and request a user message.
-        if cfg.message:
-            yield ReqInterimMessage(
-                message=Message(role="user", text=cfg.message)
-            ), inp.state
-        yield ReqMessageRequest(), inp.state
+        # Otherwise, prompt and request a user message (optionally with display text).
+        yield ReqMessageRequest(message=cfg.message), inp.state

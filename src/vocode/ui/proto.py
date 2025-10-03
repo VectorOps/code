@@ -6,6 +6,7 @@ from vocode.state import RunnerStatus
 
 PACKET_RUN_EVENT = "run_event"
 PACKET_STATUS = "status"
+PACKET_UI_RESET = "ui_reset"
 PACKET_CUSTOM_COMMANDS = "custom_commands"
 PACKET_RUN_COMMAND = "run_command"
 PACKET_COMMAND_RESULT = "command_result"
@@ -19,6 +20,10 @@ class UIPacketRunEvent(BaseModel):
     kind: Literal["run_event"] = PACKET_RUN_EVENT
     event: RunEvent
 
+
+class UIPacketUIReset(BaseModel):
+    kind: Literal["ui_reset"] = PACKET_UI_RESET
+    # No payload for now; acts as a directive.
 
 class UIPacketStatus(BaseModel):
     kind: Literal["status"] = PACKET_STATUS
@@ -78,6 +83,7 @@ class UIPacketAck(BaseModel):
 UIPacket = Annotated[
     Union[
         UIPacketRunEvent,
+        UIPacketUIReset,
         UIPacketStatus,
         UIPacketCustomCommands,
         UIPacketRunInput,

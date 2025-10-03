@@ -3,10 +3,10 @@
 ** [ ] Autocompleters needs consts at model level
 ** [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 * [ ] Runner
-** [ ] If workflow finished (no more steps possible), run would start execution on same workflow from the beginning. This might be confusing: figure out if we should just show that workflow finished and handle restarts in the UI?
-*** [ ] If Assignment (rename!) is finished, we need to reject run()?
-*** [ ] UIState should check if runner is finished and create a new runner
-*** [ ] What do we do with the previous Assignment history?
+** [X] If workflow finished (no more steps possible), run would start execution on same workflow from the beginning. This might be confusing: figure out if we should just show that workflow finished and handle restarts in the UI?
+*** [X] If Assignment (rename!) is finished, we need to reject run()?
+*** [X] UIState should check if runner is finished and create a new runner
+*** [X] What do we do with the previous Assignment history?
 ** [X] Figure out a way to merge HistoryStep with state (Activity)
 ** [X] Add better history management and rollback to previous input
 ** [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
@@ -124,6 +124,7 @@ Concrete example: files that were read and already in context.
 *** [X] Add UI support for file context management
 *** [ ] Show files added and removed, as well as current list of files for /fadd and /fdel
 *** [ ] Figure out a way to inject files into patch without apply_patch having access to readfile
+*** [ ] Add a way to manage context and inject files to context while looping in LLM node
 ** [X] [#A] Think how to manage state for a run
 ** [X] Base node runner class
 ** [ ] LLM node
