@@ -10,6 +10,7 @@ from vocode.ui.proto import (
     UIPacketRunEvent,
     UIPacketStatus,
     UIPacketRunInput,
+    UIPacketUIReset,
 )
 from vocode.runner.models import (
     ReqMessageRequest,
@@ -145,6 +146,10 @@ def test_ui_state_basic_flow(monkeypatch):
 
         await ui.start(wf)
 
+        # 0) Initial UI Reset
+        reset_env = await ui.recv()
+        assert isinstance(reset_env.payload, UIPacketUIReset)
+
         # 1) First status emitted on entering running
         msg1_env = await ui.recv()
         assert isinstance(msg1_env.payload, UIPacketStatus)
@@ -155,7 +160,7 @@ def test_ui_state_basic_flow(monkeypatch):
         req1_env = await ui.recv()
         assert isinstance(req1_env.payload, UIPacketRunEvent)
         assert req1_env.payload.event.node == "node1"
-        assert req1_env.msg_id == 2
+        assert req1_env.msg_id == 3
         assert req1_env.payload.event.input_requested is False
 
         # 3) Status waiting_input before next event
@@ -168,7 +173,7 @@ def test_ui_state_basic_flow(monkeypatch):
         req2_env = await ui.recv()
         assert isinstance(req2_env.payload, UIPacketRunEvent)
         assert req2_env.payload.event.node == "node2"
-        assert req2_env.msg_id == 4
+        assert req2_env.msg_id == 5
         assert req2_env.payload.event.input_requested is True
         # While waiting for input, the driver is blocked; current_node_name is stable.
         # This avoids the race present for non-input events.
@@ -191,7 +196,7 @@ def test_ui_state_basic_flow(monkeypatch):
         req3_env = await ui.recv()
         assert isinstance(req3_env.payload, UIPacketRunEvent)
         assert req3_env.payload.event.node == "node3"
-        assert req3_env.msg_id == 6
+        assert req3_env.msg_id == 7
         assert req3_env.payload.event.input_requested is False
 
         # 7) Final status finished
@@ -225,6 +230,10 @@ def test_ui_state_stop_while_waiting(monkeypatch):
         project = FakeProject()
         ui = UIState(project)
         await ui.start(wf)
+
+        # Consume UI reset packet
+        reset_env = await ui.recv()
+        assert isinstance(reset_env.payload, UIPacketUIReset)
 
         # First status is waiting_input (no prior running step)
         s1_env = await ui.recv()
@@ -261,7 +270,8 @@ def test_ui_state_replace_input_guard(monkeypatch):
         ui = UIState(project)
         await ui.start(wf)
 
-        # Drain status and the input request event
+        # Drain reset, status and the input request event
+        await ui.recv()  # UIPacketUIReset
         await ui.recv()  # UIPacketStatus waiting_input
         req_env = await ui.recv()  # UIPacketRunEvent (input requested)
         assert isinstance(req_env.payload, UIPacketRunEvent)
@@ -301,6 +311,8 @@ def test_project_state_reset_clears(monkeypatch):
         await ui.start(wf)
 
         # Drain first status to ensure driver started
+        reset_env = await ui.recv()
+        assert isinstance(reset_env.payload, UIPacketUIReset)
         s_env = await ui.recv()
         assert isinstance(s_env.payload, UIPacketStatus)
 
@@ -320,6 +332,10 @@ def test_project_state_reset_clears(monkeypatch):
 
         # Cleanup: cancel the restarted driver to avoid leaks
         await ui.cancel()
+        # After reset, a UIReset packet is emitted. We need to consume it
+        # before we can receive the final status packet from cancellation.
+        s_end_reset_env = await ui.recv()
+        assert isinstance(s_end_reset_env.payload, UIPacketUIReset)
         s_end_env = await ui.recv()
         assert isinstance(s_end_env.payload, UIPacketStatus)
 

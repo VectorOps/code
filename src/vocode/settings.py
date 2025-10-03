@@ -69,6 +69,8 @@ class Settings(BaseModel):
     tools: List[ToolSettings] = Field(default_factory=list)
     know: Optional[KnowProjectSettings] = Field(default=None)
     ui: Optional[UISettings] = Field(default=None)
+    # Optional Model Context Protocol (MCP) configuration
+    mcp: Optional["MCPSettings"] = Field(default=None)
 
     @model_validator(mode="after")
     def _sync_workflow_names(self) -> "Settings":
@@ -503,6 +505,19 @@ def load_settings(path: str) -> Settings:
     data = _apply_variables(data_any, vars_map)
 
     return Settings.model_validate(data)
+
+
+class MCPSettings(BaseModel):
+    """
+    Configuration for MCP (Model Context Protocol) client/manager.
+    - If `url` is provided, the manager connects to it.
+    - Otherwise, if `command` is provided, the manager spawns a process with it.
+    - tools_whitelist optionally restricts tool discovery by exact name match.
+    """
+    url: Optional[str] = None
+    command: Optional[List[str]] = None
+    env: Dict[str, str] = Field(default_factory=dict)
+    tools_whitelist: Optional[List[str]] = None
 
 
 def build_model_from_settings(

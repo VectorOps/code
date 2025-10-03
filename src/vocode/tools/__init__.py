@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, TYPE_CHECKING, Optional, Union, Type, List
-
-from pydantic import BaseModel
+from typing import Any, Dict, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .project import Project
@@ -18,6 +16,11 @@ def register_tool(name: str, tool: "BaseTool") -> None:
     _registry[name] = tool
 
 
+def unregister_tool(name: str) -> bool:
+    """Unregister a tool instance by name. Returns True if removed, False if not present."""
+    return _registry.pop(name, None) is not None
+
+
 def get_tool(name: str) -> Optional["BaseTool"]:
     """Gets a tool instance by name."""
     return _registry.get(name)
@@ -31,16 +34,18 @@ def get_all_tools() -> Dict[str, "BaseTool"]:
 class BaseTool(ABC):
     # Subclasses must set this to a unique string
     name: str
-    input_model: Type[BaseModel]
+    # Tools accept Any arguments directly
 
     def __init__(self) -> None:
         pass
 
     @abstractmethod
-    async def run(self, project: "Project", args: BaseModel) -> Optional[str]:
+    async def run(self, project: "Project", args: Any) -> Optional[str]:
         """
         Execute this tool within the context of the given Project.
-        Subclasses must implement this.
+        Args:
+            project: The active project context.
+            args: Parsed arguments structure (e.g., dict or Pydantic model). Not a JSON string.
         """
         pass
 

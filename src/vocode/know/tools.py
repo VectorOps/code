@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING, Union
+from typing import Any, Optional, TYPE_CHECKING, Union
 from pydantic import BaseModel
 
 from know.tools.base import BaseTool as KnowBaseTool, ToolRegistry as KnowToolRegistry
@@ -25,7 +25,7 @@ class _KnowToolWrapper(BaseTool):
     def openapi_spec(self) -> dict[str, Any]:
         return self._know_tool.get_openai_schema()
 
-    async def run(self, project: "Project", args: BaseModel) -> Optional[str]:
+    async def run(self, project: "Project", args: Any) -> Optional[str]:
         def do_execute():
             return self._know_tool.execute(project.know.pm, args)
 

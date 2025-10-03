@@ -15,6 +15,7 @@ from .settings import KnowProjectSettings, Settings, load_settings
 from .templates import write_default_config
 from vocode.runner.models import TokenUsageTotals
 from vocode.commands import CommandManager
+from .mcp.manager import MCPManager
 
 
 class ProjectState:
@@ -60,11 +61,13 @@ class Project:
         tools: Dict[str, "BaseTool"],
         know: KnowProject,
     ):
+        print(base_path)
         self.base_path: Path = base_path
         self.config_relpath: Path = config_relpath
         self.settings: Optional[Settings] = settings
         self.tools: Dict[str, "BaseTool"] = tools
         self.know: KnowProject = know
+        self.mcp_manager: Optional[MCPManager] = None
         # Project-level shared state for executors
         self.project_state: ProjectState = ProjectState()
         # Workflow-scoped custom commands (cleared on workflow changes)
@@ -93,6 +96,10 @@ class Project:
 
     async def shutdown(self) -> None:
         """Gracefully shut down project components."""
+        # Stop MCP first to allow cleanup of any tool proxies
+        if self.mcp_manager is not None:
+            await self.mcp_manager.stop()
+            self.mcp_manager = None
         await self.know.shutdown()
 
     async def refresh(
@@ -117,6 +124,37 @@ class Project:
         self.llm_usage.prompt_tokens += int(prompt_delta or 0)
         self.llm_usage.completion_tokens += int(completion_delta or 0)
         self.llm_usage.cost_dollars += float(cost_delta or 0.0)
+
+    def refresh_tools_from_registry(self) -> None:
+        """
+        Refresh self.tools from the global registry, excluding disabled tools per settings.
+        """
+        from .tools import get_all_tools
+
+        disabled_tool_names = (
+            {
+                entry.name
+                for entry in (self.settings.tools or [])
+                if entry.enabled is False
+            }
+            if self.settings
+            else set()
+        )
+        all_tools = get_all_tools()
+        self.tools = {
+            name: tool
+            for name, tool in all_tools.items()
+            if name not in disabled_tool_names
+        }
+
+    async def start(self) -> None:
+        """
+        Start project subsystems that require async initialization (e.g., MCP).
+        """
+        if self.settings and self.settings.mcp:
+            # Create and start MCP manager; it will register tool proxies and refresh the tool map.
+            self.mcp_manager = MCPManager(self.settings.mcp)
+            await self.mcp_manager.start(self)
 
 
 def _find_project_root_with_config(start: Path, rel_config: Path) -> Optional[Path]:
@@ -148,17 +186,17 @@ def init_project(
     1) Searching upwards for an existing .vocode/config.yaml (nearest ancestor) if search_ancestors is True.
     2) Otherwise, if use_scm is True, detecting a Git repository root and using it as the base; create .vocode/config.yaml there if missing.
     3) Otherwise, creating .vocode/config.yaml at the provided start directory.
-    Note: Do not resolve symlinks during traversal; use absolute() only.
     """
     start_path = Path(base_path)
     # If a file path is provided, start from its parent; otherwise the directory itself.
     start_dir = start_path if start_path.is_dir() else start_path.parent
-    # Prefer absolute paths without resolving symlinks
-    start_dir = start_dir.absolute()
+    start_dir = start_dir.resolve()
 
     rel = Path(config_relpath)
     base = None
     config_path = None
+
+    print(start_dir, rel)
 
     # 1) Search upwards for an existing config file (nearest ancestor)
     found_base = (
@@ -219,22 +257,13 @@ def init_project(
     know_project.start(know_settings)
 
     register_know_tools()
-
-    # Tools are enabled by default; settings can disable them.
-    all_tools = get_all_tools()
-    disabled_tool_names = {
-        entry.name for entry in settings.tools or [] if entry.enabled is False
-    }
-    tools = {
-        name: tool_instance
-        for name, tool_instance in all_tools.items()
-        if name not in disabled_tool_names
-    }
-
-    return Project(
+    proj = Project(
         base_path=base,
         config_relpath=rel,
         settings=settings,
-        tools=tools,
+        tools={},  # will be refreshed from registry below
         know=know_project,
     )
+    # Initialize tools snapshot based on current registry (includes 'know' tools).
+    proj.refresh_tools_from_registry()
+    return proj

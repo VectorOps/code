@@ -148,6 +148,7 @@ Concrete example: files that were read and already in context.
 *** [ ] Add stats for the number of tokens in the context and context window limits
 *** [X] For some reason tokens are not accumulated for tool calls
 *** [ ] Figure out why pricing estimates are all zeroes
+*** [ ] Add a way to append text to default system prompt
 ** [X] Diff apply node
 *** [X] Base parser
 *** [X] Add a way to write file changes after confirmation
@@ -167,6 +168,7 @@ Concrete example: files that were read and already in context.
 * [ ] Tools
 ** [ ] Parallel tool calling support
 ** [ ] MCP tool support
+*** [ ] Lazy process start?
 ** [ ] Add a way to reject tool calling automatically if tools with same parameters were already called
 * [ ] Nested workflows support
 ** [ ] Create API to start a new workflow

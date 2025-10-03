@@ -27,6 +27,7 @@ from vocode.ui.proto import UIPacketRunEvent, UIPacketStatus
 from vocode.runner.models import PACKET_FINAL_MESSAGE
 from vocode.runner.executors.file_state import FileStateNode
 from vocode.commands import CommandContext
+from typing import Any, Dict
 
 
 def msg(role: str, text: str) -> Message:
@@ -1852,3 +1853,93 @@ async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Pat
         assert task.steps[1].executions[1].message.text == "Bout"
         assert task.steps[1].executions[2].type.value == "user"
         assert task.steps[1].executions[2].message is None
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_invocation_and_cleanup(tmp_path: Path, monkeypatch):
+    # Fake MCP client that provides a single tool 'mcp_echo'
+    class FakeMCPClient:
+        def list_tools(self):
+            return [
+                {
+                    "name": "mcp_echo",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"text": {"type": "string"}},
+                        "required": ["text"],
+                    },
+                }
+            ]
+
+        async def call_tool(self, name: str, arguments: Dict[str, Any]):
+            if name == "mcp_echo":
+                return f"echo:{arguments.get('text','')}"
+            return {"error": "unknown"}
+
+        async def aclose(self):
+            pass
+
+    async def fake_create_client(self):
+        return FakeMCPClient()
+
+    monkeypatch.setattr("vocode.mcp.manager.MCPManager._create_client", fake_create_client, raising=True)
+    # Isolate registry for this test
+    monkeypatch.setattr("vocode.tools._registry", {}, raising=False)
+
+    # Config with MCP enabled and tool allow-list via Tools settings
+    from vocode.project import init_project
+    cfg_dir = tmp_path / ".vocode"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "config.yaml").write_text(
+        """
+workflows:
+  w:
+    nodes: []
+    edges: []
+mcp:
+  url: "tcp://localhost:9999"
+tools:
+  - name: mcp_echo
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    # Build a workflow that calls the 'mcp_echo' tool
+    nodes = [{"name": "Tool", "type": "tool_mcp", "outcomes": []}]
+    g = Graph(nodes=nodes, edges=[])
+    workflow = Workflow(name="workflow", graph=g)
+
+    class MCPExec(Executor):
+        type = "tool_mcp"
+
+        async def run(self, inp):
+            if inp.response is None:
+                tc = ToolCall(name="mcp_echo", arguments={"text": "hi"})
+                yield (ReqToolCall(tool_calls=[tc]), None)
+                return
+            # After tool call completes, return final
+            yield (ReqFinalMessage(message=msg("agent", "done")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        # Ensure MCP manager started by Sandbox
+        assert "mcp_echo" in project.tools
+
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        # Tool call should be auto-approved (Runner defaults to approved=True when no UI approval provided)
+        ev1 = await it.__anext__()
+        assert ev1.event.kind == "tool_call"
+        # Respond without explicit approval; runner should execute tool
+        ev2 = await it.asend(RunInput(response=None))
+        assert ev2.event.kind == "final_message"
+        # Validate that the tool call was updated to completed with a result
+        # (ev1 contains the original ReqToolCall object mutated by runner)
+        assert ev1.event.tool_calls[0].status.name == "completed"
+        assert ev1.event.tool_calls[0].result == "echo:hi"
+
+    # After sandbox exit, project.shutdown() is called; MCP tools should be deregistered
+    from vocode.tools import get_all_tools
+    assert "mcp_echo" not in get_all_tools()

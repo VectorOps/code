@@ -11,7 +11,6 @@ from typing import (
 )
 
 import asyncio
-from pydantic import BaseModel
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
@@ -387,17 +386,8 @@ class Runner:
                 continue
 
             try:
-                args_model = tool.input_model.model_validate(tc.arguments)
-            except Exception as e:
-                tc.status = ToolCallStatus.rejected
-                tc.result = {
-                    "error": f"Invalid arguments for tool '{tc.name}': {str(e)}"
-                }
-                updated_tool_calls.append(tc.model_copy(deep=True))
-                continue
-
-            try:
-                result = await tool.run(self.project, args_model)
+                # Pass parsed arguments as-is to the tool
+                result = await tool.run(self.project, tc.arguments)
                 tc.status = ToolCallStatus.completed
                 tc.result = result
             except Exception as e:

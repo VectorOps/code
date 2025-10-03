@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .project import Project
-from .settings import Settings, KnowProjectSettings
+from .settings import Settings, KnowProjectSettings, load_settings
 from .know import KnowProject
 from .know.tools import register_know_tools
 from .tools import get_all_tools
@@ -33,7 +33,12 @@ class ProjectSandbox:
         """
         Creates a Project instance for testing, avoiding filesystem writes for config.
         """
-        settings = Settings()
+        # Prefer real settings if a test has written a config file
+        cfg_path = base_path / ".vocode" / "config.yaml"
+        if cfg_path.is_file():
+            settings = load_settings(str(cfg_path))
+        else:
+            settings = Settings()
 
         # Initialize `know` with an in-memory database.
         know_settings = KnowProjectSettings(
@@ -65,6 +70,12 @@ class ProjectSandbox:
         await self._project.shutdown()
 
     async def __aenter__(self) -> Project:
+        # Start async subsystems (e.g., MCP) so tools are registered when entering context
+        try:
+            await self._project.start()
+        except Exception:
+            # Let tests handle failures explicitly
+            raise
         return self._project
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
