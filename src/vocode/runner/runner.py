@@ -492,6 +492,8 @@ class Runner:
             # This happens if n is greater than the number of retriable activities.
             task.steps.clear()
 
+        task.status = RunStatus.stopped
+
         # Reset internal flags
         self._stop_requested = False
         self._internal_cancel_requested = False
@@ -573,6 +575,8 @@ class Runner:
                     self._create_response_activity(boundary_activity, response)
                 )
 
+            task.status = RunStatus.stopped
+
             # Reset state for run()
             self._stop_requested = False
             self._internal_cancel_requested = False
@@ -597,6 +601,9 @@ class Runner:
             raise RuntimeError(
                 f"run() not allowed when runner status is '{self.status}'. Allowed: 'idle', 'stopped'"
             )
+
+        if task.status == RunStatus.finished:
+            raise RuntimeError(f"run() not allowed when task is in `{task.status}`")
 
         self.status = RunnerStatus.running
         task.status = RunStatus.running

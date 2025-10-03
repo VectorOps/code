@@ -14,7 +14,7 @@ from vocode.runner.models import (
     PACKET_TOKEN_USAGE,
     PACKET_FINAL_MESSAGE,
 )
-from vocode.state import Assignment, Message, RunnerStatus
+from vocode.state import Assignment, Message, RunnerStatus, RunStatus
 from vocode.models import Graph, Workflow
 from .proto import (
     UIPacket,
@@ -140,7 +140,12 @@ class UIState:
             self.workflow = workflow
             if workflow.name:
                 self._selected_workflow_name = workflow.name
-            self.assignment = assignment or Assignment()
+            
+            if assignment and assignment.status == RunStatus.finished:
+                self.assignment = Assignment()
+            else:
+                self.assignment = assignment or Assignment()
+
             self._initial_message = initial_message
             self.runner = Runner(
                 workflow=workflow, project=self.project, initial_message=initial_message
@@ -192,7 +197,7 @@ class UIState:
                 )
 
             # Re-drive the same assignment (resume if stopped)
-            if self.assignment is None:
+            if self.assignment is None or self.assignment.status == RunStatus.finished:
                 self.assignment = Assignment()
 
             # Prevent multiple drivers

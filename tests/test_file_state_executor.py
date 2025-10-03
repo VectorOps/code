@@ -62,11 +62,14 @@ async def test_file_state_executor_outputs_files_with_fences(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await agen.asend(RunInput())
 
-        # Modify one file and run again; only changed files should be included
+        # Modify one file and run again with a new assignment.
+        # This is a fresh run, so all files should be included again.
         f1.write_text("print('hello again')\n", encoding="utf-8")
 
+        # Per the requirement, a new assignment must be created for a new run.
         runner2 = Runner(wf, project)
-        agen2 = runner2.run(assign)
+        assign2 = Assignment()
+        agen2 = runner2.run(assign2)
         event2 = await agen2.__anext__()
         assert event2.event.kind == PACKET_FINAL_MESSAGE
         text2 = event2.event.message.text
@@ -74,10 +77,11 @@ async def test_file_state_executor_outputs_files_with_fences(tmp_path: Path):
         # Prompt present
         assert "The following" in text2
 
-        # Only the changed file should be included
+        # Both files should be present, with updated content for a.py
         assert "File: src/a.py" in text2
         assert "print('hello again')" in text2
-        assert "File: README.md" not in text2
+        assert "File: README.md" in text2
+        assert "# Title" in text2
 
         with pytest.raises(StopAsyncIteration):
             await agen2.asend(RunInput())
