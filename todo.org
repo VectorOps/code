@@ -17,6 +17,9 @@ Concrete example: files that were read and already in context.
 *** [ ] UI
 ** [ ] Tool calling timeouts and failures
 ** [ ] Add a way for human to unblock failures by retrying last operation
+** [ ] Running another workflow from workflow causes this error to be printed:
+Unclosed client session
+client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [X] UI protocol
 ** [ ] Add syntax name hint to apply formatting
 * [ ] Terminal UI
@@ -92,6 +95,12 @@ Concrete example: files that were read and already in context.
 ** [ ] Add pattern matching rules to auto-approve rule calls
 
 ** [ ] Shell tool
+*** [ ] Need comprehensive tests
+*** [ ] Windows shell support
+*** [ ] Non-POSIX shell support
+*** [ ] PTY support
+*** [ ] Containerization
+*** [ ] Sandboxing
 ** [ ] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Pass cwd
@@ -104,6 +113,6 @@ Concrete example: files that were read and already in context.
 - Should start a new runner with new state
 - Wait for runner to finish
 - Pass all messages through to UI, plumb via parent runner
-- UIState should be smart enough to understand it's stacked execution
+- UIState should be smart enough to understand it's stacked execution. Need explicit messages to UIState on runner states, such as starting workflow execution, state changes, etc.
 ** [ ] Create a tool that allows LLMs to call into new workflows
 ** [ ] Create node that starts a workflow with an input

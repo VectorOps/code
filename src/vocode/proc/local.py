@@ -4,7 +4,14 @@ import os
 import uuid
 from pathlib import Path
 from typing import AsyncIterator, Optional, Dict
-from .base import ProcessBackend, ProcessHandle, SpawnOptions, EnvPolicy, register_backend
+from .base import (
+    ProcessBackend,
+    ProcessHandle,
+    SpawnOptions,
+    EnvPolicy,
+    register_backend,
+)
+
 
 def _build_env(policy: EnvPolicy, overlay: Optional[Dict[str, str]]) -> Dict[str, str]:
     base: Dict[str, str] = {}
@@ -20,6 +27,7 @@ def _build_env(policy: EnvPolicy, overlay: Optional[Dict[str, str]]) -> Dict[str
     if overlay:
         base.update(overlay)
     return base
+
 
 class LocalProcessHandle(ProcessHandle):
     def __init__(self, proc: asyncio.subprocess.Process, name: Optional[str]) -> None:
@@ -75,26 +83,40 @@ class LocalProcessHandle(ProcessHandle):
     async def terminate(self, grace_s: float = 5.0) -> None:
         if self._proc.returncode is not None:
             return
+
         try:
             self._proc.terminate()
         except ProcessLookupError:
             return
+
         try:
-            await asyncio.wait_for(self._proc.wait(), timeout=grace_s)
+            # Use communicate() to avoid deadlocks from full pipe buffers.
+            await asyncio.wait_for(self._proc.communicate(), timeout=grace_s)
         except asyncio.TimeoutError:
+            # The process did not terminate gracefully, so escalate to kill().
             await self.kill()
 
     async def kill(self) -> None:
         if self._proc.returncode is not None:
+            # The process is terminated, but we need to wait for it to be reaped
+            # to clean up resources, especially if a prior wait/communicate timed out.
+            await self._proc.wait()
             return
+
         try:
             self._proc.kill()
         except ProcessLookupError:
-            return
+            # Process was already gone before we could kill it.
+            pass
+
+        # wait() is necessary to reap the process and clean up transport resources.
+        # It should not deadlock after kill() as the child process is forcefully
+        # terminated and its pipes will be closed by the OS.
         await self._proc.wait()
 
     async def wait(self) -> int:
         return await self._proc.wait()
+
 
 class LocalSubprocessBackend(ProcessBackend):
     def __init__(self, env_policy: Optional[EnvPolicy] = None) -> None:
@@ -117,6 +139,3 @@ class LocalSubprocessBackend(ProcessBackend):
             env=env,
         )
         return LocalProcessHandle(proc, opts.name)
-
-# Register backend under 'local'
-register_backend("local", lambda: LocalSubprocessBackend())

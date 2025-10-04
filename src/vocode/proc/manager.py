@@ -49,10 +49,18 @@ class ProcessManager:
         return handle
 
     async def shutdown(self, *, grace_s: float = 5.0) -> None:
+        # First close stdin on all processes to release write transports
+        closes = [h.close_stdin() for h in list(self._procs.values())]
+        if closes:
+            await asyncio.gather(*closes, return_exceptions=True)
         tasks = [h.terminate(grace_s=grace_s) for h in list(self._procs.values())]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         tasks = [h.kill() for h in list(self._procs.values()) if h.alive()]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        # Ensure all processes are fully reaped and transports closed
+        waits = [h.wait() for h in list(self._procs.values())]
+        if waits:
+            await asyncio.gather(*waits, return_exceptions=True)
         self._procs.clear()

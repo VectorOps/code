@@ -111,11 +111,20 @@ class ProcessEnvSettings(BaseModel):
     allowlist: Optional[List[str]] = None
     denylist: Optional[List[str]] = None
     defaults: Dict[str, str] = Field(default_factory=dict)
+class ShellSettings(BaseModel):
+    # POSIX-only in v1; reserved for future shells
+    type: Literal["bash"] = "bash"
+    # Program and args to start the long-lived shell process
+    program: str = "bash"
+    args: List[str] = Field(default_factory=lambda: ["--noprofile", "--norc"])
+    # Default per-command timeout (seconds)
+    default_timeout_s: int = 120
 
 class ProcessSettings(BaseModel):
     # Backend key in the process backend registry
     backend: str = "local"
     env: ProcessEnvSettings = Field(default_factory=ProcessEnvSettings)
+    shell: ShellSettings = Field(default_factory=ShellSettings)
 
 
 class Settings(BaseModel):
