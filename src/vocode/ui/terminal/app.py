@@ -137,7 +137,7 @@ def out_fmt_stream(ft):
         print_formatted_text(to_formatted_text(line), style=colors.get_console_style())
 
     # Prepare last line.
-    last_line = lines[-1] if lines else []
+    last_line = lines[-1] if lines else ""
 
     # Compute how many wraps the last line will take.
     width = shutil.get_terminal_size(fallback=(80, 24)).columns
@@ -339,13 +339,27 @@ async def run_terminal(project: Project) -> None:
 
         parts = list(to_formatted_text(ft))
         lines = list(split_lines(parts))
-        last_line = lines[-1] if lines else []
+        last_line = lines[-1] if lines else ""
+        width = shutil.get_terminal_size(fallback=(80, 24)).columns
+        last_width = fragment_list_width(last_line)
+        wraps = (last_width - 1) // width if (width > 0 and last_width > 0) else 0
+
+        # If a formatted message was not provided, derive it from the current stream buffer.
+        # This ensures we compute wraps based on the exact content shown on screen.
+        ft = colors.render_markdown(
+            stream_buffer.full_text, prefix=f"{stream_buffer.speaker}: "
+        )
+
+        parts = list(to_formatted_text(ft))
+        lines = list(split_lines(parts))
+        last_line = colors.get_last_non_empty_line(lines) or []
         width = shutil.get_terminal_size(fallback=(80, 24)).columns
         last_width = fragment_list_width(last_line)
         wraps = (last_width - 1) // width if (width > 0 and last_width > 0) else 0
 
         # We previously moved the cursor UP 'wraps' lines while streaming.
-        # Move it DOWN the same amount to land at the bottom visual line, then finalize.
+        # To finalize, move down to the last visual line of the output, then print a
+        # newline to move to the next clean line.
         if wraps > 0:
             print(ANSI_CURSOR_DOWN * wraps, end="")
         print()

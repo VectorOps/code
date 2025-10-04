@@ -76,7 +76,7 @@ Concrete example: files that were read and already in context.
 *** [ ] Add a way (tab?) to expand/collapse JSON
 *** [ ] Require all tool calls from LLM to have description (Key Objective)
 ** [X] Assume markdown as default formatter
-** [X] Wrapped lines don't move caret down correctly - next line overwrites it.
+** [ ] Wrapped lines don't move caret down correctly - next line overwrites it.
 ** [X] Add way to show log messages (inline? out of process?)
 ** [X] Fix line breaks - if line is naturally too long, then moving caret to the beginning of the line does not work, we need to go one line up.
 ** [X] Fix intermediate response streaming

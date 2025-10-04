@@ -164,6 +164,22 @@ def s_endswith_newline(parts: List[AnyFormattedText]) -> bool:
     return False
 
 
+def get_last_non_empty_line(
+    lines: List[List[Tuple[str, str]]],
+) -> Optional[List[Tuple[str, str]]]:
+    """
+    Given a list of formatted text lines, return the last line that is not empty.
+    A line is considered empty if it contains only whitespace.
+    """
+    for line in reversed(lines):
+        # Join all text fragments in the line
+        line_text = "".join(text for _, text in line)
+        if line_text.strip():
+            # Found a non-empty line
+            return line
+    return None
+
+
 # Style for console output: merge base style with a pygments theme.
 # You can change "default" to a different pygments style (e.g., "monokai", "friendly", etc.)
 _PYGMENTS_STYLE = style_from_pygments_cls(get_style_by_name("default"))

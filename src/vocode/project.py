@@ -196,8 +196,6 @@ def init_project(
     base = None
     config_path = None
 
-    print(start_dir, rel)
-
     # 1) Search upwards for an existing config file (nearest ancestor)
     found_base = (
         _find_project_root_with_config(start_dir, rel) if search_ancestors else None
