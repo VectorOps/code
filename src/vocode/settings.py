@@ -106,6 +106,17 @@ class MCPSettings(BaseModel):
             self.servers = {"mcp": server}
         return self
 
+class ProcessEnvSettings(BaseModel):
+    inherit_parent: bool = True
+    allowlist: Optional[List[str]] = None
+    denylist: Optional[List[str]] = None
+    defaults: Dict[str, str] = Field(default_factory=dict)
+
+class ProcessSettings(BaseModel):
+    # Backend key in the process backend registry
+    backend: str = "local"
+    env: ProcessEnvSettings = Field(default_factory=ProcessEnvSettings)
+
 
 class Settings(BaseModel):
     workflows: Dict[str, Workflow] = Field(default_factory=dict)
@@ -114,6 +125,8 @@ class Settings(BaseModel):
     ui: Optional[UISettings] = Field(default=None)
     # Optional Model Context Protocol (MCP) configuration
     mcp: Optional[MCPSettings] = Field(default=None)
+    # Optional process subsystem settings
+    process: Optional[ProcessSettings] = Field(default=None)
 
     @model_validator(mode="after")
     def _sync_workflow_names(self) -> "Settings":

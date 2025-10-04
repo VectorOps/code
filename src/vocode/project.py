@@ -16,6 +16,8 @@ from .templates import write_default_config
 from vocode.runner.models import TokenUsageTotals
 from vocode.commands import CommandManager
 from .mcp.manager import MCPManager
+from .proc.manager import ProcessManager
+from .proc.base import EnvPolicy
 
 
 class ProjectState:
@@ -74,6 +76,8 @@ class Project:
         self.commands: CommandManager = CommandManager()
         # Ephemeral (per-process) LLM usage totals
         self.llm_usage: TokenUsageTotals = TokenUsageTotals()
+        # Process manager
+        self.processes: Optional[ProcessManager] = None
 
     @property
     def config_path(self) -> Path:
@@ -96,6 +100,10 @@ class Project:
 
     async def shutdown(self) -> None:
         """Gracefully shut down project components."""
+        # Stop processes first to release IO and resources
+        if self.processes is not None:
+            await self.processes.shutdown()
+            self.processes = None
         # Stop MCP first to allow cleanup of any tool proxies
         if self.mcp_manager is not None:
             await self.mcp_manager.stop()
@@ -155,6 +163,25 @@ class Project:
             # Create and start MCP manager; it will register tool proxies and refresh the tool map.
             self.mcp_manager = MCPManager(self.settings.mcp)
             await self.mcp_manager.start(self)
+        # Initialize process manager (idempotent)
+        if self.processes is None:
+            backend_name = (
+                self.settings.process.backend
+                if (self.settings and self.settings.process)
+                else "local"
+            )
+            env = self.settings.process.env if (self.settings and self.settings.process) else None
+            env_policy = EnvPolicy(
+                inherit_parent=(env.inherit_parent if env else True),
+                allowlist=(env.allowlist if env else None),
+                denylist=(env.denylist if env else None),
+                defaults=(env.defaults if env else {}),
+            )
+            self.processes = ProcessManager(
+                backend_name=backend_name,
+                default_cwd=self.base_path,
+                env_policy=env_policy,
+            )
 
 
 def _find_project_root_with_config(start: Path, rel_config: Path) -> Optional[Path]:

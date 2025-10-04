@@ -54,11 +54,6 @@ Concrete example: files that were read and already in context.
 ** [ ] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
 ** [ ] Fix estimated cost calculation
 ** [ ] Highlighting does not work if ``` opener is not in the beginning of the line
-* [ ] Tools
-** [ ] Integrate Know
-*** [ ] Add progress report
-*** [ ] Figure out how to express 3rd party dependencies and give access
-** [ ] Add pattern matching rules to auto-approve rule calls
 * [ ] Block parsers
 ** [ ] Diff parsers
 *** [X] GPT V4A diff format
@@ -85,17 +80,30 @@ Concrete example: files that were read and already in context.
 ** [ ] Create documentation node - read AGENT.md files for all paths that are mentioned in previous messages.
 - Have configuration for static message text
 - Support one or more explicit paths to be read and inserted into message context
-- Append to previous message
+- Append to previous message? Inject into system prompt of LLM node only?
 - How do we extract paths reliably?
 - Maybe offer a tool?
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
 * [ ] Tools
+** [ ] Integrate Know
+*** [ ] Add progress report
+*** [ ] Figure out how to express 3rd party dependencies and give access
+** [ ] Add pattern matching rules to auto-approve rule calls
+
+** [ ] Shell tool
 ** [ ] Parallel tool calling support
 ** [ ] MCP tool support
+*** [ ] Pass cwd
 ** [ ] Add a way to reject tool calling automatically if tools with same parameters were already called
+** [ ] Figure out sandboxing
+*** [ ] Wrap stdio MCP servers in sandbox
+*** [ ] Wrap shell tool in sandbox
 * [ ] Nested workflows support
 ** [ ] Create API to start a new workflow
-- Should start a runner
+- Should start a new runner with new state
 - Wait for runner to finish
 - Pass all messages through to UI, plumb via parent runner
+- UIState should be smart enough to understand it's stacked execution
+** [ ] Create a tool that allows LLMs to call into new workflows
+** [ ] Create node that starts a workflow with an input
