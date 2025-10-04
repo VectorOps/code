@@ -1,0 +1,526 @@
+
+* [X] If workflow finished (no more steps possible), run would start execution on same workflow from the beginning. This might be confusing: figure out if we should just show that workflow finished and handle restarts in the UI?
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+** [X] If Assignment (rename!) is finished, we need to reject run()?
+** [X] UIState should check if runner is finished and create a new runner
+** [X] What do we do with the previous Assignment history?
+
+* [X] Add better history management and rollback to previous input
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] When persisting state for LLM, we need to differentiate answers from user inputs. This makes model hallucinate.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] ctrl+c after providing looping llm answer did not continue from that step - it started from initial step.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Change executors to have explicit state
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Stop/Resume should work off activities
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Rewind should work off activities
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] When looping on the same node - we need to append message to existing history. Update protocol to return user input back to executor without creating a new executor instance and losing a lot of function call context.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add tool calling support
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Allow edges to control history retainment value
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Figure out a way to merge HistoryStep with state (Activity)
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Investigate stopping and cancelation of existing runners
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Figure out if we can store node reset semantics at the edge level? So failure might keep the state, but initial entry should not?
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+- Patch node failing and going back to coder should persist coder state and append patch error
+
+* [X] Figure out why final messages can be duplicated sometimes
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Move replace_last_message logic to UIState from runner
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add VIM mode
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add multi-line input
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add a flag to not show node output in the UI. Useful for input node, etc
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] It seems like reset_policy: keep_results is keeping more than a single result. Maybe it should, but then we need keep_final policy too.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Ensure that variables are resolved together and then updated.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Configuration
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add a way to cascade variables by setting variable value to other variable value, recursively
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Configuration
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Redo include file syntax to include section with default variable values
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Configuration
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Cleanup all dependencies
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+** [X] Move graph models out of graph, move runtime graph generation out of Graph class
+** [X] Move executor/models.py out to root
+** [X] Move preprocessors to llm/ and move llm.py to llm/__init__.py
+
+* [X] In-memory bidirectional stream implementation for TUI
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: UI protocol
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Better event handler loop as current implementation is hacky
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:16
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: UI protocol
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Continue after stopping runner on input shows prompt even though it's not needed
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Continue after stopping shows incorrect prompt label if it is needed
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Separate tool calls from outputs
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI/Simple styling
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add way to show log messages (inline? out of process?)
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Fix line breaks - if line is naturally too long, then moving caret to the beginning of the line does not work, we need to go one line up.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Fix intermediate response streaming
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Remove (or disable) prompt when input is not requested
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Fix prompt display - it's not visible after output
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Fix prompt text, it's not showing correct current node or requested text
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Base
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+** [X] Tool configuration
+- Integrate Know
+** [X] Exposing available tools to LLM from project
+** [X] Implement tool calling
+
+* [X] Verify if we're including files multiple times in responsing, thus burning tokens
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Limit context length and reject tool calls when over
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Prevent too many files to be read
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Dynamic output selection by LLM
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+** [X] Configurable system prompt extension
+** [X] Cleanup logic
+** [X] Re-prompt if answer is not provided
+** [X] Add non-function way of picking next step
+** [X] Add a way for LLM to request additional user input
+
+* [X] Do not add empty message to output
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Diff apply node
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+** [X] Base parser
+** [X] Add a way to write file changes after confirmation
+** [X] Tell Know that files were updated and project needs to be updated
+** [X] Handle all kind of errors - mismatched chunks, etc
+** [X] Add patch tool mode for V4A specifically. It double-escapes everything quoted.
+** [X] Move prompts to patcher implementations
+
+* [X] Graph
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:17
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+** [X] Rename output to be outcome
+** [X] Refactor NodeExecution input_messages and messages. messages should be append only.
+** [X] Add a way to override values from a shared config. Options:
+- Through special value
+- Though path in the settings of <tool_name.node_name.field_name> syntax
+- Both?
+- Also read from files when file is defined
+** [X] Add a way to get node definition from template and override some of the fields from config
+** [X] Graph runner
+** [X] Add a way to rewind history back to resume from a different point
+
+* [X] Add file context manager
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:18
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/Add a node that injects files in context. Add file manager.
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add UI support for file context management
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:18
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/Add a node that injects files in context. Add file manager.
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add toolbar that shows current cost and mode of operation
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add approximate cost calculator and output
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Needs a separate execution thread and simple async API wrapper RPC, as it is synchronous
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Tools/Integrate Know
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+- Take callable function as a parameter, run it in Know thread, return results back
+
+* [X] Add a way to auto-approve tool calls
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Tools
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Code parsers
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Block parsers
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Fenced diff format
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Block parsers/Diff parsers
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add project as a parameter to executor
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Needs file auto-complete UI support
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/Add a node that injects files in context. Add file manager.
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Base node runner class
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] [#A] Think how to manage state for a run
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] For some reason tokens are not accumulated for tool calls
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-03 Fri 22:19
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
