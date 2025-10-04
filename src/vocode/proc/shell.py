@@ -24,10 +24,21 @@ class PosixShellSpec:
         return " ".join(shlex.quote(p) for p in parts)
 
     def wrap_command_with_marker(self, command: str, marker: str) -> str:
-        # Combine stdoutstderr and print marker on its own line.
-        # Use printf to avoid locale/escape surprises.
-        # Ensure final newline so shell processes the command immediately.
-        return "{ " + command + f"; }} 2>&1; printf '%s\\n' {shlex.quote(marker)}\n"
+        # Execute the user command in a fresh subshell to insulate parsing errors,
+        # capture its exit code, redirect stderr->stdout for payload, and always print
+        # a single-line marker with the exit code appended.
+        # Build inner invocation: <program> <args...> -c '<command>'
+        tokens: list[str] = [self.program, *self.args, "-c", command]
+        inner = " ".join(shlex.quote(t) for t in tokens)
+        # Initialize rc to a fallback, run the inner, save rc, then print marker:rc
+        # Emit a single marker line as "<marker>:<rc>"
+        return (
+            "rc=127; "
+            f"{{ {inner}; rc=$?; }} 2>&1; "
+            "echo "
+            + shlex.quote(marker)
+            + ':"$rc"\n'
+        )
 
 
 class ShellTimeoutError(asyncio.TimeoutError):
@@ -94,9 +105,11 @@ class ShellRunner:
         await self.aclose()
         await self.start()
 
-    async def run(self, command: str, *, timeout_s: Optional[float] = None) -> str:
+    async def run(
+        self, command: str, *, timeout_s: Optional[float] = None
+    ) -> tuple[str, int]:
         """
-        Run a command in the owned shell and return combined stdoutstderr text exactly as emitted.
+        Run a command in the owned shell and return (combined stdout+stderr text, exit_code).
         Serialized via an internal lock to ensure one-at-a-time execution.
         """
         async with self._lock:
@@ -123,21 +136,28 @@ class ShellRunner:
                 await self._restart()
                 raise ShellTimeoutError(f"Command timed out after {timeout}s") from e
 
-    async def _collect_until_marker(self, marker: str) -> str:
+    async def _collect_until_marker(self, marker: str) -> tuple[str, int]:
         """
         Read stdout line-by-line until the stop marker line is seen.
         Uses only stdout because the wrapper redirects stderr to stdout.
-        Returns the exact concatenation of lines prior to the marker.
+        Returns (exact concatenation of lines prior to the marker, exit_code).
         """
         assert self._handle is not None
         out_chunks: list[str] = []
+        exit_code: int = 0
 
         # Create a local iterator for this read; subsequent calls create new ones continuing from stream position.
         stdout_iter = self._handle.iter_stdout()
         try:
             async for line in stdout_iter:
                 # Preserve exact output
-                if line.rstrip("\r\n") == marker:
+                text = line.rstrip("\r\n")
+                if text.startswith(marker):
+                    # Parse "<marker>:<rc>"
+                    suffix = text[len(marker) :]
+                    if suffix.startswith(":"):
+                        with contextlib.suppress(ValueError):
+                            exit_code = int(suffix[1:])
                     break
                 out_chunks.append(line)
         finally:
@@ -148,4 +168,4 @@ class ShellRunner:
                 pass
             except Exception:
                 pass
-        return "".join(out_chunks)
+        return "".join(out_chunks), exit_code
