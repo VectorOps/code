@@ -39,6 +39,9 @@ class MCPToolProxy(BaseTool):
         Unpacks CallToolResult from modern fastmcp clients.
         """
         payload: Dict[str, Any] = args if isinstance(args, dict) else {}
-        result = await self._manager.call_tool(self.name, payload)
-        # TODO: Error handling
-        return result.data
+        try:
+            result = await self._manager.call_tool(self.name, payload)
+            return result.data
+        except Exception as e:
+            # Return a structured error instead of propagating.
+            return {"error": f"MCP tool '{self.name}' failed: {e}"}

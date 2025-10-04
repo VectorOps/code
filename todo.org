@@ -1,7 +1,6 @@
 #+title: Code TODO
 * [ ] Cleanup and optimizations
 ** [ ] Autocompleters needs consts at model level
-** [ ] Add a way for executors to pass state between nodes, even if nodes are different but of same type
 * [ ] Runner
 ** [X] If workflow finished (no more steps possible), run would start execution on same workflow from the beginning. This might be confusing: figure out if we should just show that workflow finished and handle restarts in the UI?
 *** [X] If Assignment (rename!) is finished, we need to reject run()?
@@ -59,8 +58,9 @@ Concrete example: files that were read and already in context.
 ** [ ] Better multi-line inputs, don't require esc+enter to send
 ** [ ] Shortcuts - ESC to stop execution?
 ** [ ] Show how long individual steps took, in seconds
-** [ ] Continue after stopping runner on input shows prompt even though it's not needed
-** [ ] Continue after stopping shows incorrect prompt label if it is needed
+** [X] Continue after stopping runner on input shows prompt even though it's not needed
+** [ ] Continue after stopping shows prompt second time
+** [X] Continue after stopping shows incorrect prompt label if it is needed
 ** [ ] Continue after stopping does not show agent output upon response, but it's there
 ** [ ] When ctrl+c is pressed while waiting for user input and runner is stopped, need to cancel waiter.
 ** [ ] Add command to reload config without restart
@@ -72,11 +72,11 @@ Concrete example: files that were read and already in context.
 *** [ ] Remove Agent: prefix
 ** [ ] Print node transitions
 ** [ ] Format tool calls
-*** [ ] JSON formatter and highlighter
+*** [X] JSON formatter and highlighter
 *** [ ] Add a way (tab?) to expand/collapse JSON
 *** [ ] Require all tool calls from LLM to have description (Key Objective)
 ** [X] Assume markdown as default formatter
-** [ ] Wrapped lines don't move caret down correctly - next line overwrites it.
+** [X] Wrapped lines don't move caret down correctly - next line overwrites it.
 ** [X] Add way to show log messages (inline? out of process?)
 ** [X] Fix line breaks - if line is naturally too long, then moving caret to the beginning of the line does not work, we need to go one line up.
 ** [X] Fix intermediate response streaming
@@ -173,7 +173,6 @@ Errors:
 * [ ] Tools
 ** [ ] Parallel tool calling support
 ** [ ] MCP tool support
-*** [ ] Lazy process start?
 ** [ ] Add a way to reject tool calling automatically if tools with same parameters were already called
 * [ ] Nested workflows support
 ** [ ] Create API to start a new workflow

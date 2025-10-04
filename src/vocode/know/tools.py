@@ -29,7 +29,11 @@ class _KnowToolWrapper(BaseTool):
         def do_execute():
             return self._know_tool.execute(project.know.pm, args)
 
-        return await know_thread.async_proxy()(do_execute)()
+        try:
+            return await know_thread.async_proxy()(do_execute)()
+        except Exception as e:
+            # Return a structured error instead of propagating.
+            return {"error": f"Know tool '{self.name}' failed: {e}"}
 
 
 _know_tools_registered = False

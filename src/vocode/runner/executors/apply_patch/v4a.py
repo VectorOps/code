@@ -1062,6 +1062,20 @@ def process_patch(
 ) -> Tuple[Dict[str, FileApplyStatus], List[PatchError]]:
     patch, errors = parse_v4a_patch(text)
     if errors:
+        # Enrich specific parse-time errors with a fenced source snippet of the target file.
+        for e in errors:
+            if (
+                e.msg.startswith("Invalid patch line in ")
+                and e.filename is not None
+            ):
+                try:
+                    src = open_fn(e.filename)
+                    fence = "```"
+                    snippet = f"{fence}\n{src}\n{fence}"
+                    e.hint = f"{e.hint}\n\n{snippet}" if e.hint else snippet
+                except Exception:
+                    # If we cannot read the file, leave the original hint as-is.
+                    pass
         return {}, errors
 
     # Load files needed for application (Update only). Add/Delete do not require reading here.

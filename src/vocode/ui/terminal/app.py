@@ -78,6 +78,9 @@ ANSI_CARRIAGE_RETURN_AND_CLEAR_TO_EOL = "\r\x1b[K"
 # ANSI escape sequence for moving the cursor up one line.
 ANSI_CURSOR_UP = "\x1b[1A"
 
+# ANSI escape sequence for moving the cursor down one line (without inserting a newline).
+ANSI_CURSOR_DOWN = "\x1b[1B"
+
 
 LOG_LEVEL_ORDER = {
     LogLevel.debug: 0,
@@ -325,9 +328,29 @@ async def run_terminal(project: Project) -> None:
 
     def _finish_stream():
         nonlocal stream_buffer
-        if stream_buffer:
-            out("")  # Newline to finish the streamed line
-            stream_buffer = None
+        if not stream_buffer:
+            return
+
+        # If a formatted message was not provided, derive it from the current stream buffer.
+        # This ensures we compute wraps based on the exact content shown on screen.
+        ft = colors.render_markdown(
+            stream_buffer.full_text, prefix=f"{stream_buffer.speaker}: "
+        )
+
+        parts = list(to_formatted_text(ft))
+        lines = list(split_lines(parts))
+        last_line = lines[-1] if lines else []
+        width = shutil.get_terminal_size(fallback=(80, 24)).columns
+        last_width = fragment_list_width(last_line)
+        wraps = (last_width - 1) // width if (width > 0 and last_width > 0) else 0
+
+        # We previously moved the cursor UP 'wraps' lines while streaming.
+        # Move it DOWN the same amount to land at the bottom visual line, then finalize.
+        if wraps > 0:
+            print(ANSI_CURSOR_DOWN * wraps, end="")
+        print()
+
+        stream_buffer = None
 
     # ----------------------------
     # Packet handlers (extracted)
@@ -517,6 +540,7 @@ async def run_terminal(project: Project) -> None:
 
                 # TODO: Propagate up
                 print("Exception", traceback.format_exc())
+
     # Show startup banner (configurable)
     show_banner = True
     if ui_cfg is not None:
@@ -572,7 +596,9 @@ async def run_terminal(project: Project) -> None:
                 key_bindings=kb,
                 default="",
                 bottom_toolbar=(
-                    None if hide_toolbar else (lambda: build_toolbar(ui, prompt_payload))
+                    None
+                    if hide_toolbar
+                    else (lambda: build_toolbar(ui, prompt_payload))
                 ),
             )
             if should_exit:
