@@ -64,13 +64,56 @@ class UISettings(BaseModel):
     show_banner: bool = True
 
 
+class MCPServerSettings(BaseModel):
+    # FastMCP-compatible server config. One of url OR command must be provided.
+    url: Optional[str] = None
+    command: Optional[str] = None
+    args: List[str] = Field(default_factory=list)
+    env: Dict[str, str] = Field(default_factory=dict)
+
+
+class MCPSettings(BaseModel):
+    """
+    FastMCP-compatible MCP configuration.
+    - servers: mapping of server-name -> MCPServerSettings
+    - tools_whitelist: optional exact-name allowlist for discovered tools
+    Backward compatible with legacy fields (url/command/env) by mapping to a default 'mcp' server.
+    """
+
+    servers: Dict[str, MCPServerSettings] = Field(default_factory=dict)
+    tools_whitelist: Optional[List[str]] = None
+
+    @model_validator(mode="after")
+    def _backcompat_legacy_fields(self) -> "MCPSettings":
+        # Support legacy schemas by mapping into a default 'mcp' server
+        # Accept legacy keys if present in raw input (model already validated)
+        data = self.model_dump(mode="python")
+        # Legacy at root: url, command (list), env
+        legacy_url = data.get("url")
+        legacy_command = data.get("command")
+        legacy_env = data.get("env") or {}
+        if (legacy_url or legacy_command) and not self.servers:
+            server = MCPServerSettings()
+            if legacy_url:
+                server.url = legacy_url
+            if legacy_command:
+                # Legacy command was a list; split into command + args
+                if isinstance(legacy_command, list) and legacy_command:
+                    server.command = str(legacy_command[0])
+                    server.args = [str(a) for a in legacy_command[1:]]
+            if legacy_env:
+                server.env = dict(legacy_env)
+            self.servers = {"mcp": server}
+        return self
+
+
 class Settings(BaseModel):
     workflows: Dict[str, Workflow] = Field(default_factory=dict)
     tools: List[ToolSettings] = Field(default_factory=list)
     know: Optional[KnowProjectSettings] = Field(default=None)
     ui: Optional[UISettings] = Field(default=None)
     # Optional Model Context Protocol (MCP) configuration
-    mcp: Optional["MCPSettings"] = Field(default=None)
+    mcp: Optional[MCPSettings] = Field(default=None)
 
     @model_validator(mode="after")
     def _sync_workflow_names(self) -> "Settings":
@@ -485,9 +528,6 @@ def _load_raw_file(path: Path) -> Any:
     return data
 
 
-# (removed: _load_with_includes)
-
-
 def load_settings(path: str) -> Settings:
     data_any, included_vars, root_vars = _load_and_preprocess(path)
     if not isinstance(data_any, dict):
@@ -505,19 +545,6 @@ def load_settings(path: str) -> Settings:
     data = _apply_variables(data_any, vars_map)
 
     return Settings.model_validate(data)
-
-
-class MCPSettings(BaseModel):
-    """
-    Configuration for MCP (Model Context Protocol) client/manager.
-    - If `url` is provided, the manager connects to it.
-    - Otherwise, if `command` is provided, the manager spawns a process with it.
-    - tools_whitelist optionally restricts tool discovery by exact name match.
-    """
-    url: Optional[str] = None
-    command: Optional[List[str]] = None
-    env: Dict[str, str] = Field(default_factory=dict)
-    tools_whitelist: Optional[List[str]] = None
 
 
 def build_model_from_settings(

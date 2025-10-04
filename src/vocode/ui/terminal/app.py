@@ -175,6 +175,8 @@ async def respond_approval(ui: UIState, source_msg_id: int, approved: bool) -> N
 
 
 async def run_terminal(project: Project) -> None:
+    # Ensure project subsystems (e.g., MCP) are started before using the UI
+    await project.start()
     ui = UIState(project)
 
     rpc = RpcHelper(ui.send, "TerminalApp", id_generator=ui.next_client_msg_id)
@@ -240,10 +242,13 @@ async def run_terminal(project: Project) -> None:
 
     # Register a SIGINT handler that triggers stop_toggle so Ctrl-C works
     # even when not focused on prompt_toolkit. Save the previous handler so
-    # it can be restored on exit.
+    # it can be restored on exit. Also register a SIGTERM handler to request
+    # graceful shutdown so finally blocks run.
     old_sigint = None
+    old_sigterm = None
     try:
         old_sigint = signal.getsignal(signal.SIGINT)
+        old_sigterm = signal.getsignal(signal.SIGTERM)
 
         def _sigint_handler(signum, frame):
             import asyncio, traceback
@@ -270,8 +275,26 @@ async def run_terminal(project: Project) -> None:
                     pass
 
         signal.signal(signal.SIGINT, _sigint_handler)
+
+        # Graceful termination on SIGTERM: request exit and cancel any in-flight work.
+        def _sigterm_handler(signum, frame):
+            try:
+                request_exit()
+            finally:
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.call_soon_threadsafe(lambda: asyncio.create_task(ui.cancel()))
+                except RuntimeError:
+                    # No running loop; attempt to create the task directly (best-effort).
+                    try:
+                        asyncio.create_task(ui.cancel())
+                    except Exception:
+                        pass
+
+        signal.signal(signal.SIGTERM, _sigterm_handler)
     except Exception:
         old_sigint = None
+        old_sigterm = None
 
     def request_exit():
         nonlocal should_exit
@@ -552,6 +575,8 @@ async def run_terminal(project: Project) -> None:
                     None if hide_toolbar else (lambda: build_toolbar(ui, prompt_payload))
                 ),
             )
+            if should_exit:
+                break
             text = line.rstrip("\n")
 
             if text.startswith("/"):
@@ -650,11 +675,16 @@ async def run_terminal(project: Project) -> None:
         # Restore previous SIGINT handler
         with contextlib.suppress(Exception):
             signal.signal(signal.SIGINT, old_sigint)
+        with contextlib.suppress(Exception):
+            signal.signal(signal.SIGTERM, old_sigterm)
         if ui.is_active():
             await ui.stop()
         consumer_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await consumer_task
+        # Always shut down project subsystems (MCP, know thread, etc.)
+        with contextlib.suppress(Exception):
+            await project.shutdown()
 
 
 @click.command()

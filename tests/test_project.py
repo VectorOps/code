@@ -5,6 +5,7 @@ from typing import Any, Dict, Union, TYPE_CHECKING, Optional
 
 from vocode.project import init_project
 from vocode.tools import BaseTool, register_tool
+from .fakes import FakeMCPClient, make_fake_mcp_client_creator
 
 if TYPE_CHECKING:
     from vocode.project import Project
@@ -94,36 +95,23 @@ async def test_project_parses_mcp_settings_and_starts_manager(tmp_path, monkeypa
     # Isolate tool registry
     monkeypatch.setattr("vocode.tools._registry", {}, raising=False)
 
-    # Fake MCP client returned by manager._create_client()
-    class FakeMCPClient:
-        def __init__(self):
-            self._closed = False
-            self._tools = [
-                {
-                    "name": "mcp_echo",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"text": {"type": "string"}},
-                        "required": ["text"],
-                    },
-                }
-            ]
+    # Configure the fake client
+    fake_client = FakeMCPClient(
+        tools=[
+            {
+                "name": "mcp_echo",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
+            }
+        ]
+    )
 
-        def list_tools(self):
-            return list(self._tools)
-
-        async def call_tool(self, name: str, arguments: Dict[str, Any]):
-            if name == "mcp_echo":
-                return arguments.get("text", "")
-            return {"error": "unknown"}
-
-        async def aclose(self):
-            self._closed = True
-
-    async def fake_create_client(self):
-        return FakeMCPClient()
-
-    monkeypatch.setattr("vocode.mcp.manager.MCPManager._create_client", fake_create_client, raising=True)
+    monkeypatch.setattr(
+        "vocode.mcp.manager.MCPManager._create_client", make_fake_mcp_client_creator(fake_client), raising=True
+    )
 
     # Write config enabling MCP (connect mode via URL) and allow all tools
     _write_config(
@@ -134,7 +122,9 @@ workflows:
     nodes: []
     edges: []
 mcp:
-  url: "tcp://localhost:9999"
+  servers:
+    mcp:
+      url: "tcp://localhost:9999"
 tools:
   - name: mcp_echo
     enabled: true
@@ -145,7 +135,8 @@ tools:
 
     proj = init_project(tmp_path)
     assert proj.settings is not None and proj.settings.mcp is not None
-    assert proj.settings.mcp.url == "tcp://localhost:9999"
+    assert "mcp" in proj.settings.mcp.servers
+    assert proj.settings.mcp.servers["mcp"].url == "tcp://localhost:9999"
 
     # Start project to initialize MCP manager and register tools
     await proj.start()

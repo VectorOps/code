@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import asyncio
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from ..settings import MCPSettings
+from ..settings import MCPSettings, MCPServerSettings
 from ..tools import register_tool, unregister_tool
 from .proxy import MCPToolProxy
 
@@ -14,14 +14,14 @@ if TYPE_CHECKING:
 class MCPManager:
     """
     Manages the lifecycle of an MCP (Model Context Protocol) client. Responsible for:
-    - Starting (connecting/spawning) the FastMCP client
+    - Starting the FastMCP client via its async context manager
     - Discovering available tools and registering MCPToolProxy instances
     - Forwarding tool calls and cleaning up on shutdown
     """
 
     def __init__(self, settings: MCPSettings) -> None:
         self._settings = settings
-        self._client: Optional[Any] = None  # opaque fastmcp client
+        self._client: Optional[Any] = None  # fastmcp.Client instance (entered)
         self._registered_tools: List[str] = []
         self._started: bool = False
         self._project: Optional["Project"] = None
@@ -31,17 +31,19 @@ class MCPManager:
             return
         self._project = project
         self._client = await self._create_client()
+        # Enter the FastMCP client's async context
+        await self._client.__aenter__()
 
-        tools = await _maybe_await(self._list_tools())
+        tools = await self._list_tools()
         # Optional whitelist
-        whitelist = set(self._settings.tools_whitelist or [])
+        whitelist = self._settings.tools_whitelist or []
         for tool in tools:
-            name = tool.get("name")
+            name = tool.name
             if not name:
                 continue
             if whitelist and name not in whitelist:
                 continue
-            parameters = tool.get("parameters") or {"type": "object", "properties": {}}
+            parameters = tool.inputSchema or {"type": "object", "properties": {}}
             proxy = MCPToolProxy(name=name, parameters_schema=parameters, manager=self)
             try:
                 register_tool(name, proxy)
@@ -51,8 +53,7 @@ class MCPManager:
                 continue
 
         # Update project tool enablement snapshot
-        if hasattr(project, "refresh_tools_from_registry"):
-            project.refresh_tools_from_registry()
+        project.refresh_tools_from_registry()
 
         self._started = True
 
@@ -63,17 +64,12 @@ class MCPManager:
         self._registered_tools.clear()
 
         # Notify project of tool set changes
-        if self._project and hasattr(self._project, "refresh_tools_from_registry"):
+        if self._project:
             self._project.refresh_tools_from_registry()
 
-        # Close the client if available
+        # Exit the FastMCP client context
         if self._client is not None:
-            # Try a few common methods; tolerate either sync or async
-            await _maybe_await(getattr(self._client, "aclose", None))
-            await _maybe_await(getattr(self._client, "close", None))
-            await _maybe_await(getattr(self._client, "shutdown", None))
-            # For spawned processes, try 'terminate'
-            await _maybe_await(getattr(self._client, "terminate", None))
+            await self._client.__aexit__(None, None, None)
             self._client = None
 
         self._started = False
@@ -82,52 +78,48 @@ class MCPManager:
     async def call_tool(self, name: str, args: Dict[str, Any]) -> Any:
         if not self._client:
             raise RuntimeError("MCPManager is not started")
-        call = getattr(self._client, "call_tool", None)
-        if call is None:
-            raise RuntimeError("MCP client does not support 'call_tool'")
-        return await _maybe_await(call(name=name, arguments=args))
+        return await self._client.call_tool(name=name, arguments=args)
 
     async def _create_client(self) -> Any:
         """
-        Connect or spawn a FastMCP client instance based on settings.
-        This method is intentionally overridable in tests.
+        Build a FastMCP Client from MCPSettings. The Client manages connecting/spawning.
         """
         try:
-            # Lazy import to avoid hard dependency for tests
-            import fastmcp  # type: ignore
+            from fastmcp import Client  # type: ignore
         except Exception as e:
             raise RuntimeError(
-                "FastMCP client not available; install 'fastmcp' or provide a test client"
+                "FastMCP client not available; pip install fastmcp"
             ) from e
 
-        if self._settings.url:
-            connect = getattr(fastmcp, "connect", None) or getattr(
-                fastmcp, "Client", None
+        # Build FastMCP-compatible config
+        mcp_servers: Dict[str, Dict[str, Any]] = {}
+        for server_name, server in (self._settings.servers or {}).items():
+            entry: Dict[str, Any] = {}
+            if server.url:
+                entry["url"] = server.url
+            if server.command:
+                entry["command"] = server.command
+                if server.args:
+                    entry["args"] = list(server.args)
+            if server.env:
+                entry["env"] = dict(server.env)
+            if not entry:
+                continue
+            mcp_servers[server_name] = entry
+
+        if not mcp_servers:
+            # Nothing configured -> error out
+            raise RuntimeError(
+                "MCP settings require at least one server (url or command)."
             )
-            if connect is None:
-                raise RuntimeError("FastMCP library missing 'connect' or 'Client'")
-            client = connect(self._settings.url)  # type: ignore[call-arg]
-            return await _maybe_await(client)
 
-        if self._settings.command:
-            spawn = getattr(fastmcp, "spawn", None)
-            if spawn is None:
-                raise RuntimeError("FastMCP library missing 'spawn'")
-            client = spawn(self._settings.command, env=self._settings.env or {})
-            return await _maybe_await(client)
+        config: Dict[str, Any] = {"mcpServers": mcp_servers}
+        return Client(config)
 
-        raise RuntimeError("MCP settings require either 'url' or 'command'")
-
-    def _list_tools(self):
+    async def _list_tools(self):
         if not self._client:
             raise RuntimeError("MCP client is not started")
-        lister = getattr(self._client, "list_tools", None) or getattr(
-            self._client, "tools", None
-        )
-        if callable(lister):
-            return lister()
-        # If it's an attribute with a list-like
-        return lister
+        return await self._client.list_tools()
 
 
 async def _maybe_await(obj):

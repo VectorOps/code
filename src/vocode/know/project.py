@@ -31,7 +31,11 @@ class KnowProject:
     async def shutdown(self) -> None:
         """Shuts down the project manager and its thread."""
         if know_thread._started.is_set() and not know_thread._stopped.is_set():
+            # Destroy the manager on the RPC thread
             await know_thread.async_proxy()(self.pm.destroy)()
+        # Ensure the background thread is terminated (idempotent if already stopped)
+        # TODO: This locks up
+        # know_thread.shutdown()
 
     @property
     def data(self):

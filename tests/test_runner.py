@@ -28,6 +28,7 @@ from vocode.runner.models import PACKET_FINAL_MESSAGE
 from vocode.runner.executors.file_state import FileStateNode
 from vocode.commands import CommandContext
 from typing import Any, Dict
+from .fakes import FakeMCPClient, make_fake_mcp_client_creator
 
 
 def msg(role: str, text: str) -> Message:
@@ -1857,37 +1858,36 @@ async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Pat
 
 @pytest.mark.asyncio
 async def test_mcp_tool_invocation_and_cleanup(tmp_path: Path, monkeypatch):
-    # Fake MCP client that provides a single tool 'mcp_echo'
-    class FakeMCPClient:
-        def list_tools(self):
-            return [
-                {
-                    "name": "mcp_echo",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"text": {"type": "string"}},
-                        "required": ["text"],
-                    },
-                }
-            ]
+    async def custom_call_handler(name: str, arguments: Dict[str, Any]):
+        if name == "mcp_echo":
+            return f"echo:{arguments.get('text','')}"
+        return {"error": "unknown"}
 
-        async def call_tool(self, name: str, arguments: Dict[str, Any]):
-            if name == "mcp_echo":
-                return f"echo:{arguments.get('text','')}"
-            return {"error": "unknown"}
+    fake_client = FakeMCPClient(
+        tools=[
+            {
+                "name": "mcp_echo",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
+            }
+        ],
+        call_handler=custom_call_handler,
+    )
 
-        async def aclose(self):
-            pass
-
-    async def fake_create_client(self):
-        return FakeMCPClient()
-
-    monkeypatch.setattr("vocode.mcp.manager.MCPManager._create_client", fake_create_client, raising=True)
+    monkeypatch.setattr(
+        "vocode.mcp.manager.MCPManager._create_client",
+        make_fake_mcp_client_creator(fake_client),
+        raising=True,
+    )
     # Isolate registry for this test
     monkeypatch.setattr("vocode.tools._registry", {}, raising=False)
 
     # Config with MCP enabled and tool allow-list via Tools settings
     from vocode.project import init_project
+
     cfg_dir = tmp_path / ".vocode"
     cfg_dir.mkdir(parents=True, exist_ok=True)
     (cfg_dir / "config.yaml").write_text(
@@ -1897,7 +1897,9 @@ workflows:
     nodes: []
     edges: []
 mcp:
-  url: "tcp://localhost:9999"
+  servers:
+    mcp:
+      url: "tcp://localhost:9999"
 tools:
   - name: mcp_echo
     enabled: true
