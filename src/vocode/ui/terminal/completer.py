@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 
-from typing import Callable, Dict, Iterable, List, Optional, Union
+from typing import Callable, Dict, Iterable, List, Optional, Union, Awaitable
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 
@@ -11,8 +11,10 @@ from vocode.ui.base import UIState
 
 
 # Optional non-command provider: given the document and current word prefix.
+# Can be synchronous (returning an iterable) or asynchronous (awaitable returning an iterable).
 GeneralCompletionProvider = Callable[
-    [Document, str], Iterable[Union[str, Completion]]
+    [Document, str],
+    Union[Iterable[Union[str, Completion]], Awaitable[Iterable[Union[str, Completion]]]],
 ]
 
 
@@ -65,7 +67,11 @@ class TerminalCompleter(Completer):
             cursor_at_space = text.endswith(" ")
             tokens = text.split()
             current_word = "" if cursor_at_space else (tokens[-1] if tokens else "")
-            for s in self._general_provider(document, current_word):
+            res = self._general_provider(document, current_word)
+            # If provider is async, cannot await in sync API; skip.
+            if inspect.isawaitable(res):
+                return
+            for s in res:
                 if isinstance(s, Completion):
                     yield s
                 else:
@@ -106,8 +112,12 @@ class TerminalCompleter(Completer):
             cursor_at_space = text.endswith(" ")
             tokens = text.split()
             current_word = "" if cursor_at_space else (tokens[-1] if tokens else "")
-            for s in self._general_provider(document, current_word):
-                yield s if isinstance(s, Completion) else Completion(str(s), start_position=-len(current_word))
+            result = self._general_provider(document, current_word)
+            suggestions = await result if inspect.isawaitable(result) else result
+            for s in suggestions:
+                yield s if isinstance(s, Completion) else Completion(
+                    str(s), start_position=-len(current_word)
+                )
             return
         cursor_at_space = text.endswith(" ")
         tokens = text.split()

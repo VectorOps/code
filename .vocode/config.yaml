@@ -43,18 +43,29 @@ workflows:
           template: nodes/coder.yaml
         tools:
           - vectorops_read_files
+        confirmation: auto
       - $include:
           template: nodes/apply_patch.yaml
         confirmation: auto
-      - name: finish
-        type: noop
+      - name: test
+        type: exec
+        command: uv run pytest -q ./tests/
+        timeout_s: 300
+        expected_return_code: 0
+        message: "Tests results below:"
+        confirmation: auto
+        outcomes:
+          - name: success
+          - name: fail
     edges:
       - prompt.done -> discovery
       - discovery.done -> architect
       - architect.done -> coder
       - coder.done -> apply
-      - apply.success -> prompt
+      - apply.success -> test
       - apply.fail -> coder:keep_state
+      - test.success -> prompt
+      - test.fail -> architect:keep_state
   diff:
     nodes:
       - name: prompt
@@ -95,14 +106,26 @@ workflows:
           confirmation: auto
       - $include:
           template: nodes/apply_patch.yaml
+      - name: test
+        type: exec
+        command: uv run pytest -q ./tests/
+        timeout_s: 300
+        expected_return_code: 0
+        message: "Tests results below:"
+        confirmation: auto
+        outcomes:
+          - name: success
+          - name: fail
     edges:
       - prompt.done -> file_state
       - file_state.done -> architect
       - architect.done -> coder_files
       - coder_files.done -> coder
       - coder.done -> apply
-      - apply.success -> prompt
+      - apply.success -> tests
       - apply.fail -> coder:keep_state
+      - tests.success -> prompt
+      - tests.fail -> architect:keep_state
   idler:
     nodes:
       - name: prompt

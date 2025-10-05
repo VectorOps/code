@@ -70,11 +70,11 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Nodes
 ** [ ] Add a node that injects files in context. Add file manager.
 *** [X] Needs file auto-complete UI support
-*** [ ] Show files added and removed, as well as current list of files for /fadd and /fdel
+*** [X] Show files added and removed, as well as current list of files for /fadd and /fdel
 *** [ ] Figure out a way to inject files into patch without apply_patch having access to readfile
 *** [ ] [#A] Add a way to manage context and inject files to context while looping in LLM node
 ** [ ] LLM node
-*** [ ] Add tool calling budgets
+*** [ ] Add tool calling budgets (number of calls, tokens, etc)
 *** [ ] Detect tool call loops
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled

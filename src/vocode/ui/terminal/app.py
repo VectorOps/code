@@ -18,7 +18,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.enums import EditingMode
 from vocode.ui.terminal import colors
 from vocode.ui.terminal.completer import TerminalCompleter
-from vocode.ui.terminal.ac_client import make_canned_provider
+from vocode.ui.terminal.ac_client import make_canned_provider, make_general_filelist_provider
 
 from vocode.project import Project
 from vocode.ui.terminal.buf import MessageBuffer
@@ -197,7 +197,11 @@ async def run_terminal(project: Project) -> None:
 
     # Initialize commands early so the completer can reference them.
     commands = register_default_commands(Commands(), ui, ac_factory=ac_factory)
-    completer = TerminalCompleter(ui, commands)
+    completer = TerminalCompleter(
+        ui,
+        commands,
+        general_provider=make_general_filelist_provider(rpc),
+    )
 
     try:
         hist_dir = project.base_path / ".vocode"
@@ -207,13 +211,14 @@ async def run_terminal(project: Project) -> None:
             "history": FileHistory(str(hist_path)),
             "multiline": multiline,
             "completer": completer,
+            "complete_while_typing": False,
         }
         if editing_mode is not None:
             kwargs["editing_mode"] = editing_mode
         session = PromptSession(**kwargs)
     except Exception:
         # Fall back to in-memory history if anything goes wrong
-        kwargs = {"multiline": multiline, "completer": completer}
+        kwargs = {"multiline": multiline, "completer": completer, "complete_while_typing": False}
         if editing_mode is not None:
             kwargs["editing_mode"] = editing_mode
         session = PromptSession(**kwargs)
