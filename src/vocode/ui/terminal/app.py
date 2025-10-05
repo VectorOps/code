@@ -18,7 +18,10 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.enums import EditingMode
 from vocode.ui.terminal import colors
 from vocode.ui.terminal.completer import TerminalCompleter
-from vocode.ui.terminal.ac_client import make_canned_provider, make_general_filelist_provider
+from vocode.ui.terminal.ac_client import (
+    make_canned_provider,
+    make_general_filelist_provider,
+)
 
 from vocode.project import Project
 from vocode.ui.terminal.buf import MessageBuffer
@@ -141,7 +144,9 @@ class TerminalApp:
         self.stream_buffer = None
 
     async def handle_custom_commands_packet(self, cd: UIPacketCustomCommands) -> None:
-        assert self.commands is not None and self.rpc is not None and self.ui is not None
+        assert (
+            self.commands is not None and self.rpc is not None and self.ui is not None
+        )
         commands = self.commands
         rpc = self.rpc
         ac_factory = lambda name: make_canned_provider(rpc, name)
@@ -163,13 +168,17 @@ class TerminalApp:
                     if res is None:
                         return
                     if res.kind != PACKET_COMMAND_RESULT:
-                        ctx.out(f"Command '{_cname}' failed: unexpected response {res.kind}")
+                        ctx.out(
+                            f"Command '{_cname}' failed: unexpected response {res.kind}"
+                        )
                         return
                     if res.ok:
                         if res.output:
                             ctx.out(res.output)
                     else:
-                        ctx.out(f"Command '{_cname}' failed: {res.error or 'unknown error'}")
+                        ctx.out(
+                            f"Command '{_cname}' failed: {res.error or 'unknown error'}"
+                        )
                 except Exception as e:
                     ctx.out(f"Error executing command '{_cname}': {e}")
                 finally:
@@ -182,7 +191,9 @@ class TerminalApp:
                 c.help or "",
                 c.usage,
                 (ac_factory(c.autocompleter) if c.autocompleter else None),
-            )(_proxy)  # type: ignore[arg-type]
+            )(
+                _proxy
+            )  # type: ignore[arg-type]
             self.dynamic_cli_commands.add(cli_name)
             existing_names.add(cli_name)
         for name in cd.removed:
@@ -222,9 +233,13 @@ class TerminalApp:
             self._finish_stream()
             if ev.message:
                 out_fmt(colors.render_markdown(ev.message))
-            self.pending_req_env = envelope if req_payload.event.input_requested else None
+            self.pending_req_env = (
+                envelope if req_payload.event.input_requested else None
+            )
             if self.pending_req_env is not None and self.queued_resp is not None:
-                await respond_packet(self.ui, self.pending_req_env.msg_id, self.queued_resp)
+                await respond_packet(
+                    self.ui, self.pending_req_env.msg_id, self.queued_resp
+                )
                 self.queued_resp = None
                 self.pending_req_env = None
             return
@@ -234,9 +249,13 @@ class TerminalApp:
             for i, tc in enumerate(ev.tool_calls, start=1):
                 out(f"  {i}. {tc.name} arguments:")
                 out_fmt(colors.render_json(tc.arguments))
-            self.pending_req_env = envelope if req_payload.event.input_requested else None
+            self.pending_req_env = (
+                envelope if req_payload.event.input_requested else None
+            )
             if self.pending_req_env is not None and self.queued_resp is not None:
-                await respond_packet(self.ui, self.pending_req_env.msg_id, self.queued_resp)
+                await respond_packet(
+                    self.ui, self.pending_req_env.msg_id, self.queued_resp
+                )
                 self.queued_resp = None
                 self.pending_req_env = None
             return
@@ -247,9 +266,13 @@ class TerminalApp:
                 speaker = ev.message.role or "assistant"
                 text = ev.message.text or ""
                 out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
-            self.pending_req_env = envelope if req_payload.event.input_requested else None
+            self.pending_req_env = (
+                envelope if req_payload.event.input_requested else None
+            )
             if self.pending_req_env is not None and self.queued_resp is not None:
-                await respond_packet(self.ui, self.pending_req_env.msg_id, self.queued_resp)
+                await respond_packet(
+                    self.ui, self.pending_req_env.msg_id, self.queued_resp
+                )
                 self.queued_resp = None
                 self.pending_req_env = None
             return
@@ -291,12 +314,15 @@ class TerminalApp:
                     continue
             except Exception:
                 import traceback
+
                 print("Exception", traceback.format_exc())
 
     async def run(self) -> None:
         await self.project.start()
         self.ui = UIState(self.project)
-        self.rpc = RpcHelper(self.ui.send, "TerminalApp", id_generator=self.ui.next_client_msg_id)
+        self.rpc = RpcHelper(
+            self.ui.send, "TerminalApp", id_generator=self.ui.next_client_msg_id
+        )
         ac_factory = lambda name: make_canned_provider(self.rpc, name)
         ui_cfg = self.project.settings.ui if self.project.settings else None
         multiline = True if ui_cfg is None else bool(ui_cfg.multiline)
@@ -307,7 +333,9 @@ class TerminalApp:
                 editing_mode = EditingMode.VI
             elif mode == "emacs":
                 editing_mode = EditingMode.EMACS
-        self.commands = register_default_commands(Commands(), self.ui, ac_factory=ac_factory)
+        self.commands = register_default_commands(
+            Commands(), self.ui, ac_factory=ac_factory
+        )
         completer = TerminalCompleter(
             self.ui,
             self.commands,
@@ -327,7 +355,11 @@ class TerminalApp:
                 kwargs["editing_mode"] = editing_mode
             self.session = PromptSession(**kwargs)
         except Exception:
-            kwargs = {"multiline": multiline, "completer": completer, "complete_while_typing": False}
+            kwargs = {
+                "multiline": multiline,
+                "completer": completer,
+                "complete_while_typing": False,
+            }
             if editing_mode is not None:
                 kwargs["editing_mode"] = editing_mode
             self.session = PromptSession(**kwargs)
@@ -336,51 +368,56 @@ class TerminalApp:
         self.change_event = asyncio.Event()
         # Key bindings
         kb = self.kb
+
         @kb.add("c-c")
         def _kb_stop(event):
             asyncio.create_task(self.stop_toggle())
+
         @kb.add("c-g", eager=True)
         def _kb_reset(event):
             event.app.current_buffer.reset()
+
         # Signal handlers
         old_sigint = None
         old_sigterm = None
         try:
             old_sigint = signal.getsignal(signal.SIGINT)
             old_sigterm = signal.getsignal(signal.SIGTERM)
+
             def _sigint_handler(signum, frame):
-                import asyncio, traceback, sys
-                for t in asyncio.all_tasks():
-                    print(
-                        t,
-                        t.get_coro(),
-                        "".join(
-                            traceback.format_stack(
-                                sys._current_frames()[t.get_loop()._thread_id]
-                            )
-                        ),
-                    )
+                # Suppress stacktrace dumps on Ctrl+C; just trigger a graceful stop/cancel.
                 try:
                     loop = asyncio.get_running_loop()
-                    loop.call_soon_threadsafe(lambda: asyncio.create_task(self.stop_toggle()))
+                    loop.call_soon_threadsafe(
+                        lambda: asyncio.create_task(self.stop_toggle())
+                    )
                 except RuntimeError:
                     try:
                         asyncio.create_task(self.stop_toggle())
                     except Exception:
                         pass
+
             signal.signal(signal.SIGINT, _sigint_handler)
+
             def _sigterm_handler(signum, frame):
                 try:
                     self.request_exit()
                 finally:
                     try:
                         loop = asyncio.get_running_loop()
-                        loop.call_soon_threadsafe(lambda: asyncio.create_task(self.ui.cancel() if self.ui else asyncio.sleep(0)))
+                        loop.call_soon_threadsafe(
+                            lambda: asyncio.create_task(
+                                self.ui.cancel() if self.ui else asyncio.sleep(0)
+                            )
+                        )
                     except RuntimeError:
                         try:
-                            asyncio.create_task(self.ui.cancel() if self.ui else asyncio.sleep(0))
+                            asyncio.create_task(
+                                self.ui.cancel() if self.ui else asyncio.sleep(0)
+                            )
                         except Exception:
                             pass
+
             signal.signal(signal.SIGTERM, _sigterm_handler)
         except Exception:
             old_sigint = None
@@ -400,7 +437,14 @@ class TerminalApp:
                 r"\ \  / | |_  / /`   | |  / / \ | |_) / / \ | |_) ( (`     / /`  / / \ | | \ | |_  ",
                 r" \_\/  |_|__ \_\_,  |_|  \_\_/ |_| \ \_\_/ |_|   _)_)     \_\_, \_\_/ |_|_/ |_|__ ",
             ]
-            colors_fg = ["ansimagenta", "ansiblue", "ansicyan", "ansigreen", "ansiyellow", "ansired"]
+            colors_fg = [
+                "ansimagenta",
+                "ansiblue",
+                "ansicyan",
+                "ansigreen",
+                "ansiyellow",
+                "ansired",
+            ]
             fragments = []
             for line, fg in zip(banner_lines, colors_fg):
                 fragments.append((f"fg:{fg}", line + "\n"))
@@ -421,14 +465,19 @@ class TerminalApp:
                     self.change_event.clear()
                 prompt_payload = (
                     self.pending_req_env.payload
-                    if self.pending_req_env and self.pending_req_env.payload.kind == PACKET_RUN_EVENT
+                    if self.pending_req_env
+                    and self.pending_req_env.payload.kind == PACKET_RUN_EVENT
                     else None
                 )
                 line = await self.session.prompt_async(
                     lambda: build_prompt(self.ui, prompt_payload),
                     key_bindings=self.kb,
                     default="",
-                    bottom_toolbar=(None if self.hide_toolbar else (lambda: build_toolbar(self.ui, prompt_payload))),
+                    bottom_toolbar=(
+                        None
+                        if self.hide_toolbar
+                        else (lambda: build_toolbar(self.ui, prompt_payload))
+                    ),
                 )
                 if self.should_exit:
                     break
@@ -440,7 +489,10 @@ class TerminalApp:
                     if not handled:
                         out("Unknown command. Type /help")
                     continue
-                if self.pending_req_env is None and self.ui.status == RunnerStatus.stopped:
+                if (
+                    self.pending_req_env is None
+                    and self.ui.status == RunnerStatus.stopped
+                ):
                     t = text.strip()
                     if t == "":
                         self.queued_resp = RespApproval(approved=True)
@@ -448,7 +500,9 @@ class TerminalApp:
                         approved = t.lower() in ("y", "yes")
                         self.queued_resp = RespApproval(approved=approved)
                     else:
-                        self.queued_resp = RespMessage(message=Message(role="user", text=text))
+                        self.queued_resp = RespMessage(
+                            message=Message(role="user", text=text)
+                        )
                     try:
                         await self.ui.replace_user_input(self.queued_resp)
                     except Exception as e:
@@ -469,7 +523,9 @@ class TerminalApp:
                         if text == "":
                             await respond_packet(self.ui, msg_id, None)
                         else:
-                            await respond_message(self.ui, msg_id, Message(role="user", text=text))
+                            await respond_message(
+                                self.ui, msg_id, Message(role="user", text=text)
+                            )
                         self.pending_req_env = None
                         continue
                     if ev.kind == PACKET_TOOL_CALL:
@@ -496,7 +552,9 @@ class TerminalApp:
                         if text.strip() == "":
                             await respond_approval(self.ui, msg_id, True)
                         else:
-                            await respond_message(self.ui, msg_id, Message(role="user", text=text))
+                            await respond_message(
+                                self.ui, msg_id, Message(role="user", text=text)
+                            )
                         self.pending_req_env = None
                         continue
                 continue
@@ -517,524 +575,9 @@ class TerminalApp:
 
 
 async def run_terminal(project: Project) -> None:
-    # Backward-compatible wrapper
+    # Thin wrapper: defer to TerminalApp for all terminal behavior.
     app = TerminalApp(project)
     await app.run()
-
-    try:
-        hist_dir = project.base_path / ".vocode"
-        hist_dir.mkdir(parents=True, exist_ok=True)
-        hist_path = hist_dir / "data" / "terminal_history"
-        kwargs = {
-            "history": FileHistory(str(hist_path)),
-            "multiline": multiline,
-            "completer": completer,
-            "complete_while_typing": False,
-        }
-        if editing_mode is not None:
-            kwargs["editing_mode"] = editing_mode
-        session = PromptSession(**kwargs)
-    except Exception:
-        # Fall back to in-memory history if anything goes wrong
-        kwargs = {"multiline": multiline, "completer": completer, "complete_while_typing": False}
-        if editing_mode is not None:
-            kwargs["editing_mode"] = editing_mode
-        session = PromptSession(**kwargs)
-    kb = KeyBindings()
-    should_exit = False
-
-    change_event = asyncio.Event()
-
-    interrupt_count = {"n": 0}
-
-    def reset_interrupt():
-        interrupt_count["n"] = 0
-
-    async def stop_toggle():
-        n = interrupt_count["n"]
-        interrupt_count["n"] = n + 1
-        await (ui.stop() if n == 0 else ui.cancel())
-
-    @kb.add("c-c")
-    def _(event):
-        asyncio.create_task(stop_toggle())
-
-    # Ctrl+G: Reset/clear the current input buffer (including multiline).
-    # Eager so it overrides any default bindings.
-    @kb.add("c-g", eager=True)
-    def _(event):
-        buf = event.app.current_buffer
-        buf.reset()
-
-    # Register a SIGINT handler that triggers stop_toggle so Ctrl-C works
-    # even when not focused on prompt_toolkit. Save the previous handler so
-    # it can be restored on exit. Also register a SIGTERM handler to request
-    # graceful shutdown so finally blocks run.
-    old_sigint = None
-    old_sigterm = None
-    try:
-        old_sigint = signal.getsignal(signal.SIGINT)
-        old_sigterm = signal.getsignal(signal.SIGTERM)
-
-        def _sigint_handler(signum, frame):
-            import asyncio, traceback
-
-            for t in asyncio.all_tasks():
-                print(
-                    t,
-                    t.get_coro(),
-                    "".join(
-                        traceback.format_stack(
-                            sys._current_frames()[t.get_loop()._thread_id]
-                        )
-                    ),
-                )
-
-            try:
-                loop = asyncio.get_running_loop()
-                loop.call_soon_threadsafe(lambda: asyncio.create_task(stop_toggle()))
-            except RuntimeError:
-                # No running loop; attempt to create the task directly (best-effort).
-                try:
-                    asyncio.create_task(stop_toggle())
-                except Exception:
-                    pass
-
-        signal.signal(signal.SIGINT, _sigint_handler)
-
-        # Graceful termination on SIGTERM: request exit and cancel any in-flight work.
-        def _sigterm_handler(signum, frame):
-            try:
-                request_exit()
-            finally:
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.call_soon_threadsafe(lambda: asyncio.create_task(ui.cancel()))
-                except RuntimeError:
-                    # No running loop; attempt to create the task directly (best-effort).
-                    try:
-                        asyncio.create_task(ui.cancel())
-                    except Exception:
-                        pass
-
-        signal.signal(signal.SIGTERM, _sigterm_handler)
-    except Exception:
-        old_sigint = None
-        old_sigterm = None
-
-    def request_exit():
-        nonlocal should_exit
-        should_exit = True
-        with contextlib.suppress(Exception):
-            # End the current prompt gracefully
-            session.app.exit(result="")
-
-    ctx = CommandContext(
-        ui=ui,
-        out=lambda s: out(s),
-        stop_toggle=stop_toggle,
-        request_exit=request_exit,
-        rpc=rpc,
-    )
-
-    pending_req_env: Optional[UIPacketEnvelope] = None
-    pending_cmd: Optional[str] = None
-    # Track dynamic custom CLI commands to avoid affecting built-ins
-    dynamic_cli_commands: set[str] = set()
-    queued_resp: Optional[Union[RespMessage, RespApproval]] = None
-    # Hide toolbar until activity arrives (set on UI reset directive).
-    hide_toolbar: bool = False
-    # Suppress prompting until a status or run event arrives.
-    suppress_prompt_until_change: bool = False
-
-    stream_buffer: Optional[MessageBuffer] = None
-
-    def _finish_stream():
-        nonlocal stream_buffer
-        if not stream_buffer:
-            return
-
-        # If a formatted message was not provided, derive it from the current stream buffer.
-        # This ensures we compute wraps based on the exact content shown on screen.
-        ft = colors.render_markdown(
-            stream_buffer.full_text, prefix=f"{stream_buffer.speaker}: "
-        )
-
-        parts = list(to_formatted_text(ft))
-        lines = list(split_lines(parts))
-        last_line = colors.get_last_non_empty_line(lines) or []
-        width = shutil.get_terminal_size(fallback=(80, 24)).columns
-        last_width = fragment_list_width(last_line)
-        wraps = (last_width - 1) // width if (width > 0 and last_width > 0) else 0
-
-        # We previously moved the cursor UP 'wraps' lines while streaming.
-        # To finalize, move down to the last visual line of the output, then print a
-        # newline to move to the next clean line.
-        if wraps > 0:
-            print(ANSI_CURSOR_DOWN * wraps, end="")
-        print()
-
-        stream_buffer = None
-
-    # ----------------------------
-    # Packet handlers (extracted)
-    # ----------------------------
-    async def handle_custom_commands_packet(cd: UIPacketCustomCommands) -> None:
-        # Register added commands as proxies without overriding built-ins
-        existing_names = {c.name for c in commands.list_commands()}
-        for c in cd.added:
-            cli_name = f"/{c.name}"
-            # Skip if a non-dynamic command already exists (do not override globals)
-            if cli_name in existing_names and cli_name not in dynamic_cli_commands:
-                continue
-            # If previously registered dynamically, remove first
-            if cli_name in dynamic_cli_commands:
-                commands.unregister(cli_name)
-                dynamic_cli_commands.discard(cli_name)
-
-            # Create proxy handler
-            async def _proxy(ctx: CommandContext, args: list[str], *, _cname=c.name):
-                nonlocal pending_cmd
-                pending_cmd = _cname
-                change_event.set()
-                try:
-                    res = await rpc.call(UIPacketRunCommand(name=_cname, input=args))
-                    if res is None:
-                        return
-                    if res.kind != PACKET_COMMAND_RESULT:
-                        ctx.out(
-                            f"Command '{_cname}' failed: unexpected response {res.kind}"
-                        )
-                        return
-
-                    if res.ok:
-                        if res.output:
-                            ctx.out(res.output)
-                    else:
-                        ctx.out(
-                            f"Command '{_cname}' failed: {res.error or 'unknown error'}"
-                        )
-                except Exception as e:
-                    ctx.out(f"Error executing command '{_cname}': {e}")
-                finally:
-                    pending_cmd = None
-                    change_event.set()
-
-            commands.register(
-                cli_name,
-                c.help or "",
-                c.usage,
-                (ac_factory(c.autocompleter) if c.autocompleter else None),
-            )(
-                _proxy
-            )  # type: ignore[arg-type]
-            dynamic_cli_commands.add(cli_name)
-            existing_names.add(cli_name)
-        # Unregister removed commands only if they were dynamically added
-        for name in cd.removed:
-            cli_name = f"/{name}"
-            if cli_name in dynamic_cli_commands:
-                commands.unregister(cli_name)
-                dynamic_cli_commands.discard(cli_name)
-        change_event.set()
-
-    async def handle_run_event(envelope: UIPacketEnvelope) -> None:
-        nonlocal pending_req_env, stream_buffer, queued_resp
-        req_payload = envelope.payload
-        assert req_payload.kind == PACKET_RUN_EVENT
-        ev = req_payload.event.event
-
-        # Debug/log messages from executors: print immediately without requesting input
-        if ev.kind == PACKET_LOG:
-            _finish_stream()
-            # Determine configured log level
-            cfg_log_level = LogLevel.info
-            if ui.project.settings and ui.project.settings.ui:
-                cfg_log_level = ui.project.settings.ui.log_level
-
-            # Determine message log level, default to info
-            msg_level = ev.level or LogLevel.info
-
-            # Filter messages below configured level
-            if LOG_LEVEL_ORDER[msg_level] < LOG_LEVEL_ORDER[cfg_log_level]:
-                return
-
-            level_str = msg_level.value
-            prefix = f"[{level_str}] "
-            out(prefix + ev.text)
-            return
-
-        if ev.kind == PACKET_MESSAGE and ev.message:
-            speaker = ev.message.role or "assistant"
-            text = ev.message.text or ""
-            if not stream_buffer or stream_buffer.speaker != speaker:
-                _finish_stream()
-                stream_buffer = MessageBuffer(speaker=speaker)
-            diff = stream_buffer.append(text)
-            if diff:
-                out_fmt_stream(diff)
-            return
-
-        if ev.kind == PACKET_MESSAGE_REQUEST:
-            _finish_stream()
-            # If the request includes a message to display, render it before prompting.
-            if ev.message:
-                out_fmt(colors.render_markdown(ev.message))
-            pending_req_env = envelope if req_payload.event.input_requested else None
-            # Auto-respond if we have a queued response
-            if pending_req_env is not None and queued_resp is not None:
-                await respond_packet(ui, pending_req_env.msg_id, queued_resp)
-                queued_resp = None
-                pending_req_env = None
-            return
-
-        if ev.kind == PACKET_TOOL_CALL:
-            _finish_stream()
-            out(f"Tool calls requested: {len(ev.tool_calls)}")
-            for i, tc in enumerate(ev.tool_calls, start=1):
-                out(f"  {i}. {tc.name} arguments:")
-                out_fmt(colors.render_json(tc.arguments))
-            pending_req_env = envelope if req_payload.event.input_requested else None
-            # Auto-respond if we have a queued response (typically approval)
-            if pending_req_env is not None and queued_resp is not None:
-                await respond_packet(ui, pending_req_env.msg_id, queued_resp)
-                queued_resp = None
-                pending_req_env = None
-            return
-
-        if ev.kind == PACKET_FINAL_MESSAGE:
-            if stream_buffer:
-                # We have been streaming, so the message is already on screen.
-                # Just add a newline and clear.
-                _finish_stream()
-            elif ev.message:
-                # No streaming occurred, print the final message at once.
-                speaker = ev.message.role or "assistant"
-                text = ev.message.text or ""
-                out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
-
-            pending_req_env = envelope if req_payload.event.input_requested else None
-
-            # Auto-respond if we have a queued response (approval or user message)
-            if pending_req_env is not None and queued_resp is not None:
-                await respond_packet(ui, pending_req_env.msg_id, queued_resp)
-                queued_resp = None
-                pending_req_env = None
-            return
-
-    async def event_consumer():
-        nonlocal pending_req_env, pending_cmd, hide_toolbar, suppress_prompt_until_change, queued_resp
-        while True:
-            try:
-                envelope = await ui.recv()
-                if rpc.handle_response(envelope):
-                    change_event.set()
-                    continue
-
-                msg = envelope.payload
-                if msg.kind == PACKET_STATUS:
-                    reset_interrupt()
-                    # Any status change counts as activity.
-                    hide_toolbar = False
-                    suppress_prompt_until_change = False
-                    change_event.set()
-                    continue
-                if msg.kind == PACKET_RUN_EVENT:
-                    await handle_run_event(envelope)
-                    hide_toolbar = False
-                    suppress_prompt_until_change = False
-                    change_event.set()
-                    continue
-                if msg.kind == PACKET_UI_RESET:
-                    pending_req_env = None
-                    queued_resp = None
-                    hide_toolbar = True
-                    suppress_prompt_until_change = True
-                    # Abort any in-flight prompt so it disappears immediately.
-                    # This ensures the prompt is hidden between reset and the next status/run event.
-                    with contextlib.suppress(Exception):
-                        session.app.exit(result="")
-                    change_event.set()
-                    continue
-                if msg.kind == PACKET_CUSTOM_COMMANDS:
-                    await handle_custom_commands_packet(msg)
-                    continue
-            except Exception as ex:
-                import traceback
-
-                # TODO: Propagate up
-                print("Exception", traceback.format_exc())
-
-    # Show startup banner (configurable)
-    show_banner = True
-    if ui_cfg is not None:
-        show_banner = ui_cfg.show_banner
-
-    if show_banner:
-        banner_lines = [
-            r" _      ____  __   _____  ___   ___   ___   ___   __       __    ___   ___   ____ ",
-            r"\ \  / | |_  / /`   | |  / / \ | |_) / / \ | |_) ( (`     / /`  / / \ | | \ | |_  ",
-            r" \_\/  |_|__ \_\_,  |_|  \_\_/ |_| \ \_\_/ |_|   _)_)     \_\_, \_\_/ |_|_/ |_|__ ",
-        ]
-
-        colors_fg = [
-            "ansimagenta",
-            "ansiblue",
-            "ansicyan",
-            "ansigreen",
-            "ansiyellow",
-            "ansired",
-        ]
-        # Build prompt_toolkit fragments to preserve spacing/alignment.
-        fragments = []
-        for line, fg in zip(banner_lines, colors_fg):
-            fragments.append((f"fg:{fg}", line + "\n"))
-        # Add a blank line and the help hint as part of the same terminal write to avoid reordering.
-        fragments.append(("", "\n"))
-        fragments.append(("", "Type /help for commands.\n"))
-        out_fmt(fragments)
-    else:
-        out("Type /help for commands.")
-
-    # Start event consumer after initial banner/help to avoid interleaved output on startup.
-    consumer_task = asyncio.create_task(event_consumer())
-
-    try:
-        while True:
-            # Wait until we should show a prompt:
-            while (
-                suppress_prompt_until_change
-                or (pending_cmd is not None)
-                or (ui.is_active() and pending_req_env is None)
-            ):
-                await change_event.wait()
-                change_event.clear()
-
-            prompt_payload = (
-                pending_req_env.payload
-                if pending_req_env and pending_req_env.payload.kind == PACKET_RUN_EVENT
-                else None
-            )
-            line = await session.prompt_async(
-                lambda: build_prompt(ui, prompt_payload),
-                key_bindings=kb,
-                default="",
-                bottom_toolbar=(
-                    None
-                    if hide_toolbar
-                    else (lambda: build_toolbar(ui, prompt_payload))
-                ),
-            )
-            if should_exit:
-                break
-            text = line.rstrip("\n")
-
-            if text.startswith("/"):
-                handled = await commands.run(text, ctx)
-                if should_exit:
-                    break
-                if not handled:
-                    out("Unknown command. Type /help")
-                continue
-
-            # If stopped and no pending request, treat input as a replacement for the last input boundary.
-            if pending_req_env is None and ui.status == RunnerStatus.stopped:
-                t = text.strip()
-                # Build a queued response:
-                # - empty => implicit approval (continue)
-                # - y/n   => explicit approval
-                # - other => user message
-                if t == "":
-                    queued_resp = RespApproval(approved=True)
-                elif t.lower() in ("y", "yes", "n", "no"):
-                    approved = t.lower() in ("y", "yes")
-                    queued_resp = RespApproval(approved=approved)
-                else:
-                    queued_resp = RespMessage(message=Message(role="user", text=text))
-
-                # Rewind one retriable history step and restart; next input boundary auto-receives queued_resp.
-                try:
-                    await ui.replace_user_input(queued_resp)
-                except Exception as e:
-                    out(f"Failed to prepare replacement: {e}")
-                    queued_resp = None
-                    continue
-
-                try:
-                    await ui.restart()
-                except Exception as e:
-                    out(f"Failed to restart: {e}")
-                    queued_resp = None
-                # Do not prompt further here; event_consumer will deliver the next request and auto-reply.
-                continue
-
-            if pending_req_env is not None:
-                assert pending_req_env.payload.kind == PACKET_RUN_EVENT
-                ev = pending_req_env.payload.event.event
-                msg_id = pending_req_env.msg_id
-
-                if ev.kind == PACKET_MESSAGE_REQUEST:
-                    if text == "":
-                        await respond_packet(ui, msg_id, None)
-                    else:
-                        await respond_message(
-                            ui, msg_id, Message(role="user", text=text)
-                        )
-                    pending_req_env = None
-                    continue
-
-                if ev.kind == PACKET_TOOL_CALL:
-                    if text.strip().lower() in ("", "y", "yes"):
-                        await respond_approval(ui, msg_id, True)
-                    else:
-                        await respond_approval(ui, msg_id, False)
-                    pending_req_env = None
-                    continue
-
-                if ev.kind == PACKET_FINAL_MESSAGE:
-                    conf = _current_node_confirmation(ui)
-                    if conf == Confirmation.confirm:
-                        ans = text.strip().lower()
-                        if ans in ("y", "yes"):
-                            await respond_approval(ui, msg_id, True)
-                            pending_req_env = None
-                            continue
-                        if ans in ("n", "no"):
-                            await respond_approval(ui, msg_id, False)
-                            pending_req_env = None
-                            continue
-                        out("Please answer Y or N.")
-                        # Do not clear pending_req; re-prompt
-                        continue
-                    # prompt mode behavior
-                    if text.strip() == "":
-                        await respond_approval(ui, msg_id, True)
-                    else:
-                        await respond_message(
-                            ui, msg_id, Message(role="user", text=text)
-                        )
-                    pending_req_env = None
-                    continue
-
-            # No pending request here: runner is active; ignore input and re-prompt.
-            continue
-
-    except (EOFError, KeyboardInterrupt):
-        pass
-    finally:
-        # Restore previous SIGINT handler
-        with contextlib.suppress(Exception):
-            signal.signal(signal.SIGINT, old_sigint)
-        with contextlib.suppress(Exception):
-            signal.signal(signal.SIGTERM, old_sigterm)
-        if ui.is_active():
-            await ui.stop()
-        consumer_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await consumer_task
-        # Always shut down project subsystems (MCP, know thread, etc.)
-        with contextlib.suppress(Exception):
-            await project.shutdown()
 
 
 @click.command()
