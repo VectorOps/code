@@ -24,7 +24,10 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [X] UI protocol
 ** [ ] Add syntax name hint to apply formatting
 * [ ] Terminal UI
-** [ ] Always show prompt. Add commands to stop/continue workflows
+** [X] Always show prompt. Add commands to stop/continue workflows
+** [ ] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
+** [ ] Streaming printing is broken with permanent toolbar visibility
+** [ ] When LLM is waiting for response, need to show visual feedback to user
 ** [ ] Summarize tool calls for known tools. Create templates for tool calling that map parameters
 ** [ ] Ability to snoop into tool call details if needed, collapsed by default
 ** [ ] Better multi-line inputs, don't require esc+enter to send
@@ -60,6 +63,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Highlighting does not work if ``` opener is not in the beginning of the line
 * [ ] Block parsers
 ** [ ] Diff parsers
+*** [ ] Fix stats reporting - only report if file was fully patched in patched section
 *** [X] GPT V4A diff format
 **** [X] Better error reporting and verify apply patch cycle
 **** [X] When multiple chunks match, but we can't match any of the chunks - return all possible lines
