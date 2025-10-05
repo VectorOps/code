@@ -107,8 +107,6 @@ class TerminalApp:
         self.pending_cmd: Optional[str] = None
         self.dynamic_cli_commands: set[str] = set()
         self.queued_resp: Optional[Union[RespMessage, RespApproval]] = None
-        self.hide_toolbar: bool = False
-        self.suppress_prompt_until_change: bool = False
         self.stream_buffer: Optional[MessageBuffer] = None
 
     def reset_interrupt(self) -> None:
@@ -289,24 +287,15 @@ class TerminalApp:
                 msg = envelope.payload
                 if msg.kind == PACKET_STATUS:
                     self.reset_interrupt()
-                    self.hide_toolbar = False
-                    self.suppress_prompt_until_change = False
                     self.change_event.set()
                     continue
                 if msg.kind == PACKET_RUN_EVENT:
                     await self.handle_run_event(envelope)
-                    self.hide_toolbar = False
-                    self.suppress_prompt_until_change = False
                     self.change_event.set()
                     continue
                 if msg.kind == PACKET_UI_RESET:
                     self.pending_req_env = None
                     self.queued_resp = None
-                    self.hide_toolbar = True
-                    self.suppress_prompt_until_change = True
-                    if self.session is not None:
-                        with contextlib.suppress(Exception):
-                            self.session.app.exit(result="")
                     self.change_event.set()
                     continue
                 if msg.kind == PACKET_CUSTOM_COMMANDS:
@@ -456,13 +445,6 @@ class TerminalApp:
         consumer_task = asyncio.create_task(self.event_consumer())
         try:
             while True:
-                while (
-                    self.suppress_prompt_until_change
-                    or (self.pending_cmd is not None)
-                    or (self.ui.is_active() and self.pending_req_env is None)
-                ):
-                    await self.change_event.wait()
-                    self.change_event.clear()
                 prompt_payload = (
                     self.pending_req_env.payload
                     if self.pending_req_env
@@ -473,11 +455,7 @@ class TerminalApp:
                     lambda: build_prompt(self.ui, prompt_payload),
                     key_bindings=self.kb,
                     default="",
-                    bottom_toolbar=(
-                        None
-                        if self.hide_toolbar
-                        else (lambda: build_toolbar(self.ui, prompt_payload))
-                    ),
+                    bottom_toolbar=(lambda: build_toolbar(self.ui, prompt_payload)),
                 )
                 if self.should_exit:
                     break
@@ -488,32 +466,6 @@ class TerminalApp:
                         break
                     if not handled:
                         out("Unknown command. Type /help")
-                    continue
-                if (
-                    self.pending_req_env is None
-                    and self.ui.status == RunnerStatus.stopped
-                ):
-                    t = text.strip()
-                    if t == "":
-                        self.queued_resp = RespApproval(approved=True)
-                    elif t.lower() in ("y", "yes", "n", "no"):
-                        approved = t.lower() in ("y", "yes")
-                        self.queued_resp = RespApproval(approved=approved)
-                    else:
-                        self.queued_resp = RespMessage(
-                            message=Message(role="user", text=text)
-                        )
-                    try:
-                        await self.ui.replace_user_input(self.queued_resp)
-                    except Exception as e:
-                        out(f"Failed to prepare replacement: {e}")
-                        self.queued_resp = None
-                        continue
-                    try:
-                        await self.ui.restart()
-                    except Exception as e:
-                        out(f"Failed to restart: {e}")
-                        self.queued_resp = None
                     continue
                 if self.pending_req_env is not None:
                     assert self.pending_req_env.payload.kind == PACKET_RUN_EVENT
@@ -557,6 +509,15 @@ class TerminalApp:
                             )
                         self.pending_req_env = None
                         continue
+                # No pending input and not a command: show contextual hints.
+                if self.ui.is_active():
+                    out(
+                        "No input is currently requested. Press Ctrl+C to stop the run, then respond when prompted."
+                    )
+                else:
+                    out(
+                        "No active run. Start a workflow with /run <workflow> or /use <workflow>. Type /workflows to list available workflows."
+                    )
                 continue
         except (EOFError, KeyboardInterrupt):
             pass
