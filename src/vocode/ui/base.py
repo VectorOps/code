@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 
 from .autocomplete import AutoCompletionManager
-from .autocomplete_providers import ac_workflow_list, ac_filelist
+from . import autocomplete_providers as acp
 
 
 class UIState:
@@ -64,8 +64,8 @@ class UIState:
         )
         self.autocomplete = AutoCompletionManager(self)
 
-        self.autocomplete.register("workflow_list", ac_workflow_list)
-        self.autocomplete.register("filelist", ac_filelist)
+        self.autocomplete.register(acp.PROVIDER_WORKFLOW_LIST, acp.ac_workflow_list)
+        self.autocomplete.register(acp.PROVIDER_FILELIST, acp.ac_filelist)
         # Dedicated task for forwarding command events and a router for incoming packets
         self._drive_task: Optional[asyncio.Task] = None
         self._stop_watcher_task: Optional[asyncio.Task] = None

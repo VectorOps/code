@@ -2,6 +2,10 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .base import UIState
+# Canonical autocompletion provider names
+PROVIDER_WORKFLOW_LIST = "workflow_list"
+PROVIDER_FILELIST = "filelist"
+
 
 
 async def ac_workflow_list(ui: "UIState", params: Dict[str, Any]) -> List[str]:
