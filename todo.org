@@ -54,7 +54,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [?] We might have deadlock somewhere that does not break with ctrl+c
 - Added debugging stacktraces for now
 ** [X] Add file context management once corresponding node is created
-** [ ] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
+** [X] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
 ** [ ] Fix estimated cost calculation
 ** [ ] Highlighting does not work if ``` opener is not in the beginning of the line
 * [ ] Block parsers

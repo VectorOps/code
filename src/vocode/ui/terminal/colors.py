@@ -30,6 +30,12 @@ _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 # Basic italic (avoid eating bold): match single-asterisk groups not surrounded by another '*'
 _ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
 
+# Map fenced code languages to pygments lexer names
+_CODE_FENCE_LANG_MAP = {
+    # v4a uses ```patch ...```; highlight with diff lexer
+    "patch": "diff",
+}
+
 
 class MarkdownBlockType(str, Enum):
     TEXT = "text"
@@ -123,8 +129,11 @@ def render_markdown(text: str, prefix: Optional[str] = None) -> AnyFormattedText
                 prefixed = True
             lexer = None
             if lang:
+                # Normalize language and resolve aliases before resolving lexer
+                normalized_lang = (lang or "").strip().lower()
+                normalized_lang = _CODE_FENCE_LANG_MAP.get(normalized_lang, normalized_lang)
                 try:
-                    lexer = get_lexer_by_name(lang, stripall=False)
+                    lexer = get_lexer_by_name(normalized_lang, stripall=False)
                 except Exception:
                     lexer = None
             if lexer is None:

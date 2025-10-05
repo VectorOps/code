@@ -49,7 +49,7 @@ workflows:
         confirmation: auto
       - name: test
         type: exec
-        command: uv run pytest -q ./tests/
+        command: uv run pytest -qq -rf ./tests/
         timeout_s: 300
         expected_return_code: 0
         message: "Tests results below:"
@@ -108,7 +108,7 @@ workflows:
           template: nodes/apply_patch.yaml
       - name: test
         type: exec
-        command: uv run pytest -q ./tests/
+        command: uv run pytest -qq -rf ./tests/
         timeout_s: 300
         expected_return_code: 0
         message: "Tests results below:"
