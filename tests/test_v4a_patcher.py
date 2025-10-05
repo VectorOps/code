@@ -72,7 +72,9 @@ Noise footer that must be ignored."""
     initial = {
         "src/foo.py": "ctx1\nctx2\nctx3\n old_line\nctxA\nctxB\nctxC\nmid\np1\np2\np3\n remove_this\ns1\ns2\ns3\n",
     }
-    statuses, errs, writes, deletes, opened = run_patch(patch_text, initial_files=initial)
+    statuses, errs, writes, deletes, opened = run_patch(
+        patch_text, initial_files=initial
+    )
     assert errs == []
     assert opened == ["src/foo.py"]
     assert writes["src/foo.py"] == (
@@ -98,7 +100,9 @@ def test_duplicate_file_entry_is_error_and_ignored():
 - c
 + d
 *** End Patch"""
-    statuses, errors, writes, deletes, opened = run_patch(text, initial_files={"src/dup.py": " a\n"})
+    statuses, errors, writes, deletes, opened = run_patch(
+        text, initial_files={"src/dup.py": " a\n"}
+    )
     assert any("Duplicate file entry" in e.msg for e in errors)
     # On parse error, no IO occurs and no statuses are returned
     assert writes == {}
@@ -250,7 +254,9 @@ def test_process_patch_applies_changes_and_calls_io():
 *** Delete File: gone.txt
 *** End Patch"""
     initial = {"f.txt": "pre\n old\npost\n"}
-    statuses, errs, writes, deletes, opened = run_patch(patch_text, initial_files=initial)
+    statuses, errs, writes, deletes, opened = run_patch(
+        patch_text, initial_files=initial
+    )
     assert errs == []
     assert opened == ["f.txt"]
     assert writes["f.txt"] == "pre\n new\npost\n"
@@ -276,7 +282,10 @@ def test_process_patch_write_delete_errors_appended():
 *** End Patch"""
     initial = {"f.txt": "pre\n old\npost\n"}
     statuses, errs, writes, deletes, _ = run_patch(
-        patch_text, initial_files=initial, fail_writes={"new.txt"}, fail_deletes={"gone.txt"}
+        patch_text,
+        initial_files=initial,
+        fail_writes={"new.txt"},
+        fail_deletes={"gone.txt"},
     )
     assert len(errs) == 2
     msgs = [e.msg for e in errs]
@@ -343,10 +352,15 @@ def test_update_with_context_blocks_applies_multiple_chunks():
  b5
  b6
 *** End Patch"""
-    initial = {"src/multi.py": "a1\na2\na3\n X\na4\na5\na6\nmid\nb1\nb2\nb3\n P\nb4\nb5\nb6\n"}
+    initial = {
+        "src/multi.py": "a1\na2\na3\n X\na4\na5\na6\nmid\nb1\nb2\nb3\n P\nb4\nb5\nb6\n"
+    }
     statuses, errs, writes, deletes, _ = run_patch(patch_text, initial_files=initial)
     assert errs == []
-    assert writes["src/multi.py"] == "a1\na2\na3\n Y\na4\na5\na6\nmid\nb1\nb2\nb3\n Q\nb4\nb5\nb6\n"
+    assert (
+        writes["src/multi.py"]
+        == "a1\na2\na3\n Y\na4\na5\na6\nmid\nb1\nb2\nb3\n Q\nb4\nb5\nb6\n"
+    )
     assert statuses == {"src/multi.py": FileApplyStatus.Update}
 
 
@@ -410,11 +424,16 @@ def test_partial_apply_on_some_chunks_updates_and_reports_error():
  qB
  qC
 *** End Patch"""
-    initial = {"src/partial.py": "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\n R\nqA\nqB\nqC\n"}
+    initial = {
+        "src/partial.py": "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\n R\nqA\nqB\nqC\n"
+    }
     statuses, errs, writes, deletes, _ = run_patch(patch_text, initial_files=initial)
     assert len(errs) == 1
     assert "Failed to locate change block" in errs[0].msg
-    assert writes["src/partial.py"] == "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\n S\nqA\nqB\nqC\n"
+    assert (
+        writes["src/partial.py"]
+        == "p1\np2\np3\nOLD\npA\npB\npC\nmid\nq1\nq2\nq3\n S\nqA\nqB\nqC\n"
+    )
     assert statuses == {"src/partial.py": FileApplyStatus.PartialUpdate}
 
 
@@ -468,7 +487,9 @@ def test_update_chunk_with_no_modifications_is_ignored_and_reports_error():
  ctx2
  ctx3
 *** End Patch"""
-    statuses, errs, writes, deletes, _ = run_patch(text, initial_files={"src/empty.py": "ctx1\nctx2\nctx3\n"})
+    statuses, errs, writes, deletes, _ = run_patch(
+        text, initial_files={"src/empty.py": "ctx1\nctx2\nctx3\n"}
+    )
     assert writes == {}
     assert deletes == []
     assert statuses == {}
@@ -484,7 +505,9 @@ def test_update_with_no_mods_reports_error():
  ctx2
  ctx3
 *** End Patch"""
-    statuses, errs, writes, deletes, _ = run_patch(text, initial_files={"src/empty.py": "ctx1\nctx2\nctx3\n"})
+    statuses, errs, writes, deletes, _ = run_patch(
+        text, initial_files={"src/empty.py": "ctx1\nctx2\nctx3\n"}
+    )
     assert writes == {}
     assert deletes == []
     assert statuses == {}
@@ -548,7 +571,9 @@ def test_out_of_order_chunks_reports_error_and_partial_update():
     # Context lines L1, L3, L5 are literal file content without extra indentation.
     # Deleted/added lines A, B include a leading space as part of their file content.
     initial = {"src/order.txt": "L1\n A\nL3\n B\nL5\n"}
-    statuses, errs, writes, deletes, opened = run_patch(patch_text, initial_files=initial)
+    statuses, errs, writes, deletes, opened = run_patch(
+        patch_text, initial_files=initial
+    )
     # Should open the file once
     assert opened == ["src/order.txt"]
     # Should report out-of-order error
@@ -569,7 +594,9 @@ def test_update_with_move_renames_file_and_writes_new_content():
  post
 *** End Patch"""
     initial = {"src/a.txt": "pre\n old\npost\n"}
-    statuses, errs, writes, deletes, opened = run_patch(patch_text, initial_files=initial)
+    statuses, errs, writes, deletes, opened = run_patch(
+        patch_text, initial_files=initial
+    )
     # No errors expected
     assert errs == []
     # Old path should be opened, new path written, old path deleted
@@ -581,3 +608,97 @@ def test_update_with_move_renames_file_and_writes_new_content():
     assert writes["src/renamed.txt"] == "pre\n new\npost\n"
     # Status reported under the original path
     assert statuses == {"src/a.txt": FileApplyStatus.Update}
+
+
+def test_interleaved_replace_and_delete_in_one_block_reproduces_bug():
+    """
+    Tests a patch with interleaved additions and deletions within a single
+    change block (no '@@' separator). The original buggy parser would merge
+    these into a single, incorrect find/replace operation, causing the match
+    to fail and resulting in data loss. The corrected parser should treat
+    them as sequential operations and apply the patch correctly.
+    """
+    patch_text = """
+*** Begin Patch
+*** Update File: src/vocode/ui/terminal/app.py
+@@
+ async def run_terminal(project: Project) -> None:
+-    # Backward-compatible wrapper
+-    app = TerminalApp(project)
+-    await app.run()
++    # Thin wrapper: defer to TerminalApp for all terminal behavior.
++    app = TerminalApp(project)
++    await app.run()
+-    try:
+-        hist_dir = project.base_path / ".vocode"
+-        hist_dir.mkdir(parents=True, exist_ok=True)
+-        hist_path = hist_dir / "data" / "terminal_history"
+-        kwargs = {
+-            "history": FileHistory(str(hist_path)),
+-            "multiline": multiline,
+-            "completer": completer,
+-            "complete_while_typing": False,
+-        }
+-        if editing_mode is not None:
+-            kwargs["editing_mode"] = editing_mode
+-        session = PromptSession(**kwargs)
+-    except Exception:
+-        # Fall back to in-memory history if anything goes wrong
+-        kwargs = {"multiline": multiline, "completer": completer, "complete_while_typing": False}
+-        if editing_mode is not None:
+-            kwargs["editing_mode"] = editing_mode
+-        session = PromptSession(**kwargs)
++
+*** End Patch
+    """
+
+    # Reconstruct the original file content from the patch's context and deleted lines
+    initial_content = """
+async def run_terminal(project: Project) -> None:
+    # Backward-compatible wrapper
+    app = TerminalApp(project)
+    await app.run()
+    try:
+        hist_dir = project.base_path / ".vocode"
+        hist_dir.mkdir(parents=True, exist_ok=True)
+        hist_path = hist_dir / "data" / "terminal_history"
+        kwargs = {
+            "history": FileHistory(str(hist_path)),
+            "multiline": multiline,
+            "completer": completer,
+            "complete_while_typing": False,
+        }
+        if editing_mode is not None:
+            kwargs["editing_mode"] = editing_mode
+        session = PromptSession(**kwargs)
+    except Exception:
+        # Fall back to in-memory history if anything goes wrong
+        kwargs = {"multiline": multiline, "completer": completer, "complete_while_typing": False}
+        if editing_mode is not None:
+            kwargs["editing_mode"] = editing_mode
+        session = PromptSession(**kwargs)
+
+async def foobar():
+    pass
+"""
+
+    # This is what the file content should be after the patch is applied correctly
+    expected_content = """
+async def run_terminal(project: Project) -> None:
+    # Thin wrapper: defer to TerminalApp for all terminal behavior.
+    app = TerminalApp(project)
+    await app.run()
+
+
+async def foobar():
+    pass
+"""
+
+    statuses, errs, writes, deletes, _ = run_patch(
+        patch_text, initial_files={"src/vocode/ui/terminal/app.py": initial_content}
+    )
+
+    assert errs == []
+    assert deletes == []
+    assert writes["src/vocode/ui/terminal/app.py"] == expected_content
+    assert statuses == {"src/vocode/ui/terminal/app.py": FileApplyStatus.Update}
