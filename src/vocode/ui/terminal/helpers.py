@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import shutil
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+import asyncio
+import time
 
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import to_formatted_text
@@ -14,6 +16,10 @@ from vocode.ui.base import UIState
 from vocode.ui.proto import UIPacketEnvelope, UIPacketRunInput
 from vocode.runner.models import RunInput, RespPacket, RespMessage, RespApproval
 from vocode.state import Message
+from vocode.ui.terminal.buf import MessageBuffer
+
+if TYPE_CHECKING:
+    from prompt_toolkit import PromptSession
 
 
 def out(*args, **kwargs) -> None:
@@ -88,3 +94,80 @@ async def respond_message(ui: UIState, source_msg_id: int, message: Message) -> 
 
 async def respond_approval(ui: UIState, source_msg_id: int, approved: bool) -> None:
     await respond_packet(ui, source_msg_id, RespApproval(approved=approved))
+
+
+class StreamThrottler:
+    """
+    Helper to throttle streaming updates to the terminal to avoid flickering.
+    It accumulates text chunks and flushes them to a MessageBuffer at a controlled rate.
+    """
+
+    def __init__(
+        self,
+        session: "PromptSession",
+        speaker: str,
+        *,
+        interval_s: float = 1.0 / 20.0,
+    ) -> None:
+        self._session = session
+        self._stream_buffer = MessageBuffer(speaker=speaker)
+        self._interval_s = interval_s
+        self._buffer = ""
+        self._last_flush_time = 0.0
+        self._flush_task: Optional[asyncio.Task] = None
+        self._flush_lock = asyncio.Lock()
+
+    @property
+    def full_text(self) -> str:
+        """Returns the full accumulated text, including unflushed buffer."""
+        return self._stream_buffer.full_text + self._buffer
+
+    async def append(self, text: str) -> None:
+        """Append text. It will be flushed according to throttling policy."""
+        if not text:
+            return
+        self._buffer += text
+        now = time.monotonic()
+        if now - self._last_flush_time >= self._interval_s:
+            # Enough time has passed, flush immediately.
+            # The flush() call will handle cancelling any pending _flush_task.
+            await self.flush()
+        elif not self._flush_task:
+            # Not enough time has passed, schedule a flush.
+            self._flush_task = asyncio.create_task(self._delayed_flush())
+
+    async def _delayed_flush(self) -> None:
+        try:
+            await asyncio.sleep(self._interval_s)
+            await self.flush()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._flush_task = None
+
+    async def flush(self) -> None:
+        """Force flush any buffered text and reset state."""
+        task_to_cancel = self._flush_task
+        if task_to_cancel and asyncio.current_task() is not task_to_cancel:
+            task_to_cancel.cancel()
+            # Yield control to allow the cancelled task to run its cleanup
+            # and release the lock if it was acquired.
+            await asyncio.sleep(0)
+
+        async with self._flush_lock:
+            if not self._buffer:
+                self._last_flush_time = time.monotonic()
+                return
+
+            text_to_flush = self._buffer
+            self._buffer = ""
+
+            new_changed_lines, old_changed_lines = self._stream_buffer.append(
+                text_to_flush
+            )
+            if new_changed_lines or old_changed_lines:
+                await print_updated_lines(
+                    self._session, new_changed_lines, old_changed_lines
+                )
+
+            self._last_flush_time = time.monotonic()

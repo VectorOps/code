@@ -21,9 +21,9 @@ from vocode.state import RunnerStatus
 from vocode.ui.terminal.toolbar import build_prompt, build_toolbar
 from vocode.ui.terminal.buf import MessageBuffer
 from vocode.ui.terminal.helpers import (
-    ANSI_CURSOR_UP,
     out,
     print_updated_lines,
+    StreamThrottler,
 )
 from vocode.ui.terminal import colors
 
@@ -71,15 +71,19 @@ async def main():
         """Simulates streaming text to the terminal."""
         out("--- Starting text stream simulation ---")
 
-        stream_buffer = MessageBuffer(speaker="assistant")
+        # stream_buffer = MessageBuffer(speaker="assistant")
+        stream_buffer = StreamThrottler(session, speaker="assistant")
         words = LONG_TEXT.split(" ")
 
         for word in words:
             # Append word and a space, get the formatted text for the update
-            new_changed_lines, old_changed_lines = stream_buffer.append(word + " ")
-            if new_changed_lines or old_changed_lines:
-                await print_updated_lines(session, new_changed_lines, old_changed_lines)
-            await asyncio.sleep(0.02)  # Simulate network delay/word-by-word generation
+            # new_changed_lines, old_changed_lines = await stream_buffer.append(word + " ")
+            # if new_changed_lines or old_changed_lines:
+            #    await print_updated_lines(session, new_changed_lines, old_changed_lines)
+            await stream_buffer.append(word + " ")
+            await asyncio.sleep(0.01)  # Simulate network delay/word-by-word generation
+
+        await stream_buffer.flush()
 
         # Finalize the stream output by moving cursor and printing a newline
         out("\n--- Stream finished. You can now type your response. ---")

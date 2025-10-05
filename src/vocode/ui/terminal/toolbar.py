@@ -53,7 +53,9 @@ def _current_node_confirmation(ui: UIState) -> Optional[Confirmation]:
 
 
 def _input_hint(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> str:
-    if pending_req is None or not pending_req.event.input_requested:
+    if pending_req is None:
+        return "(command)"
+    if not pending_req.event.input_requested:
         return ""
     ev = pending_req.event.event
     if ev.kind == PACKET_MESSAGE_REQUEST:
@@ -71,7 +73,7 @@ def _input_hint(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> str:
 def build_prompt(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> HTML:
     hint = _input_hint(ui, pending_req)
     prompt_text = f"{hint if hint else ''}> "
-    return HTML(f'<style fg="ansiyellow">{prompt_text}</style>')
+    return HTML(f'<style fg="#FFD700">{prompt_text}</style>')
 
 
 def build_toolbar(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> HTML:

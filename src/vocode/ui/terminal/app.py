@@ -1,6 +1,8 @@
 import asyncio
 import contextlib
+import difflib
 import signal
+import sys
 from typing import Optional, Union
 import shutil
 from pathlib import Path
@@ -81,8 +83,9 @@ from vocode.ui.terminal.helpers import (
     respond_packet,
     respond_message,
     respond_approval,
+    StreamThrottler,
 )
-
+from vocode import diagnostics
 
 LOG_LEVEL_ORDER = {
     LogLevel.debug: 0,
@@ -123,7 +126,24 @@ class TerminalApp:
         self.pending_cmd: Optional[str] = None
         self.dynamic_cli_commands: set[str] = set()
         self.queued_resp: Optional[Union[RespMessage, RespApproval]] = None
-        self.stream_buffer: Optional[MessageBuffer] = None
+        self.stream_throttler: Optional[StreamThrottler] = None
+        self.last_streamed_text: Optional[str] = None
+
+    def _unhandled_exception_handler(
+        self, loop: asyncio.AbstractEventLoop, context: dict
+    ) -> None:
+        msg = context.get("exception", context["message"])
+        out(f"\n--- Unhandled exception in event loop ---\n{msg}\n")
+
+    def _pending_run_event_payload(self) -> Optional[UIPacketRunEvent]:
+        """
+        Return the current UIPacketRunEvent payload if a request is pending; otherwise None.
+        Computed on demand to ensure dynamic prompt/toolbar reflect live state.
+        """
+        env = self.pending_req_env
+        if env and env.payload.kind == PACKET_RUN_EVENT:
+            return env.payload  # type: ignore[return-value]
+        return None
 
     def reset_interrupt(self) -> None:
         self.interrupt_count = 0
@@ -139,6 +159,12 @@ class TerminalApp:
         if self.session is not None:
             with contextlib.suppress(Exception):
                 self.session.app.exit(result="")
+
+    async def _flush_and_clear_stream(self) -> None:
+        if self.stream_throttler:
+            self.last_streamed_text = self.stream_throttler.full_text
+            await self.stream_throttler.flush()
+        self.stream_throttler = None
 
     async def handle_custom_commands_packet(self, cd: UIPacketCustomCommands) -> None:
         assert (
@@ -208,31 +234,31 @@ class TerminalApp:
             msg_level = ev.level or LogLevel.info
             if LOG_LEVEL_ORDER[msg_level] < LOG_LEVEL_ORDER[cfg_log_level]:
                 return
-            if self.stream_buffer:
-                self.stream_buffer = None
+            if self.stream_throttler:
+                await self._flush_and_clear_stream()
             out(f"[{msg_level.value}] " + ev.text)
             return
 
         if ev.kind == PACKET_MESSAGE and ev.message:
             speaker = ev.message.role or "assistant"
             text = ev.message.text or ""
-            if not self.stream_buffer:
-                if self.stream_buffer:
-                    self.stream_buffer = None
-                self.stream_buffer = MessageBuffer(speaker=speaker)
-
-            new_changed_lines, old_changed_lines = self.stream_buffer.append(text)
-            if new_changed_lines or old_changed_lines:
-                await print_updated_lines(
-                    self.session, new_changed_lines, old_changed_lines
+            if not self.stream_throttler:
+                assert self.session is not None
+                self.last_streamed_text = None
+                self.stream_throttler = StreamThrottler(
+                    session=self.session, speaker=speaker
                 )
+
+            assert self.stream_throttler is not None
+            await self.stream_throttler.append(text)
 
             return
 
-        if self.stream_buffer:
-            self.stream_buffer = None
+        if self.stream_throttler:
+            await self._flush_and_clear_stream()
 
         if ev.kind == PACKET_MESSAGE_REQUEST:
+            self.last_streamed_text = None  # New stream context, clear old state
             if ev.message:
                 out_fmt(colors.render_markdown(ev.message))
             self.pending_req_env = (
@@ -246,6 +272,7 @@ class TerminalApp:
                 self.pending_req_env = None
             return
         if ev.kind == PACKET_TOOL_CALL:
+            self.last_streamed_text = None  # New stream context, clear old state
             out(f"Tool calls requested: {len(ev.tool_calls)}")
             for i, tc in enumerate(ev.tool_calls, start=1):
                 out(f"  {i}. {tc.name} arguments:")
@@ -261,10 +288,25 @@ class TerminalApp:
                 self.pending_req_env = None
             return
         if ev.kind == PACKET_FINAL_MESSAGE:
-            if not self.stream_buffer and ev.message:
-                speaker = ev.message.role or "assistant"
-                text = ev.message.text or ""
-                out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
+            streamed_text = self.last_streamed_text
+            self.last_streamed_text = None  # Consume it
+            if ev.message:
+                # If the final message is the same as what we just streamed, don't print it.
+                if streamed_text is None or ev.message.text != streamed_text:
+                    if streamed_text is not None and ev.message.text:
+                        diff = difflib.unified_diff(
+                            streamed_text.splitlines(keepends=True),
+                            ev.message.text.splitlines(keepends=True),
+                            fromfile="streamed",
+                            tofile="final",
+                        )
+                        out("=" * 20 + " DEBUG DIFF " + "=" * 20)
+                        sys.stdout.write("".join(diff))
+                        out("=" * 52)
+
+                    speaker = ev.message.role or "assistant"
+                    text = ev.message.text or ""
+                    out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
             self.pending_req_env = (
                 envelope if req_payload.event.input_requested else None
             )
@@ -304,6 +346,8 @@ class TerminalApp:
                 print("Exception", traceback.format_exc())
 
     async def run(self) -> None:
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(self._unhandled_exception_handler)
         await self.project.start()
         self.ui = UIState(self.project)
         self.rpc = RpcHelper(
@@ -361,6 +405,15 @@ class TerminalApp:
         @kb.add("c-g", eager=True)
         def _kb_reset(event):
             event.app.current_buffer.reset()
+
+        @kb.add("c-p", eager=True)
+        def _kb_dump(event):
+            # Run diagnostics in the terminal context to avoid corrupting the UI.
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            run_in_terminal(lambda: diagnostics.dump_all(loop=loop))
 
         # Signal handlers
         old_sigint = None
@@ -442,17 +495,18 @@ class TerminalApp:
         consumer_task = asyncio.create_task(self.event_consumer())
         try:
             while True:
-                prompt_payload = (
-                    self.pending_req_env.payload
-                    if self.pending_req_env
-                    and self.pending_req_env.payload.kind == PACKET_RUN_EVENT
-                    else None
+                # Pre-bind renderers; they compute the current pending payload at render time.
+                render_prompt = lambda: build_prompt(
+                    self.ui, self._pending_run_event_payload()
+                )
+                render_toolbar = lambda: build_toolbar(
+                    self.ui, self._pending_run_event_payload()
                 )
                 line = await self.session.prompt_async(
-                    lambda: build_prompt(self.ui, prompt_payload),
+                    render_prompt,
                     key_bindings=self.kb,
                     default="",
-                    bottom_toolbar=(lambda: build_toolbar(self.ui, prompt_payload)),
+                    bottom_toolbar=render_toolbar,
                 )
                 if self.should_exit:
                     break
