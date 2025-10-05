@@ -16,6 +16,7 @@ from prompt_toolkit.formatted_text import to_formatted_text
 from prompt_toolkit.formatted_text.utils import split_lines, fragment_list_width
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.enums import EditingMode
+from prompt_toolkit.patch_stdout import patch_stdout
 from vocode.ui.terminal import colors
 from vocode.ui.terminal.completer import TerminalCompleter
 from vocode.ui.terminal.ac_client import (
@@ -76,11 +77,10 @@ from vocode.ui.terminal.commands import (
 from vocode.ui.terminal.helpers import (
     out,
     out_fmt,
-    out_fmt_stream,
+    print_updated_lines,
     respond_packet,
     respond_message,
     respond_approval,
-    ANSI_CURSOR_DOWN,
 )
 
 
@@ -92,6 +92,23 @@ LOG_LEVEL_ORDER = {
 }
 
 
+LONG_TEXT = """This is a demonstration of streaming text output with wrapping. The following paragraph is a single long line designed to be over 300 characters to properly test how the terminal handles wrapping for very long, unbroken strings of text. It's important that this line wraps correctly without breaking words and maintains proper formatting across multiple visual lines in the terminal window. Let's see how it performs, this should be more than enough text to trigger multiple wraps on a standard 80-column terminal, and even on much wider displays. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.
+
+Here are some other features:
+* A list item.
+* Another list item.
+
+And a `code block` within a sentence.
+
+```python
+def hello():
+    print("Hello, world!")
+```
+
+This is the end of the text.
+"""
+
+
 class TerminalApp:
     def __init__(self, project: Project) -> None:
         self.project = project
@@ -101,7 +118,6 @@ class TerminalApp:
         self.session: Optional[PromptSession] = None
         self.kb: Optional[KeyBindings] = None
         self.should_exit: bool = False
-        self.change_event: Optional[asyncio.Event] = None
         self.interrupt_count: int = 0
         self.pending_req_env: Optional[UIPacketEnvelope] = None
         self.pending_cmd: Optional[str] = None
@@ -124,23 +140,6 @@ class TerminalApp:
             with contextlib.suppress(Exception):
                 self.session.app.exit(result="")
 
-    def _finish_stream(self) -> None:
-        if not self.stream_buffer:
-            return
-        ft = colors.render_markdown(
-            self.stream_buffer.full_text, prefix=f"{self.stream_buffer.speaker}: "
-        )
-        parts = list(to_formatted_text(ft))
-        lines = list(split_lines(parts))
-        last_line = colors.get_last_non_empty_line(lines) or []
-        width = shutil.get_terminal_size(fallback=(80, 24)).columns
-        last_width = fragment_list_width(last_line)
-        wraps = (last_width - 1) // width if (width > 0 and last_width > 0) else 0
-        if wraps > 0:
-            print(ANSI_CURSOR_DOWN * wraps, end="")
-        print()
-        self.stream_buffer = None
-
     async def handle_custom_commands_packet(self, cd: UIPacketCustomCommands) -> None:
         assert (
             self.commands is not None and self.rpc is not None and self.ui is not None
@@ -159,8 +158,6 @@ class TerminalApp:
 
             async def _proxy(ctx: CommandContext, args: list[str], *, _cname=c.name):
                 self.pending_cmd = _cname
-                assert self.change_event is not None
-                self.change_event.set()
                 try:
                     res = await rpc.call(UIPacketRunCommand(name=_cname, input=args))
                     if res is None:
@@ -181,8 +178,6 @@ class TerminalApp:
                     ctx.out(f"Error executing command '{_cname}': {e}")
                 finally:
                     self.pending_cmd = None
-                    assert self.change_event is not None
-                    self.change_event.set()
 
             commands.register(
                 cli_name,
@@ -199,36 +194,45 @@ class TerminalApp:
             if cli_name in self.dynamic_cli_commands:
                 commands.unregister(cli_name)
                 self.dynamic_cli_commands.discard(cli_name)
-        assert self.change_event is not None
-        self.change_event.set()
 
     async def handle_run_event(self, envelope: UIPacketEnvelope) -> None:
         assert self.ui is not None
         req_payload = envelope.payload
         assert req_payload.kind == PACKET_RUN_EVENT
         ev = req_payload.event.event
+
         if ev.kind == PACKET_LOG:
-            self._finish_stream()
             cfg_log_level = LogLevel.info
             if self.ui.project.settings and self.ui.project.settings.ui:
                 cfg_log_level = self.ui.project.settings.ui.log_level
             msg_level = ev.level or LogLevel.info
             if LOG_LEVEL_ORDER[msg_level] < LOG_LEVEL_ORDER[cfg_log_level]:
                 return
+            if self.stream_buffer:
+                self.stream_buffer = None
             out(f"[{msg_level.value}] " + ev.text)
             return
+
         if ev.kind == PACKET_MESSAGE and ev.message:
             speaker = ev.message.role or "assistant"
             text = ev.message.text or ""
-            if not self.stream_buffer or self.stream_buffer.speaker != speaker:
-                self._finish_stream()
+            if not self.stream_buffer:
+                if self.stream_buffer:
+                    self.stream_buffer = None
                 self.stream_buffer = MessageBuffer(speaker=speaker)
-            diff = self.stream_buffer.append(text)
-            if diff:
-                out_fmt_stream(diff)
+
+            new_changed_lines, old_changed_lines = self.stream_buffer.append(text)
+            if new_changed_lines or old_changed_lines:
+                await print_updated_lines(
+                    self.session, new_changed_lines, old_changed_lines
+                )
+
             return
+
+        if self.stream_buffer:
+            self.stream_buffer = None
+
         if ev.kind == PACKET_MESSAGE_REQUEST:
-            self._finish_stream()
             if ev.message:
                 out_fmt(colors.render_markdown(ev.message))
             self.pending_req_env = (
@@ -242,7 +246,6 @@ class TerminalApp:
                 self.pending_req_env = None
             return
         if ev.kind == PACKET_TOOL_CALL:
-            self._finish_stream()
             out(f"Tool calls requested: {len(ev.tool_calls)}")
             for i, tc in enumerate(ev.tool_calls, start=1):
                 out(f"  {i}. {tc.name} arguments:")
@@ -258,9 +261,7 @@ class TerminalApp:
                 self.pending_req_env = None
             return
         if ev.kind == PACKET_FINAL_MESSAGE:
-            if self.stream_buffer:
-                self._finish_stream()
-            elif ev.message:
+            if not self.stream_buffer and ev.message:
                 speaker = ev.message.role or "assistant"
                 text = ev.message.text or ""
                 out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
@@ -280,23 +281,19 @@ class TerminalApp:
         while True:
             try:
                 envelope = await self.ui.recv()
-                assert self.rpc is not None and self.change_event is not None
+                assert self.rpc is not None
                 if self.rpc.handle_response(envelope):
-                    self.change_event.set()
                     continue
                 msg = envelope.payload
                 if msg.kind == PACKET_STATUS:
                     self.reset_interrupt()
-                    self.change_event.set()
                     continue
                 if msg.kind == PACKET_RUN_EVENT:
                     await self.handle_run_event(envelope)
-                    self.change_event.set()
                     continue
                 if msg.kind == PACKET_UI_RESET:
                     self.pending_req_env = None
                     self.queued_resp = None
-                    self.change_event.set()
                     continue
                 if msg.kind == PACKET_CUSTOM_COMMANDS:
                     await self.handle_custom_commands_packet(msg)
@@ -354,7 +351,6 @@ class TerminalApp:
             self.session = PromptSession(**kwargs)
         self.kb = KeyBindings()
         self.should_exit = False
-        self.change_event = asyncio.Event()
         # Key bindings
         kb = self.kb
 
@@ -442,6 +438,7 @@ class TerminalApp:
             out_fmt(fragments)
         else:
             out("Type /help for commands.")
+
         consumer_task = asyncio.create_task(self.event_consumer())
         try:
             while True:

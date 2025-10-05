@@ -8,14 +8,25 @@ import contextlib
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text.utils import split_lines, fragment_list_width, to_formatted_text
+from prompt_toolkit.shortcuts import print_formatted_text
+from prompt_toolkit.formatted_text.utils import (
+    split_lines,
+    fragment_list_width,
+    to_formatted_text,
+)
 
 from vocode.state import RunnerStatus
 from vocode.ui.terminal.toolbar import build_prompt, build_toolbar
 from vocode.ui.terminal.buf import MessageBuffer
-from vocode.ui.terminal.helpers import out_fmt_stream, ANSI_CURSOR_DOWN, out
+from vocode.ui.terminal.helpers import (
+    ANSI_CURSOR_UP,
+    out,
+    print_updated_lines,
+)
 from vocode.ui.terminal import colors
+
 
 class MockUIState:
     def __init__(self):
@@ -26,6 +37,7 @@ class MockUIState:
         self.acc_completion_tokens = 6789
         self.acc_cost_dollars = 0.04567
         self.workflow = None
+
 
 # A long text with markdown and very long lines to test wrapping.
 LONG_TEXT = """This is a demonstration of streaming text output with wrapping. The following paragraph is a single long line designed to be over 300 characters to properly test how the terminal handles wrapping for very long, unbroken strings of text. It's important that this line wraps correctly without breaking words and maintains proper formatting across multiple visual lines in the terminal window. Let's see how it performs, this should be more than enough text to trigger multiple wraps on a standard 80-column terminal, and even on much wider displays. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.
@@ -44,29 +56,16 @@ def hello():
 This is the end of the text.
 """
 
-def _finish_stream(stream_buffer: MessageBuffer) -> None:
-    if not stream_buffer:
-        return
-    ft = colors.render_markdown(
-        stream_buffer.full_text, prefix=f"{stream_buffer.speaker}: "
-    )
-    parts = list(to_formatted_text(ft))
-    lines = list(split_lines(parts))
-    last_line = colors.get_last_non_empty_line(lines) or []
-    width = shutil.get_terminal_size(fallback=(80, 24)).columns
-    last_width = fragment_list_width(last_line)
-    wraps = (last_width - 1) // width if (width > 0 and last_width > 0) else 0
-    if wraps > 0:
-        print(ANSI_CURSOR_DOWN * wraps, end="")
-    print()
-
 
 async def main():
     """
     Shows a prompt and simulates streaming text above it concurrently.
     """
     mock_ui_state = MockUIState()
-    session = PromptSession()
+    session = PromptSession(
+        multiline=True,
+        # prompt_continuation=lambda width, line_number, is_soft_wrap: "",
+    )
 
     async def stream_and_finish():
         """Simulates streaming text to the terminal."""
@@ -77,13 +76,12 @@ async def main():
 
         for word in words:
             # Append word and a space, get the formatted text for the update
-            diff = stream_buffer.append(word + " ")
-            if diff:
-                out_fmt_stream(diff)
+            new_changed_lines, old_changed_lines = stream_buffer.append(word + " ")
+            if new_changed_lines or old_changed_lines:
+                await print_updated_lines(session, new_changed_lines, old_changed_lines)
             await asyncio.sleep(0.02)  # Simulate network delay/word-by-word generation
 
         # Finalize the stream output by moving cursor and printing a newline
-        _finish_stream(stream_buffer)
         out("\n--- Stream finished. You can now type your response. ---")
 
     # Run the streaming in the background

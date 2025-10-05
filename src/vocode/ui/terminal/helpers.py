@@ -5,6 +5,7 @@ from typing import Optional
 
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import to_formatted_text
+from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.formatted_text.utils import split_lines, fragment_list_width
 from prompt_toolkit.shortcuts import print_formatted_text
 
@@ -13,11 +14,6 @@ from vocode.ui.base import UIState
 from vocode.ui.proto import UIPacketEnvelope, UIPacketRunInput
 from vocode.runner.models import RunInput, RespPacket, RespMessage, RespApproval
 from vocode.state import Message
-
-# ANSI escape sequences used by streaming output and finalization
-ANSI_CARRIAGE_RETURN_AND_CLEAR_TO_EOL = "\r\x1b[K"
-ANSI_CURSOR_UP = "\x1b[1A"
-ANSI_CURSOR_DOWN = "\x1b[1B"
 
 
 def out(*args, **kwargs) -> None:
@@ -42,42 +38,35 @@ def out_fmt(ft) -> None:
         print(to_formatted_text(ft).text, flush=True)
 
 
-def out_fmt_stream(ft) -> None:
+async def print_updated_lines(session, new_lines: list, old_lines: list) -> None:
     """
-    Print prompt_toolkit AnyFormattedText without a trailing newline,
-    using a carriage return to overwrite the current line.
-    Handles wrapped lines by splitting on newlines and tracking visual wraps.
+    Overwrites previous output with new lines.
+    Calculates visual lines for old content to move cursor up, then prints new content.
     """
-    parts = list(ft)
-
-    # Clear the current line first (we're overwriting the streamed line).
-    print(ANSI_CARRIAGE_RETURN_AND_CLEAR_TO_EOL, end="")
-
-    # Split into lines using prompt_toolkit helper.
-    lines = list(split_lines(parts))
-
-    # Print all full lines (all but last) with a newline.
-    for line in lines[:-1]:
-        print_formatted_text(to_formatted_text(line), style=colors.get_console_style())
-
-    # Prepare last line.
-    last_line = lines[-1] if lines else []
-
-    # Compute how many wraps the last line will take.
     width = shutil.get_terminal_size(fallback=(80, 24)).columns
-    last_width = fragment_list_width(last_line)
-    wraps = (last_width - 1) // width if (width > 0 and last_width > 0) else 0
 
-    # Print the last line without a trailing newline (to keep streaming).
-    if last_line:
-        print_formatted_text(
-            to_formatted_text(last_line), style=colors.get_console_style(), end=""
-        )
+    visual_lines_up = 0
 
-    # If the last line wrapped, move the cursor back up so the next update
-    # will overwrite from the first visual line of this wrapped block.
-    if wraps > 0:
-        print(ANSI_CURSOR_UP * wraps, end="")
+    app = session.app
+
+    for line in old_lines:
+        line_width = fragment_list_width(line)
+        wraps = (line_width - 1) // width if (width > 0 and line_width > 0) else 0
+        visual_lines_up += 1 + wraps
+
+    def _printer():
+        print_formatted_text("\r", end="", flush=True)
+        if visual_lines_up > 0:
+            app.output.cursor_up(visual_lines_up)
+
+        for line in new_lines:
+            print_formatted_text(
+                to_formatted_text(line),
+                style=colors.get_console_style(),
+                flush=True,
+            )
+
+    await run_in_terminal(_printer)
 
 
 async def respond_packet(
