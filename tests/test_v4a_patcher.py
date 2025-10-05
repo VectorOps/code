@@ -678,8 +678,8 @@ async def run_terminal(project: Project) -> None:
             kwargs["editing_mode"] = editing_mode
         session = PromptSession(**kwargs)
 
-async def foobar():
-    pass
+@click.command()
+@click.argument(
 """
 
     # This is what the file content should be after the patch is applied correctly
@@ -690,8 +690,8 @@ async def run_terminal(project: Project) -> None:
     await app.run()
 
 
-async def foobar():
-    pass
+@click.command()
+@click.argument(
 """
 
     statuses, errs, writes, deletes, _ = run_patch(
