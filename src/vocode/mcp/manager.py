@@ -3,6 +3,12 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+# Optional dependency: fastmcp
+try:
+    from fastmcp import Client as FastMCPClient  # type: ignore
+except Exception:
+    FastMCPClient = None  # type: ignore[assignment]
+
 from ..settings import MCPSettings, MCPServerSettings
 from ..tools import register_tool, unregister_tool
 from .proxy import MCPToolProxy
@@ -84,12 +90,10 @@ class MCPManager:
         """
         Build a FastMCP Client from MCPSettings. The Client manages connecting/spawning.
         """
-        try:
-            from fastmcp import Client  # type: ignore
-        except Exception as e:
-            raise RuntimeError(
-                "FastMCP client not available; pip install fastmcp"
-            ) from e
+        if FastMCPClient is None:
+            raise RuntimeError("FastMCP client not available; pip install fastmcp")
+        if self._project is None:
+            raise RuntimeError("Cannot create MCP client without a project context")
 
         # Build FastMCP-compatible config
         mcp_servers: Dict[str, Dict[str, Any]] = {}
@@ -103,6 +107,9 @@ class MCPManager:
                     entry["args"] = list(server.args)
             if server.env:
                 entry["env"] = dict(server.env)
+            # Ensure servers spawned via command run in the project root
+            # Note: harmless if URL-based; fastmcp should ignore cwd when not spawning.
+            entry["cwd"] = str(self._project.base_path)
             if not entry:
                 continue
             mcp_servers[server_name] = entry
@@ -114,7 +121,8 @@ class MCPManager:
             )
 
         config: Dict[str, Any] = {"mcpServers": mcp_servers}
-        return Client(config)
+        # Ensure servers spawned via command run in the project root via per-server cwd
+        return FastMCPClient(config)
 
     async def _list_tools(self):
         if not self._client:

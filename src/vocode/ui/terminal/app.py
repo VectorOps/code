@@ -413,14 +413,22 @@ class TerminalApp:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 loop = None
-            run_in_terminal(lambda: diagnostics.dump_all(loop=loop))
+            def _dump():
+                diagnostics.dump_all(loop=loop)
+            try:
+                run_in_terminal(_dump)
+            except Exception:
+                _dump()
 
         # Signal handlers
         old_sigint = None
         old_sigterm = None
+        old_sigusr2 = None
         try:
             old_sigint = signal.getsignal(signal.SIGINT)
             old_sigterm = signal.getsignal(signal.SIGTERM)
+            if hasattr(signal, "SIGUSR2"):
+                old_sigusr2 = signal.getsignal(signal.SIGUSR2)
 
             def _sigint_handler(signum, frame):
                 # Suppress stacktrace dumps on Ctrl+C; just trigger a graceful stop/cancel.
@@ -455,11 +463,21 @@ class TerminalApp:
                             )
                         except Exception:
                             pass
-
+ 
+            if hasattr(signal, "SIGUSR2"):
+                def _sigusr2_handler(signum, frame):
+                    # External trigger for diagnostics even if UI is stuck.
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+                    diagnostics.dump_all(loop=loop)
+                signal.signal(signal.SIGUSR2, _sigusr2_handler)
             signal.signal(signal.SIGTERM, _sigterm_handler)
         except Exception:
             old_sigint = None
             old_sigterm = None
+            old_sigusr2 = None
         ctx = CommandContext(
             ui=self.ui,
             out=lambda s: out(s),

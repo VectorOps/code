@@ -25,8 +25,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Add syntax name hint to apply formatting
 * [ ] Terminal UI
 ** [X] Always show prompt. Add commands to stop/continue workflows
-** [ ] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
-** [ ] Streaming printing is broken with permanent toolbar visibility
+** [X] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
+** [X] Streaming printing is broken with permanent toolbar visibility
 ** [ ] When LLM is waiting for response, need to show visual feedback to user
 ** [ ] Summarize tool calls for known tools. Create templates for tool calling that map parameters
 ** [ ] Ability to snoop into tool call details if needed, collapsed by default

@@ -452,6 +452,7 @@ class LLMExecutor(Executor):
                 tools=tools,
                 tool_choice="auto" if tools else None,
                 stream=True,
+                stream_options={"include_usage": True},
                 **extra_args,
             )
 

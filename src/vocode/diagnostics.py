@@ -138,15 +138,36 @@ def _describe_waiters(waiters: Any) -> str:
         if waiters is None:
             return "None"
         # Many asyncio primitives keep a list or deque of Futures.
-        # We don’t assume specific types; show length and simple repr slice.
+        # We don’t assume specific types; show length and a compact preview.
         try:
             ln = len(waiters)  # type: ignore[arg-type]
         except Exception:
             ln = None
-        base = f"type={type(waiters).__name__}"
+
+        desc = f"type={type(waiters).__name__}"
         if ln is not None:
-            base += f
-        return base
+            desc += f" len={ln}"
+
+        # Try to show up to 5 elements with basic type/state
+        if ln:
+            items_preview = []
+            try:
+                for w in list(waiters)[:5]:
+                    try:
+                        if isinstance(w, asyncio.Future):
+                            state = "done" if w.done() else "pending"
+                            items_preview.append(f"Future({state})")
+                        else:
+                            items_preview.append(type(w).__name__)
+                    except Exception:
+                        items_preview.append("?")
+                if items_preview:
+                    more = "" if ln <= 5 else f", +{ln - 5} more"
+                    desc += f" [{', '.join(items_preview)}{more}]"
+            except Exception:
+                # If the object isn't iterable or fails on iteration, ignore preview.
+                pass
+        return desc
     except Exception as e:
         return f"<error describing waiters: {e!r}>"
 
