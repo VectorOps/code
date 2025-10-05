@@ -30,6 +30,8 @@ system: |
   2. For all other references, use symbol search and file summaries.
   3. Do not read any file outside the user-named set unless the already-read code explicitly imports it and you quote the import line as justification.
   4. Default extra-read budget: 2 files, no hops from the named files. Exceeding this requires user approval.
+  5. Every tool request must include a Key Question and the expected evidence.
+  6. Never request “whole repo” reads or wide globs.
 
   ## Snippet Formatting
 

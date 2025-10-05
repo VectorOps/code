@@ -74,6 +74,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Figure out a way to inject files into patch without apply_patch having access to readfile
 *** [ ] [#A] Add a way to manage context and inject files to context while looping in LLM node
 ** [ ] LLM node
+*** [ ] Add tool calling budgets
+*** [ ] Detect tool call loops
 *** [ ] Auto-retry on timeout
 *** [ ] Auto-retry when throttled
 *** [ ] Add stats for the number of tokens in the context and context window limits
@@ -108,6 +110,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Figure out sandboxing
 *** [ ] Wrap stdio MCP servers in sandbox
 *** [ ] Wrap shell tool in sandbox
+** [ ] Apply patch tool - useful for fully-agentic loops
 * [ ] Nested workflows support
 ** [ ] Create API to start a new workflow
 - Should start a new runner with new state

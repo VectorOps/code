@@ -3,5 +3,6 @@ from .input import InputExecutor
 from .message import MessageExecutor
 from .llm_usage_stats import LLMUsageStatsExecutor
 from .file_state import FileStateExecutor  # ensure registration
+from .exec import ExecExecutor  # register process-spawning executor
 
-__all__ = ["InputExecutor", "MessageExecutor", "LLMUsageStatsExecutor", "FileStateExecutor"]
+__all__ = ["InputExecutor", "MessageExecutor", "LLMUsageStatsExecutor", "FileStateExecutor", "ExecExecutor"]
