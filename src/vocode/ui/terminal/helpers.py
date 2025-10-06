@@ -162,12 +162,15 @@ class StreamThrottler:
             text_to_flush = self._buffer
             self._buffer = ""
 
+            # Update the MessageBuffer under the same lock so it remains consistent,
+            # but only compute the *results* needed for printing.
             new_changed_lines, old_changed_lines = self._stream_buffer.append(
                 text_to_flush
             )
-            if new_changed_lines or old_changed_lines:
-                await print_updated_lines(
-                    self._session, new_changed_lines, old_changed_lines
-                )
-
+            do_print = bool(new_changed_lines or old_changed_lines)
             self._last_flush_time = time.monotonic()
+
+        if do_print:
+            await print_updated_lines(
+                self._session, new_changed_lines, old_changed_lines
+            )

@@ -398,9 +398,9 @@ class TerminalApp:
         # Key bindings
         kb = self.kb
 
-        @kb.add("c-c")
-        def _kb_stop(event):
-            asyncio.create_task(self.stop_toggle())
+        # @kb.add("c-c")
+        # def _kb_stop(event):
+        #    asyncio.create_task(self.stop_toggle())
 
         @kb.add("c-g", eager=True)
         def _kb_reset(event):
@@ -477,7 +477,7 @@ class TerminalApp:
                     diagnostics.dump_all(loop=loop)
 
                 signal.signal(signal.SIGUSR2, _sigusr2_handler)
-            signal.signal(signal.SIGTERM, _sigterm_handler)
+            # signal.signal(signal.SIGTERM, _sigterm_handler)
         except Exception:
             old_sigint = None
             old_sigterm = None
