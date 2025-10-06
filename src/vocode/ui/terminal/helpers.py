@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import shutil
 from typing import Optional, TYPE_CHECKING
 import asyncio
-import time
 
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import to_formatted_text
@@ -99,7 +99,8 @@ async def respond_approval(ui: UIState, source_msg_id: int, approved: bool) -> N
 class StreamThrottler:
     """
     Helper to throttle streaming updates to the terminal to avoid flickering.
-    It accumulates text chunks and flushes them to a MessageBuffer at a controlled rate.
+    It accumulates text chunks and flushes them to a MessageBuffer at a controlled rate
+    using a background worker task.
     """
 
     def __init__(
@@ -113,9 +114,10 @@ class StreamThrottler:
         self._stream_buffer = MessageBuffer(speaker=speaker)
         self._interval_s = interval_s
         self._buffer = ""
-        self._last_flush_time = 0.0
-        self._flush_task: Optional[asyncio.Task] = None
-        self._flush_lock = asyncio.Lock()
+        self._buffer_lock = asyncio.Lock()
+        self._new_text_event = asyncio.Event()
+        self._closed = False
+        self._worker_task: asyncio.Task[None] = asyncio.create_task(self._worker())
 
     @property
     def full_text(self) -> str:
@@ -123,54 +125,60 @@ class StreamThrottler:
         return self._stream_buffer.full_text + self._buffer
 
     async def append(self, text: str) -> None:
-        """Append text. It will be flushed according to throttling policy."""
+        """Append text. It will be flushed by the background worker."""
         if not text:
             return
-        self._buffer += text
-        now = time.monotonic()
-        if now - self._last_flush_time >= self._interval_s:
-            # Enough time has passed, flush immediately.
-            # The flush() call will handle cancelling any pending _flush_task.
-            await self.flush()
-        elif not self._flush_task:
-            # Not enough time has passed, schedule a flush.
-            self._flush_task = asyncio.create_task(self._delayed_flush())
+        async with self._buffer_lock:
+            self._buffer += text
+        self._new_text_event.set()
 
-    async def _delayed_flush(self) -> None:
+    async def _worker(self) -> None:
         try:
-            await asyncio.sleep(self._interval_s)
-            await self.flush()
+            while not self._closed:
+                await self._new_text_event.wait()
+                if self._closed:
+                    break
+                self._new_text_event.clear()
+
+                await self._flush_buffer()
+                await asyncio.sleep(self._interval_s)
         except asyncio.CancelledError:
+            # Final flush is handled in close()
             pass
-        finally:
-            self._flush_task = None
 
-    async def flush(self) -> None:
-        """Force flush any buffered text and reset state."""
-        task_to_cancel = self._flush_task
-        if task_to_cancel and asyncio.current_task() is not task_to_cancel:
-            task_to_cancel.cancel()
-            # Yield control to allow the cancelled task to run its cleanup
-            # and release the lock if it was acquired.
-            await asyncio.sleep(0)
+    async def close(self) -> None:
+        """Stops the background worker and performs a final flush."""
+        if self._closed:
+            return
+        self._closed = True
+        self._new_text_event.set()  # Wake up worker to exit loop
+        self._worker_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._worker_task
+        await self._flush_buffer()  # Final flush
 
-        async with self._flush_lock:
-            if not self._buffer:
-                self._last_flush_time = time.monotonic()
-                return
+    async def _flush_buffer(self) -> None:
+        """Flushes the current buffer to the terminal."""
+        text_to_flush = ""
+        async with self._buffer_lock:
+            if self._buffer:
+                text_to_flush = self._buffer
+                self._buffer = ""
 
-            text_to_flush = self._buffer
-            self._buffer = ""
+        if not text_to_flush:
+            return
 
-            # Update the MessageBuffer under the same lock so it remains consistent,
-            # but only compute the *results* needed for printing.
-            new_changed_lines, old_changed_lines = self._stream_buffer.append(
-                text_to_flush
-            )
-            do_print = bool(new_changed_lines or old_changed_lines)
-            self._last_flush_time = time.monotonic()
+        new_changed_lines, old_changed_lines = self._stream_buffer.append(
+            text_to_flush
+        )
+        do_print = bool(new_changed_lines or old_changed_lines)
 
         if do_print:
-            await print_updated_lines(
-                self._session, new_changed_lines, old_changed_lines
+            # Shield to prevent cancellation during terminal writes
+            await asyncio.shield(
+                print_updated_lines(self._session, new_changed_lines, old_changed_lines)
             )
+
+    async def flush(self) -> None:
+        """Force flush any buffered text."""
+        await self._flush_buffer()

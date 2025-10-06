@@ -163,7 +163,7 @@ class TerminalApp:
     async def _flush_and_clear_stream(self) -> None:
         if self.stream_throttler:
             self.last_streamed_text = self.stream_throttler.full_text
-            await self.stream_throttler.flush()
+            await self.stream_throttler.close()
         self.stream_throttler = None
 
     async def handle_custom_commands_packet(self, cd: UIPacketCustomCommands) -> None:
