@@ -133,49 +133,77 @@ def _is_asyncio_primitive(obj: Any) -> bool:
         return False
 
 
-def _describe_waiters(waiters: Any) -> str:
+def _describe_waiters(
+    waiters: Any, wait_map: "dict[int, list[asyncio.Task[Any]]]", fp: IO[str]
+) -> None:
     try:
         if waiters is None:
-            return "None"
-        # Many asyncio primitives keep a list or deque of Futures.
-        # We don’t assume specific types; show length and a compact preview.
+            _write_line(fp, "      None")
+            return
+
         try:
-            ln = len(waiters)  # type: ignore[arg-type]
+            waiter_list = list(waiters)
+            ln = len(waiter_list)
         except Exception:
+            waiter_list = []
             ln = None
 
-        desc = f"type={type(waiters).__name__}"
-        if ln is not None:
-            desc += f" len={ln}"
+        _write_line(
+            fp,
+            f"      type={type(waiters).__name__}"
+            + (f" len={ln}" if ln is not None else ""),
+        )
 
-        # Try to show up to 5 elements with basic type/state
-        if ln:
-            items_preview = []
-            try:
-                for w in list(waiters)[:5]:
-                    try:
-                        if isinstance(w, asyncio.Future):
-                            state = "done" if w.done() else "pending"
-                            items_preview.append(f"Future({state})")
-                        else:
-                            items_preview.append(type(w).__name__)
-                    except Exception:
-                        items_preview.append("?")
-                if items_preview:
-                    more = "" if ln <= 5 else f", +{ln - 5} more"
-                    desc += f" [{', '.join(items_preview)}{more}]"
-            except Exception:
-                # If the object isn't iterable or fails on iteration, ignore preview.
-                pass
-        return desc
+        if not waiter_list:
+            return
+
+        for i, w in enumerate(waiter_list):
+            tasks = wait_map.get(id(w), [])
+            state = ""
+            if isinstance(w, asyncio.Future):
+                state = "done" if w.done() else "pending"
+            _write_line(
+                fp,
+                f"      [{i}] {type(w).__name__} at {hex(id(w))}"
+                + (f" state={state}" if state else ""),
+            )
+
+            if not tasks:
+                _write_line(fp, "        (no waiting task found)")
+                continue
+
+            for task in tasks:
+                _write_line(fp, f"        waiting task: {_format_task_header(task)}")
+                try:
+                    stack = task.get_stack(limit=None)
+                    if not stack:
+                        _write_line(fp, "          (no stack frames)")
+                    else:
+                        for fr in stack:
+                            for ln in traceback.format_stack(fr):
+                                for l in ln.rstrip("\n").splitlines():
+                                    _write_line(fp, "            " + l)
+                except Exception as e:
+                    _write_line(fp, f"          <error getting stack: {e!r}>")
     except Exception as e:
-        return f"<error describing waiters: {e!r}>"
+        _write_line(fp, f"      <error describing waiters: {e!r}>")
 
 
-def dump_async_locks(fp: IO[str]) -> None:
+def dump_async_locks(loop: Optional[asyncio.AbstractEventLoop], fp: IO[str]) -> None:
     """
     Scan GC for asyncio synchronization primitives and dump basic state.
     """
+    wait_map: dict[int, list[asyncio.Task[Any]]] = {}
+    if loop:
+        for task in asyncio.all_tasks(loop):
+            coro = task.get_coro()
+            # cr_await exists on coroutine objects, check for it.
+            if hasattr(coro, "cr_await"):
+                awaited_obj = coro.cr_await
+                if awaited_obj is not None:
+                    # Using id() for the key as awaitables may not be hashable
+                    wait_map.setdefault(id(awaited_obj), []).append(task)
+
     objs = gc.get_objects()
     primitives = [o for o in objs if _is_asyncio_primitive(o)]
     _section(fp, f"Async Locks/Primitives (count={len(primitives)})")
@@ -185,10 +213,15 @@ def dump_async_locks(fp: IO[str]) -> None:
         try:
             if cls == "Lock":
                 locked = _safe_getattr(o, "locked", None)
-                locked_state = bool(locked()) if callable(locked) else bool(_safe_getattr(o, "_locked", False))
+                locked_state = (
+                    bool(locked())
+                    if callable(locked)
+                    else bool(_safe_getattr(o, "_locked", False))
+                )
                 _write_line(fp, f"    locked={locked_state}")
                 waiters = _safe_getattr(o, "_waiters", None)
-                _write_line(fp, f"    waiters={_describe_waiters(waiters)}")
+                _write_line(fp, "    waiters:")
+                _describe_waiters(waiters, wait_map, fp)
             elif cls == "Event":
                 is_set = False
                 is_set_fn = _safe_getattr(o, "is_set", None)
@@ -199,17 +232,23 @@ def dump_async_locks(fp: IO[str]) -> None:
                         pass
                 _write_line(fp, f"    is_set={is_set}")
                 waiters = _safe_getattr(o, "_waiters", None)
-                _write_line(fp, f"    waiters={_describe_waiters(waiters)}")
+                _write_line(fp, "    waiters:")
+                _describe_waiters(waiters, wait_map, fp)
             elif cls in ("Semaphore", "BoundedSemaphore"):
                 value = _safe_getattr(o, "_value", None)
                 _write_line(fp, f"    value={value}")
                 waiters = _safe_getattr(o, "_waiters", None)
-                _write_line(fp, f"    waiters={_describe_waiters(waiters)}")
+                _write_line(fp, "    waiters:")
+                _describe_waiters(waiters, wait_map, fp)
             elif cls == "Condition":
                 lock = _safe_getattr(o, "_lock", None)
-                _write_line(fp, f"    lock={type(lock).__name__ if lock else None} id={hex(id(lock)) if lock else None}")
+                _write_line(
+                    fp,
+                    f"    lock={type(lock).__name__ if lock else None} id={hex(id(lock)) if lock else None}",
+                )
                 waiters = _safe_getattr(o, "_waiters", None)
-                _write_line(fp, f"    waiters={_describe_waiters(waiters)}")
+                _write_line(fp, "    waiters:")
+                _describe_waiters(waiters, wait_map, fp)
             else:
                 # Other asyncio primitives like Queue
                 waiters_put = _safe_getattr(o, "_putters", None)
@@ -221,8 +260,10 @@ def dump_async_locks(fp: IO[str]) -> None:
                     except Exception:
                         pass
                 _write_line(fp, f"    size={size}")
-                _write_line(fp, f"    putters={_describe_waiters(waiters_put)}")
-                _write_line(fp, f"    getters={_describe_waiters(waiters_get)}")
+                _write_line(fp, "    putters:")
+                _describe_waiters(waiters_put, wait_map, fp)
+                _write_line(fp, "    getters:")
+                _describe_waiters(waiters_get, wait_map, fp)
         except Exception as e:
             _write_line(fp, f"    <error while dumping primitive: {e!r}>")
         _write_line(fp)
@@ -237,7 +278,7 @@ def dump_all(loop: Optional[asyncio.AbstractEventLoop] = None, fp: IO[str] = sys
     _section(fp, f"Process Diagnostics at {ts}")
     dump_threads(fp)
     dump_async_tasks(loop, fp)
-    dump_async_locks(fp)
+    dump_async_locks(loop, fp)
     _write_line(fp, "End of diagnostics.")
     try:
         fp.flush()

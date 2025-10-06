@@ -413,8 +413,10 @@ class TerminalApp:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 loop = None
+
             def _dump():
                 diagnostics.dump_all(loop=loop)
+
             try:
                 run_in_terminal(_dump)
             except Exception:
@@ -463,8 +465,9 @@ class TerminalApp:
                             )
                         except Exception:
                             pass
- 
+
             if hasattr(signal, "SIGUSR2"):
+
                 def _sigusr2_handler(signum, frame):
                     # External trigger for diagnostics even if UI is stuck.
                     try:
@@ -472,6 +475,7 @@ class TerminalApp:
                     except RuntimeError:
                         loop = None
                     diagnostics.dump_all(loop=loop)
+
                 signal.signal(signal.SIGUSR2, _sigusr2_handler)
             signal.signal(signal.SIGTERM, _sigterm_handler)
         except Exception:
@@ -605,6 +609,10 @@ class TerminalApp:
 
 
 async def run_terminal(project: Project) -> None:
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
+    asyncio.get_event_loop().set_debug(True)
+    asyncio.get_event_loop().slow_callback_duration = 0.05
+
     # Thin wrapper: defer to TerminalApp for all terminal behavior.
     app = TerminalApp(project)
     await app.run()
@@ -620,9 +628,18 @@ def main(project_path: str) -> None:
 
 
 if __name__ == "__main__":
-    import faulthandler, signal, sys
+    import faulthandler, signal, sys, warnings, logging
 
     faulthandler.enable(sys.stderr)  # or just faulthandler.enable()
     faulthandler.register(signal.SIGUSR1)
+
+    # Fix litellm warnings
+    from pydantic.warnings import (
+        PydanticDeprecatedSince211,
+        PydanticDeprecatedSince20,
+    )
+
+    warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince211)
+    warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince20)
 
     main()

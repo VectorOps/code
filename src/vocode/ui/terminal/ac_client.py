@@ -8,10 +8,15 @@ from vocode.ui.proto import UIPacketCompletionRequest, PACKET_COMPLETION_RESULT
 from vocode.ui.terminal.completer import GeneralCompletionProvider
 from vocode.ui.terminal.commands import CommandCompletionProvider
 
-def make_canned_provider(rpc: RpcHelper, name: str, *, debounce: float = 0.3) -> CommandCompletionProvider:
+
+def make_canned_provider(
+    rpc: RpcHelper, name: str, *, debounce: float = 0.3
+) -> CommandCompletionProvider:
     call_id = 0
 
-    async def provider(_ui, document: Document, args: List[str], arg_prefix: str) -> Iterable[Union[str, Completion]]:
+    async def provider(
+        _ui, document: Document, args: List[str], arg_prefix: str
+    ) -> Iterable[Union[str, Completion]]:
         nonlocal call_id
         call_id += 1
         my_id = call_id
@@ -36,6 +41,7 @@ def make_canned_provider(rpc: RpcHelper, name: str, *, debounce: float = 0.3) ->
         return res.suggestions
 
     return provider
+
 
 def make_general_filelist_provider(
     rpc: RpcHelper, *, debounce: float = 0.3, limit: int = 20
@@ -65,11 +71,15 @@ def make_general_filelist_provider(
         try:
             res = await rpc.call(
                 UIPacketCompletionRequest(name="filelist", params=params),
-                timeout=2.0,
+                timeout=3.0,
             )
         except Exception:
             return []
-        if not res or res.kind != PACKET_COMPLETION_RESULT or not getattr(res, "ok", False):
+        if (
+            not res
+            or res.kind != PACKET_COMPLETION_RESULT
+            or not getattr(res, "ok", False)
+        ):
             return []
         return list(getattr(res, "suggestions", []))
 

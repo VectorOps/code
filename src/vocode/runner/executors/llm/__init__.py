@@ -444,7 +444,7 @@ class LLMExecutor(Executor):
             )
 
             # Start streaming
-            stream = await acompletion(
+            completion_coro = acompletion(
                 model=cfg.model,
                 messages=conv,
                 temperature=cfg.temperature,
@@ -455,6 +455,10 @@ class LLMExecutor(Executor):
                 stream_options={"include_usage": True},
                 **extra_args,
             )
+            # Wrap in a named task for better diagnostics
+            task_name = f"llm.acompletion:{cfg.name}"
+            stream_task = asyncio.create_task(completion_coro, name=task_name)
+            stream = await stream_task
 
             # Collect streamed content and tool_calls; emit interim messages for content chunks
             async for chunk in stream:
