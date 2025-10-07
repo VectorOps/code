@@ -85,6 +85,9 @@ class Message(BaseModel):
     )
     role: Role = Field(..., description="Sender role: agent, user, system, tool, etc.")
     text: str = Field(..., description="Original message as received/emitted")
+    node: Optional[str] = Field(
+        default=None, description="Name of the node that produced this message"
+    )
 
     tool_calls: List[ToolCall] = Field(
         default_factory=list, description="List of recorded tool calls for this message"

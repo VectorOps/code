@@ -1,6 +1,9 @@
 #+title: Code TODO
 * [ ] Cleanup and optimizations
 ** [X] Autocompleters needs consts at model level
+* [ ] Preprocessors
+** [ ] Add user prompt preprocessor (instead of just system prompt) through configuration
+** [ ] Add prefix variant of preprocessor to enable caching.
 * [ ] Runner
 ** [ ] Emit event to UI when runner state changes: starts, stops, moves to next node, etc.
 ** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.

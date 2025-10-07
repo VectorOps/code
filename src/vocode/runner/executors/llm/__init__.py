@@ -114,17 +114,26 @@ class LLMExecutor(Executor):
             # Allow base Node but prefer LLMNode
             raise TypeError("LLMExecutor requires config to be an LLMNode")
 
+    def _map_message_to_llm_dict(self, m: Message, cfg: LLMNode) -> Dict[str, Any]:
+        """Maps a vocode.state.Message to an OpenAI-style dictionary for the LLM."""
+        role = m.role or "user"
+        is_external = m.node is None or m.node != cfg.name
+
+        if is_external:
+            # Any message from another node is treated as user input to this node.
+            role = "user"
+        else:
+            # For messages from this node or from the user, map 'agent' to 'assistant'.
+            if role == "agent":
+                role = "assistant"
+            elif role not in ("user", "system", "tool", "assistant"):
+                role = "user"
+
+        return {"role": role, "content": m.text}
+
     def _build_base_messages(
         self, cfg: LLMNode, history: List[Message]
     ) -> List[Dict[str, Any]]:
-        def map_role(m: Message) -> Dict[str, Any]:
-            role = m.role or "user"
-            if role == "agent":
-                role = "assistant"
-            elif role not in ("user", "assistant", "system", "tool"):
-                role = "user"
-            return {"role": role, "content": m.text}
-
         msgs: List[Dict[str, Any]] = []
         if cfg.system:
             sys_text = cfg.system
@@ -134,11 +143,7 @@ class LLMExecutor(Executor):
                 sys_text = apply_preprocessors(preprocs, sys_text)
             msgs.append({"role": "system", "content": sys_text})
         for m in history:
-            msgs.append(map_role(m))
-
-        # Ensure the conversation ends with a 'user' message so the model is prompted correctly
-        if msgs and msgs[-1].get("role") != "user":
-            msgs[-1]["role"] = "user"
+            msgs.append(self._map_message_to_llm_dict(m, cfg))
 
         return msgs
 
@@ -313,13 +318,7 @@ class LLMExecutor(Executor):
         # (typical when re-entering node with keep_state).
         if inp.state is not None and inp.messages:
             for m in inp.messages:
-                # Preserve original roles; map 'agent' -> 'assistant'
-                role = m.role or "user"
-                if role == "agent":
-                    role = "assistant"
-                elif role not in ("user", "assistant", "system", "tool"):
-                    role = "user"
-                state.conv.append({"role": role, "content": m.text})
+                state.conv.append(self._map_message_to_llm_dict(m, cfg))
             state.expect = LLMExpect.none
 
         # Integrate incoming response into conversation
@@ -475,7 +474,9 @@ class LLMExecutor(Executor):
                     # Emit an interim message with just this piece
                     _ = yield (
                         ReqInterimMessage(
-                            message=Message(role="agent", text=content_piece)
+                            message=Message(
+                                role="agent", text=content_piece, node=cfg.name
+                            )
                         ),
                         None,
                     )
@@ -662,7 +663,7 @@ class LLMExecutor(Executor):
                 state,
             )
             # Finalize: prepare final message and persist state. Allow post-final user reply on next cycle.
-            final_msg = Message(role="agent", text=assistant_text)
+            final_msg = Message(role="agent", text=assistant_text, node=cfg.name)
             selected_outcome = outcome_name
             state.pending_outcome_name = None
             state.expect = LLMExpect.post_final_user
