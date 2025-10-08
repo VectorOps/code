@@ -89,7 +89,7 @@ Noise footer that must be ignored."""
     }
 
 
-def test_duplicate_file_entry_is_error_and_ignored():
+def test_multiple_update_blocks_are_merged():
     text = """*** Begin Patch
 *** Update File: src/dup.py
 @@
@@ -101,14 +101,60 @@ def test_duplicate_file_entry_is_error_and_ignored():
 + d
 *** End Patch"""
     statuses, errors, writes, deletes, opened = run_patch(
-        text, initial_files={"src/dup.py": " a\n"}
+        text, initial_files={"src/dup.py": " a\n c\n"}
     )
-    assert any("Duplicate file entry" in e.msg for e in errors)
-    # On parse error, no IO occurs and no statuses are returned
+    assert errors == []
+    assert opened == ["src/dup.py"]
+    assert writes["src/dup.py"] == " b\n d\n"
+    assert deletes == []
+    assert statuses == {"src/dup.py": FileApplyStatus.Update}
+
+
+def test_delete_and_create_is_a_replace():
+    text = """*** Begin Patch
+*** Delete File: src/a.txt
+*** Add File: src/a.txt
++ new content
+*** End Patch"""
+    statuses, errors, writes, deletes, opened = run_patch(
+        text, initial_files={"src/a.txt": "old content"}
+    )
+    assert errors == []
+    assert opened == []
+    assert writes == {"src/a.txt": " new content"}
+    assert deletes == []
+    assert statuses == {"src/a.txt": FileApplyStatus.Create}
+
+
+def test_create_and_update_is_error():
+    text = """*** Begin Patch
+*** Add File: src/a.txt
++ new content
+*** Update File: src/a.txt
+@@
+- a
++ b
+*** End Patch"""
+    statuses, errors, writes, deletes, opened = run_patch(
+        text, initial_files={"src/a.txt": "a"}
+    )
+    assert any("Cannot mix Update and Add sections" in e.msg for e in errors)
     assert writes == {}
     assert deletes == []
     assert statuses == {}
 
+
+def test_create_and_delete_is_error():
+    text = """*** Begin Patch
+*** Add File: src/a.txt
++ new content
+*** Delete File: src/a.txt
+*** End Patch"""
+    statuses, errors, writes, deletes, opened = run_patch(text)
+    assert any("Add must follow Delete for" in e.msg for e in errors)
+    assert writes == {}
+    assert deletes == []
+    assert statuses == {}
 
 def test_absolute_path_is_error():
     text = """*** Begin Patch

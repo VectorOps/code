@@ -174,7 +174,7 @@ class PatchAction:
 
 @dataclass
 class Patch:
-    actions: Dict[str, PatchAction] = field(default_factory=dict)
+    actions: Dict[str, List[PatchAction]] = field(default_factory=dict)
 
 
 @dataclass
@@ -316,7 +316,6 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
     content = lines[first_begin + 1 : first_end]
 
     patch = Patch()
-    seen_paths: set[str] = set()
 
     current_path: Optional[str] = None
     current_action: Optional[PatchAction] = None
@@ -418,17 +417,6 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
                 )
                 skip_current_file = True
                 continue
-            # Validate uniqueness
-            if path in seen_paths:
-                add_error(
-                    f"Duplicate file entry: {path}",
-                    line=current_line_num,
-                    hint="Each file may only appear once in a patch",
-                    filename=path,
-                )
-                skip_current_file = True
-                continue
-            seen_paths.add(path)
 
             # Initialize action
             if action_word == "Add":
@@ -448,7 +436,7 @@ def parse_v4a_patch(text: str) -> Tuple[Patch, List[PatchError]]:
                 continue
 
             # Record action
-            patch.actions[path] = current_action
+            patch.actions.setdefault(path, []).append(current_action)
             continue
 
         # Ignore anything until we have a current file
@@ -636,6 +624,60 @@ def build_commits(
         filename: Optional[str] = None,
     ):
         errors.append(PatchError(msg=msg, line=line, hint=hint, filename=filename))
+
+    # Preprocess and flatten actions to resolve conflicts and merge updates.
+    effective_actions: Dict[str, PatchAction] = {}
+    for path, actions in patch.actions.items():
+        num_creates = sum(1 for a in actions if a.type == ActionType.ADD)
+        num_deletes = sum(1 for a in actions if a.type == ActionType.DELETE)
+
+        if num_creates > 1:
+            add_error(f"Multiple Add File sections for {path}", filename=path)
+            continue
+        if num_deletes > 1:
+            add_error(f"Multiple Delete File sections for {path}", filename=path)
+            continue
+
+        has_create = num_creates == 1
+        has_delete = num_deletes == 1
+        has_update = any(a.type == ActionType.UPDATE for a in actions)
+
+        if has_create:
+            create_action = next(a for a in actions if a.type == ActionType.ADD)
+            if has_update:
+                add_error(f"Cannot mix Update and Add sections for {path}", filename=path)
+                continue
+            if has_delete:
+                delete_action = next(a for a in actions if a.type == ActionType.DELETE)
+                if actions.index(delete_action) > actions.index(create_action):
+                    add_error(f"Add must follow Delete for {path}", filename=path)
+                    continue
+            effective_actions[path] = create_action
+        elif has_delete:
+            if has_update:
+                add_error(f"Cannot mix Delete and Update sections for {path}", filename=path)
+                continue
+            effective_actions[path] = next(a for a in actions if a.type == ActionType.DELETE)
+        elif has_update:
+            update_actions = [a for a in actions if a.type == ActionType.UPDATE]
+            merged_chunks = []
+            for ua in update_actions:
+                merged_chunks.extend(ua.chunks)
+
+            last_move_path = None
+            for ua in reversed(update_actions):
+                if ua.move_path:
+                    last_move_path = ua.move_path
+                    break
+
+            effective_actions[path] = PatchAction(
+                type=ActionType.UPDATE,
+                chunks=merged_chunks,
+                move_path=last_move_path,
+            )
+
+    if errors:
+        return [], errors, {}
 
     def join_lines(lines: List[str], *, eol: bool) -> str:
         s = "\n".join(lines)
@@ -865,7 +907,7 @@ def build_commits(
         return None, None, None, "\n".join(hint_lines)
 
     # Process actions (compute all matches first per file, then check overlaps, then apply)
-    for path, action in patch.actions.items():
+    for path, action in effective_actions.items():
         # Guard: Update sections must include '+' and/or '-' change lines.
         # Context-only chunks in Update are ignored during parsing, which otherwise makes the file silently no-op.
         if action.type == ActionType.UPDATE and not action.chunks:
@@ -1079,7 +1121,11 @@ def process_patch(
         return {}, errors
 
     # Load files needed for application (Update only). Add/Delete do not require reading here.
-    paths = [p for p, a in patch.actions.items() if a.type == ActionType.UPDATE]
+    paths = [
+        p
+        for p, actions in patch.actions.items()
+        if any(a.type == ActionType.UPDATE for a in actions)
+    ]
     files, read_errors = load_files(paths, open_fn)
     if read_errors:
         return {}, read_errors
