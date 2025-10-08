@@ -35,6 +35,21 @@ def msg(role: str, text: str) -> Message:
     return Message(role=role, text=text)
 
 
+# Helpers to tolerate status-change packets inserted between node transitions
+async def next_event_wrap(it):
+    ev = await it.__anext__()
+    while ev.event.kind == "status_change":
+        ev = await asend_wrap(it, None)
+    return ev
+
+
+async def asend_wrap(it, payload):
+    ev = await it.asend(payload)
+    while ev.event.kind == "status_change":
+        ev = await it.asend(None)
+    return ev
+
+
 @pytest.mark.asyncio
 async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
     # Executor emits a tool call with auto_approve=True; runner should not prompt
@@ -58,10 +73,10 @@ async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
         task = Assignment()
         it = runner.run(task)
 
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "tool_call"
         assert ev1.input_requested is False  # auto-approved => no prompt
-        ev2 = await it.asend(RunInput(response=None))  # no approval needed
+        ev2 = await asend_wrap(it, RunInput(response=None))  # no approval needed
         assert ev2.event.kind == "final_message"
 
 
@@ -94,32 +109,32 @@ async def test_message_request_reprompt_and_finish(tmp_path: Path):
         it = runner.run(task)
 
         # First: message_request
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.node == "Ask"
         assert ev1.event.kind == "message_request"
         assert ev1.input_requested is True
 
         # Send None to trigger re-prompt
-        ev2 = await it.asend(RunInput(response=None))
+        ev2 = await asend_wrap(it, RunInput(response=None))
         assert ev2.node == "Ask"
         assert ev2.event.kind == "message_request"
         assert ev2.input_requested is True
 
         # Now provide a message
         user_msg = msg("user", "hi")
-        ev3 = await it.asend(RunInput(response=RespMessage(message=user_msg)))
+        ev3 = await asend_wrap(it, RunInput(response=RespMessage(message=user_msg)))
         assert ev3.event.kind == "message"
         assert ev3.input_requested is False
         assert ev3.event.message is not None
         assert ev3.event.message.text == "got it"
 
         # Final message
-        ev4 = await it.__anext__()
+        ev4 = await next_event_wrap(it)
         assert ev4.event.kind == "final_message"
         assert ev4.input_requested is True
         # Explicit approval to finish
         with pytest.raises(StopAsyncIteration):
-            await it.asend(RunInput(response=RespApproval(approved=True)))
+            await asend_wrap(it, RunInput(response=RespApproval(approved=True)))
 
         assert runner.status.name == "finished"
         assert task.status == RunStatus.finished
@@ -175,13 +190,13 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
         it = runner.run(task)
 
         # Complete A then B
-        ev_a = await it.__anext__()
+        ev_a = await next_event_wrap(it)
         assert ev_a.node == "A" and ev_a.event.kind == "final_message"
-        ev_b = await it.asend(None)
+        ev_b = await asend_wrap(it, None)
         assert ev_b.node == "B" and ev_b.event.kind == "final_message"
         assert ev_b.event.message.text == "B1"
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
@@ -194,16 +209,12 @@ async def test_rewind_one_step_and_resume(tmp_path: Path):
 
         # Resume, B should run again
         it2 = runner.run(task)
-        ev_b2 = await it2.__anext__()
-
-        import devtools
-
-        devtools.pprint(task)
+        ev_b2 = await next_event_wrap(it2)
 
         assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
         assert ev_b2.event.message.text == "B2"
         with pytest.raises(StopAsyncIteration):
-            await it2.asend(None)
+            await asend_wrap(it2, None)
 
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
@@ -262,9 +273,9 @@ async def test_natural_resume_after_stop(tmp_path: Path):
         it = runner.run(task)
 
         # Run A, then B. Stop after B yields its final message but before it's processed.
-        ev_a = await it.__anext__()
+        ev_a = await next_event_wrap(it)
         assert ev_a.node == "A"
-        ev_b = await it.asend(None)
+        ev_b = await asend_wrap(it, None)
         assert ev_b.node == "B"
 
         runner.stop()
@@ -276,19 +287,21 @@ async def test_natural_resume_after_stop(tmp_path: Path):
         assert CExec.runs == 0
         assert len(task.steps) == 2
         assert task.steps[0].status == RunStatus.finished
-        assert task.steps[1].status == RunStatus.running  # B was started but not finished
+        assert (
+            task.steps[1].status == RunStatus.running
+        )  # B was started but not finished
 
         # Resume. Natural resume should find that B request was started, but not finished
         # and should start continue execution with B.
         it2 = runner.run(task)
-        ev_b2 = await it2.__anext__()
+        ev_b2 = await next_event_wrap(it2)
         assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
 
-        ev_c2 = await it2.asend(None)
+        ev_c2 = await asend_wrap(it2, None)
         assert ev_c2.node == "C" and ev_c2.event.kind == "final_message"
 
         with pytest.raises(StopAsyncIteration):
-            await it2.asend(None)
+            await asend_wrap(it2, None)
 
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
@@ -338,17 +351,18 @@ async def test_replace_user_input_by_count(tmp_path: Path):
         it = runner.run(task)
 
         # Run 1: A asks, user says "A1"
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "message_request" and ev1.node == "A"
-        ev2 = await it.asend(RunInput(response=RespMessage(message=msg("user", "A1"))))
+        ev2 = await asend_wrap(
+            it, RunInput(response=RespMessage(message=msg("user", "A1")))
+        )
         assert ev2.event.kind == "final_message" and ev2.node == "A"
         assert "A saw:A1" in ev2.event.message.text
-
         # Run 1: B runs
-        ev3 = await it.asend(None)
+        ev3 = await asend_wrap(it, None)
         assert ev3.event.kind == "final_message" and ev3.node == "B"
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
@@ -360,15 +374,15 @@ async def test_replace_user_input_by_count(tmp_path: Path):
 
         # Run 2: starts from A with new input
         it2 = runner.run(task)
-        ev2_1 = await it2.__anext__()
+        ev2_1 = await next_event_wrap(it2)
         assert ev2_1.event.kind == "final_message" and ev2_1.node == "A"
         assert "A saw:A2" in ev2_1.event.message.text
 
         # Run 2: B runs
-        ev2_2 = await it2.asend(None)
+        ev2_2 = await asend_wrap(it2, None)
         assert ev2_2.event.kind == "final_message" and ev2_2.node == "B"
         with pytest.raises(StopAsyncIteration):
-            await it2.asend(None)
+            await asend_wrap(it2, None)
 
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
@@ -398,7 +412,7 @@ async def test_replace_input_for_pending_request(tmp_path: Path):
         task = Assignment()
         it = runner.run(task)
 
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "message_request"
 
         runner.stop()
@@ -408,11 +422,11 @@ async def test_replace_input_for_pending_request(tmp_path: Path):
         runner.replace_user_input(task, RespMessage(message=msg("user", "replaced")))
 
         it2 = runner.run(task)
-        ev2 = await it2.__anext__()
+        ev2 = await next_event_wrap(it2)
         assert ev2.event.kind == "final_message"
         assert ev2.event.message.text == "ok"
         with pytest.raises(StopAsyncIteration):
-            await it2.asend(None)
+            await asend_wrap(it2, None)
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
 
@@ -442,7 +456,7 @@ async def test_replace_input_for_pending_request_with_approval_is_ignored(
         runner = Runner(workflow, project)
         task = Assignment()
         it = runner.run(task)
-        await it.__anext__()  # Get message_request
+        await next_event_wrap(it)  # Get message_request
 
         runner.stop()
         await it.aclose()
@@ -450,7 +464,7 @@ async def test_replace_input_for_pending_request_with_approval_is_ignored(
         runner.replace_user_input(task, RespApproval(approved=True))
 
         it2 = runner.run(task)
-        ev2 = await it2.__anext__()
+        ev2 = await next_event_wrap(it2)
         assert ev2.event.kind == "message_request"
         assert InputExec.runs == 1
 
@@ -505,12 +519,12 @@ async def test_replace_input_at_retriable_final_message(tmp_path: Path):
         runner = Runner(workflow, project, initial_message=msg("user", "start"))
         task = Assignment()
         it = runner.run(task)
-        ev_in1_final = await it.__anext__()
+        ev_in1_final = await next_event_wrap(it)
         assert ev_in1_final.node == "In1" and ev_in1_final.event.kind == "final_message"
 
         # Provide a message. Because In1 is a prompt node and gets a response, this is a boundary.
-        ev_in1_final_2 = await it.asend(
-            RunInput(response=RespMessage(message=msg("user", "first")))
+        ev_in1_final_2 = await asend_wrap(
+            it, RunInput(response=RespMessage(message=msg("user", "first")))
         )
         assert (
             ev_in1_final_2.node == "In1"
@@ -518,7 +532,7 @@ async def test_replace_input_at_retriable_final_message(tmp_path: Path):
         )
 
         # Now transition to Other by providing no message
-        ev_other_req = await it.asend(RunInput(response=None))
+        ev_other_req = await asend_wrap(it, RunInput(response=None))
         assert (
             ev_other_req.node == "Other"
             and ev_other_req.event.kind == "message_request"
@@ -533,14 +547,14 @@ async def test_replace_input_at_retriable_final_message(tmp_path: Path):
         it2 = runner.run(task)
 
         # Runner should resume from In1, with the new message.
-        ev_in1_final_3 = await it2.__anext__()
+        ev_in1_final_3 = await next_event_wrap(it2)
         assert (
             ev_in1_final_3.node == "In1"
             and "in1 saw: second" in ev_in1_final_3.event.message.text
         )
 
         # Now it will transition to Other
-        ev_other_req_again = await it2.asend(None)
+        ev_other_req_again = await asend_wrap(it2, None)
         assert (
             ev_other_req_again.node == "Other"
             and ev_other_req_again.event.kind == "message_request"
@@ -590,9 +604,9 @@ async def test_replace_input_with_auto_confirm_node(tmp_path: Path):
         task = Assignment()
         it = runner.run(task)
 
-        await it.__anext__()  # In reqs
-        ev_in_final = await it.asend(
-            RunInput(response=RespMessage(message=msg("user", "A")))
+        await next_event_wrap(it)  # In reqs
+        ev_in_final = await asend_wrap(
+            it, RunInput(response=RespMessage(message=msg("user", "A")))
         )
         assert ev_in_final.node == "In" and ev_in_final.event.message.text == "in:A"
         assert ev_in_final.input_requested is False
@@ -604,7 +618,7 @@ async def test_replace_input_with_auto_confirm_node(tmp_path: Path):
         it2 = runner.run(task)
 
         # The runner should auto-respond with "B", causing "In" to emit its final message immediately.
-        ev_in_final_again = await it2.__anext__()
+        ev_in_final_again = await next_event_wrap(it2)
         assert ev_in_final_again.node == "In"
         assert (
             ev_in_final_again.node == "In"
@@ -613,7 +627,7 @@ async def test_replace_input_with_auto_confirm_node(tmp_path: Path):
         assert not ev_in_final_again.input_requested  # auto-confirm node
 
         # Now we can transition to B
-        ev_b_req = await it2.asend(None)
+        ev_b_req = await asend_wrap(it2, None)
         assert ev_b_req.node == "B" and ev_b_req.event.kind == "message_request"
 
 
@@ -671,29 +685,29 @@ async def test_reset_policy_keep_final_self_loop_only_final_carried(tmp_path: Pa
         task = Assignment()
         it = runner.run(task)
         # K first run: interim, then final (auto) -> transitions to K again
-        ev_k_int1 = await it.__anext__()
+        ev_k_int1 = await next_event_wrap(it)
         assert ev_k_int1.node == "K"
         assert ev_k_int1.event.kind == "message"
         assert ev_k_int1.event.message.text == "INT1"
 
-        ev_k1 = await it.__anext__()
+        ev_k1 = await next_event_wrap(it)
         assert (
             ev_k1.node == "K"
             and ev_k1.event.kind == "final_message"
             and ev_k1.event.message.text == "F1"
         )
 
-        ev_k2 = await it.asend(None)
+        ev_k2 = await asend_wrap(it, None)
         assert (
             ev_k2.node == "K"
             and ev_k2.event.kind == "final_message"
             and ev_k2.event.message.text == "F2"
         )
         # End
-        ev_end = await it.asend(None)
+        ev_end = await asend_wrap(it, None)
         assert ev_end.node == "End" and ev_end.event.kind == "final_message"
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
 
 @pytest.mark.asyncio
@@ -774,23 +788,23 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
         task = Assignment()
         it = runner.run(task)
         # A1 -> B1(auto) -> A2 -> C
-        ev_a1_int = await it.__anext__()
+        ev_a1_int = await next_event_wrap(it)
         assert (
             ev_a1_int.node == "A"
             and ev_a1_int.event.kind == "message"
             and ev_a1_int.event.message.text == "INT_A1"
         )
 
-        ev_a1 = await it.__anext__()
+        ev_a1 = await next_event_wrap(it)
         assert ev_a1.node == "A" and ev_a1.event.kind == "final_message"
-        ev_b1 = await it.asend(None)
+        ev_b1 = await asend_wrap(it, None)
         assert ev_b1.node == "B" and ev_b1.event.kind == "final_message"
-        ev_a2 = await it.asend(None)
+        ev_a2 = await asend_wrap(it, None)
         assert ev_a2.node == "A" and ev_a2.event.kind == "final_message"
-        ev_c1 = await it.asend(None)
+        ev_c1 = await asend_wrap(it, None)
         assert ev_c1.node == "C" and ev_c1.event.kind == "final_message"
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
@@ -802,7 +816,7 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
 
         # Resume -> should start at C again, re-executing it.
         it2 = runner.run(task)
-        ev_c2 = await it2.__anext__()
+        ev_c2 = await next_event_wrap(it2)
         assert ev_c2.node == "C" and ev_c2.event.kind == "final_message"
         # Ensure only C's executor was re-executed on resume.
         assert AExec.runs == 2
@@ -810,7 +824,7 @@ async def test_keep_results_excludes_interim_messages(tmp_path: Path):
         assert CExec.runs == 2
 
         with pytest.raises(StopAsyncIteration):
-            await it2.asend(None)
+            await asend_wrap(it2, None)
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "A", "C"]
@@ -858,18 +872,18 @@ async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
         it = runner.run(task)
 
         # Finish A -> B -> C
-        ev_a = await it.__anext__()
+        ev_a = await next_event_wrap(it)
         assert ev_a.node == "A" and ev_a.event.kind == "final_message"
-        ev_b = await it.asend(None)
+        ev_b = await asend_wrap(it, None)
         assert ev_b.node == "B" and ev_b.event.kind == "final_message"
-        ev_c = await it.asend(None)
+        ev_c = await asend_wrap(it, None)
         assert (
             ev_c.node == "C"
             and ev_c.event.kind == "final_message"
             and ev_c.event.message.text == "C1"
         )
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "C"]
@@ -881,16 +895,16 @@ async def test_rewind_multiple_steps_and_resume(tmp_path: Path):
 
         # Resume -> should execute B then C again
         it2 = runner.run(task)
-        ev_b2 = await it2.__anext__()
+        ev_b2 = await next_event_wrap(it2)
         assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
-        ev_c2 = await it2.asend(None)
+        ev_c2 = await asend_wrap(it2, None)
         assert (
             ev_c2.node == "C"
             and ev_c2.event.kind == "final_message"
             and ev_c2.event.message.text == "C2"
         )
         with pytest.raises(StopAsyncIteration):
-            await it2.asend(None)
+            await asend_wrap(it2, None)
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
         assert [s.node for s in task.steps] == ["A", "B", "C"]
@@ -928,18 +942,18 @@ async def test_rewind_within_step_and_resume(tmp_path: Path):
         it = runner.run(task)
 
         # Run through to completion
-        ev1 = await it.__anext__()  # req1
+        ev1 = await next_event_wrap(it)  # req1
         assert ev1.event.kind == "message_request"
-        ev2 = await it.asend(
-            RunInput(response=RespMessage(message=msg("user", "msg1")))
+        ev2 = await asend_wrap(
+            it, RunInput(response=RespMessage(message=msg("user", "msg1")))
         )
         assert ev2.event.kind == "message_request"
-        ev3 = await it.asend(
-            RunInput(response=RespMessage(message=msg("user", "msg2")))
+        ev3 = await asend_wrap(
+            it, RunInput(response=RespMessage(message=msg("user", "msg2")))
         )
         assert ev3.event.kind == "final_message"
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
@@ -964,7 +978,7 @@ async def test_rewind_within_step_and_resume(tmp_path: Path):
         # Resume. The runner will find the step for node A in a 'running' state
         # and will continue execution from within that step.
         it2 = runner.run(task)
-        ev4 = await it2.__anext__()
+        ev4 = await next_event_wrap(it2)
         assert ev4.event.kind == "message_request"
 
 
@@ -1001,10 +1015,10 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
         it = runner.run(task)
 
         # First tool call (approve)
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "tool_call"
         # Respond and capture the next event (this returns the next yielded request)
-        ev2 = await it.asend(RunInput(response=RespApproval(approved=True)))
+        ev2 = await asend_wrap(it, RunInput(response=RespApproval(approved=True)))
         # After approval the first req object should be updated
         assert ev1.event.tool_calls[0].status == ToolCallStatus.rejected
         err = ev1.event.tool_calls[0].result
@@ -1013,7 +1027,7 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
 
         # Second tool call (reject)
         assert ev2.event.kind == "tool_call"
-        ev3 = await it.asend(RunInput(response=RespApproval(approved=False)))
+        ev3 = await asend_wrap(it, RunInput(response=RespApproval(approved=False)))
         assert ev2.event.tool_calls[0].status == ToolCallStatus.rejected
         err2 = ev2.event.tool_calls[0].result
         assert isinstance(err2, dict)
@@ -1022,7 +1036,7 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
         # Finalize (returned by the previous asend)
         assert ev3.event.kind == "final_message"
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
         # State
         assert runner.status.name == "finished"
@@ -1060,15 +1074,15 @@ async def test_final_message_rerun_same_node_with_user_message(tmp_path: Path):
         it = runner.run(task)
 
         # First: final_message (requesting input)
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "final_message"
         # Provide a user message to continue same executor (not added to history)
-        ev2 = await it.asend(
-            RunInput(response=RespMessage(message=msg("user", "more")))
+        ev2 = await asend_wrap(
+            it, RunInput(response=RespMessage(message=msg("user", "more")))
         )
         assert ev2.event.kind == "final_message"
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
         # Verify two executions within the same step; no user message recorded
         assert runner.status.name == "finished"
@@ -1137,13 +1151,13 @@ async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Pat
         it = runner.run(task)
 
         # A final -> approve
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "final_message" and ev1.node == "A"
-        ev2 = await it.asend(None)
+        ev2 = await asend_wrap(it, None)
         # Now B final -> approve
         assert ev2.event.kind == "final_message" and ev2.node == "B"
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
         # Steps per node
         assert runner.status.name == "finished"
@@ -1224,12 +1238,12 @@ async def test_error_multiple_outcomes_without_outcome_name(tmp_path: Path):
         task = Assignment()
         it = runner.run(task)
 
-        ev = await it.__anext__()
+        ev = await next_event_wrap(it)
         assert ev.event.kind == "final_message" and ev.node == "A"
         with pytest.raises(
             ValueError, match="did not provide an outcome and has 2 outcomes"
         ):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
 
 @pytest.mark.asyncio
@@ -1262,12 +1276,12 @@ async def test_error_unknown_outcome_name(tmp_path: Path):
         task = Assignment()
         it = runner.run(task)
 
-        ev = await it.__anext__()
+        ev = await next_event_wrap(it)
         assert ev.event.kind == "final_message"
         with pytest.raises(
             ValueError, match="No edge defined from node 'A' via outcome 'unknown'"
         ):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
 
 @pytest.mark.asyncio
@@ -1288,7 +1302,7 @@ async def test_run_disallowed_when_running(tmp_path: Path):
         task = Assignment()
         it = runner.run(task)
 
-        run_task = asyncio.create_task(it.__anext__())
+        run_task = asyncio.create_task(next_event_wrap(it))
         await asyncio.sleep(0.01)  # allow runner to start
 
         assert runner.status == RunnerStatus.running
@@ -1381,7 +1395,7 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(
         it = runner.run(task)
 
         # A's first run
-        ev_a1 = await it.__anext__()
+        ev_a1 = await next_event_wrap(it)
         assert ev_a1.node == "A"
         assert ev_a1.event.kind == "final_message"
         assert ev_a1.event.message.text == "A1"
@@ -1389,7 +1403,7 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(
 
         # Approve A1. This triggers B. B is auto-confirmed, so it will yield its final
         # event with input_requested=False.
-        ev_b1 = await it.asend(None)
+        ev_b1 = await asend_wrap(it, None)
         assert ev_b1.node == "B"
         assert ev_b1.event.kind == "final_message"
         assert ev_b1.event.message.text == "B1"
@@ -1397,21 +1411,21 @@ async def test_reset_policy_auto_confirmation_and_single_outcome_transition(
 
         # Since B did not request input, we can immediately advance the runner. This transitions
         # from B back to A for its second run, which yields its final message.
-        ev_a2 = await it.asend(None)
+        ev_a2 = await asend_wrap(it, None)
         assert ev_a2.node == "A"
         assert ev_a2.event.kind == "final_message"
         assert ev_a2.event.message.text == "A2"
         assert ev_a2.input_requested is True
 
         # Approve A2. This triggers C.
-        ev_c1 = await it.asend(None)
+        ev_c1 = await asend_wrap(it, None)
         assert ev_c1.node == "C"
         assert ev_c1.event.kind == "final_message"
         assert ev_c1.event.message.text == "C1"
 
         # Approve C to finish.
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
         assert runner.status == RunnerStatus.finished
         assert task.status == RunStatus.finished
@@ -1483,23 +1497,23 @@ async def test_edge_reset_policy_override_short_syntax(tmp_path: Path):
         it = runner.run(task)
 
         # First B final
-        ev_b1 = await it.__anext__()
+        ev_b1 = await next_event_wrap(it)
         assert ev_b1.node == "B" and ev_b1.event.kind == "final_message"
         id1 = int(ev_b1.event.message.text.split(":", 1)[1])
 
         # Approve -> B again (override always_reset => new instance)
-        ev_b2 = await it.asend(None)
+        ev_b2 = await asend_wrap(it, None)
         assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
         id2 = int(ev_b2.event.message.text.split(":", 1)[1])
         assert id2 != id1  # instance replaced due to edge override
 
         # Approve -> C
-        ev_c = await it.asend(None)
+        ev_c = await asend_wrap(it, None)
         assert ev_c.node == "C" and ev_c.event.kind == "final_message"
 
         # Approve -> finish
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
 
 @pytest.mark.asyncio
@@ -1522,18 +1536,18 @@ async def test_log_stream_then_final(tmp_path: Path):
         it = runner.run(task)
 
         # First event is a log; should not request input and should not finish the step
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.node == "Log"
         assert ev1.event.kind == "log"
         assert ev1.input_requested is False
 
         # Next event is the final message for this node
-        ev2 = await it.__anext__()
+        ev2 = await next_event_wrap(it)
         assert ev2.node == "Log"
         assert ev2.event.kind == "final_message"
 
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
         # Verify the final executor message and its implicit approval are recorded (logs are ephemeral).
         assert runner.status.name == "finished"
@@ -1572,14 +1586,14 @@ async def test_final_message_confirm_requires_explicit_approval_and_reprompts(
         it = runner.run(task)
 
         # First: final_message requests explicit approval
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.node == "C"
         assert ev1.event.kind == "final_message"
         assert ev1.input_requested is True
 
         # Sending a user message should NOT be accepted; runner should re-prompt final_message
-        ev2 = await it.asend(
-            RunInput(response=RespMessage(message=msg("user", "not approval")))
+        ev2 = await asend_wrap(
+            it, RunInput(response=RespMessage(message=msg("user", "not approval")))
         )
         assert ev2.node == "C"
         assert ev2.event.kind == "final_message"
@@ -1588,7 +1602,7 @@ async def test_final_message_confirm_requires_explicit_approval_and_reprompts(
 
         # Now approve explicitly -> runner should finish
         with pytest.raises(StopAsyncIteration):
-            await it.asend(RunInput(response=RespApproval(approved=True)))
+            await asend_wrap(it, RunInput(response=RespApproval(approved=True)))
 
         # Runner state and recorded activities: executor final + user approval are recorded
         assert runner.status.name == "finished"
@@ -1623,12 +1637,12 @@ async def test_final_message_confirm_reject_stops_runner(tmp_path: Path):
         task = Assignment()
         it = runner.run(task)
 
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "final_message" and ev1.input_requested is True
 
         # Reject explicitly -> runner should stop
         with pytest.raises(StopAsyncIteration):
-            await it.asend(RunInput(response=RespApproval(approved=False)))
+            await asend_wrap(it, RunInput(response=RespApproval(approved=False)))
 
         assert runner.status.name == "stopped"
         assert len(task.steps) == 1
@@ -1733,27 +1747,27 @@ async def test_edge_reset_policy_override_full_syntax(tmp_path: Path):
         it = runner.run(task)
 
         # A final -> approve to move to B
-        ev_a = await it.__anext__()
+        ev_a = await next_event_wrap(it)
         assert ev_a.node == "A" and ev_a.event.kind == "final_message"
-        ev_b1 = await it.asend(None)
+        ev_b1 = await asend_wrap(it, None)
 
         # First B final
         assert ev_b1.node == "B" and ev_b1.event.kind == "final_message"
         id1 = int(ev_b1.event.message.text.split(":", 1)[1])
 
         # Approve -> B again (override keep_state => reuse same instance)
-        ev_b2 = await it.asend(None)
+        ev_b2 = await asend_wrap(it, None)
         assert ev_b2.node == "B" and ev_b2.event.kind == "final_message"
         id2 = int(ev_b2.event.message.text.split(":", 1)[1])
         assert id2 == id1  # instance reused due to edge override
 
         # Approve -> C
-        ev_c = await it.asend(None)
+        ev_c = await asend_wrap(it, None)
         assert ev_c.node == "C" and ev_c.event.kind == "final_message"
 
         # Approve -> finish
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
 
 @pytest.mark.asyncio
@@ -1809,13 +1823,13 @@ async def test_transition_to_next_node_and_pass_all_messages(mode, tmp_path: Pat
         it = runner.run(task)
 
         # A final -> approve
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "final_message" and ev1.node == "A"
-        ev2 = await it.asend(None)
+        ev2 = await asend_wrap(it, None)
         # Now B final -> approve
         assert ev2.event.kind == "final_message" and ev2.node == "B"
         with pytest.raises(StopAsyncIteration):
-            await it.asend(None)
+            await asend_wrap(it, None)
 
         # Steps per node
         assert runner.status.name == "finished"
@@ -1932,10 +1946,10 @@ tools:
         it = runner.run(task)
 
         # Tool call should be auto-approved (Runner defaults to approved=True when no UI approval provided)
-        ev1 = await it.__anext__()
+        ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "tool_call"
         # Respond without explicit approval; runner should execute tool
-        ev2 = await it.asend(RunInput(response=None))
+        ev2 = await asend_wrap(it, RunInput(response=None))
         assert ev2.event.kind == "final_message"
         # Validate that the tool call was updated to completed with a result
         # (ev1 contains the original ReqToolCall object mutated by runner)
@@ -1944,4 +1958,5 @@ tools:
 
     # After sandbox exit, project.shutdown() is called; MCP tools should be deregistered
     from vocode.tools import get_all_tools
+
     assert "mcp_echo" not in get_all_tools()

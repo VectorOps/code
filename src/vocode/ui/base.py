@@ -13,6 +13,7 @@ from vocode.runner.models import (
     RespApproval,
     PACKET_TOKEN_USAGE,
     PACKET_FINAL_MESSAGE,
+    PACKET_STATUS_CHANGE,
 )
 from vocode.state import Assignment, Message, RunnerStatus, RunStatus
 from vocode.models import Graph, Workflow
@@ -403,6 +404,25 @@ class UIState:
 
                 # Notify status transition, if any
                 await self._emit_status_if_changed()
+
+                # Convert runner status-change packets to UIPacketStatus
+                if req.event.kind == PACKET_STATUS_CHANGE:
+                    sc = req.event  # type: ignore[attr-defined]
+                    await self._outgoing.put(
+                        UIPacketEnvelope(
+                            msg_id=self._next_msg_id(),
+                            payload=UIPacketStatus(
+                                prev=sc.old_status,
+                                curr=sc.new_status,
+                                prev_node=sc.old_node,
+                                curr_node=sc.new_node,
+                            ),
+                        )
+                    )
+                    # Track current node for UI convenience
+                    self._current_node_name = sc.new_node
+                    to_send = None
+                    continue
 
                 # Token usage packets are emitted but Project totals are updated by LLMExecutor directly.
 

@@ -28,6 +28,21 @@ from vocode.commands import CommandManager
 from vocode.project import ProjectState
 
 
+async def _recv_skip_node_status(ui: UIState) -> UIPacketEnvelope:
+    """
+    Helper: receive next envelope, skipping UIPacketStatus that include node transition fields.
+    """
+    while True:
+        env = await ui.recv()
+        if isinstance(env.payload, UIPacketStatus):
+            if getattr(env.payload, "prev_node", None) or getattr(
+                env.payload, "curr_node", None
+            ):
+                # Ignore node-transition status packets in tests
+                continue
+        return env
+
+
 async def respond_packet(
     ui: UIState, source_msg_id: int, packet: Optional[RespPacket]
 ) -> None:
@@ -147,30 +162,30 @@ def test_ui_state_basic_flow(monkeypatch):
         await ui.start(wf)
 
         # 0) Initial UI Reset
-        reset_env = await ui.recv()
+        reset_env = await _recv_skip_node_status(ui)
         assert isinstance(reset_env.payload, UIPacketUIReset)
 
         # 1) First status emitted on entering running
-        msg1_env = await ui.recv()
+        msg1_env = await _recv_skip_node_status(ui)
         assert isinstance(msg1_env.payload, UIPacketStatus)
         assert msg1_env.payload.prev is None
         assert msg1_env.payload.curr == RunnerStatus.running
 
         # 2) First run event (node1, no input)
-        req1_env = await ui.recv()
+        req1_env = await _recv_skip_node_status(ui)
         assert isinstance(req1_env.payload, UIPacketRunEvent)
         assert req1_env.payload.event.node == "node1"
         assert req1_env.msg_id == 3
         assert req1_env.payload.event.input_requested is False
 
         # 3) Status waiting_input before next event
-        msg2_env = await ui.recv()
+        msg2_env = await _recv_skip_node_status(ui)
         assert isinstance(msg2_env.payload, UIPacketStatus)
         assert msg2_env.payload.prev == RunnerStatus.running
         assert msg2_env.payload.curr == RunnerStatus.waiting_input
 
         # 4) Second run event (node2, input requested)
-        req2_env = await ui.recv()
+        req2_env = await _recv_skip_node_status(ui)
         assert isinstance(req2_env.payload, UIPacketRunEvent)
         assert req2_env.payload.event.node == "node2"
         assert req2_env.msg_id == 5
@@ -187,20 +202,20 @@ def test_ui_state_basic_flow(monkeypatch):
         await respond_message(ui, req2_env.msg_id, Message(role="user", text="ok"))
 
         # 5) Back to running before final event
-        msg3_env = await ui.recv()
+        msg3_env = await _recv_skip_node_status(ui)
         assert isinstance(msg3_env.payload, UIPacketStatus)
         assert msg3_env.payload.prev == RunnerStatus.waiting_input
         assert msg3_env.payload.curr == RunnerStatus.running
 
         # 6) Third run event (node3, final)
-        req3_env = await ui.recv()
+        req3_env = await _recv_skip_node_status(ui)
         assert isinstance(req3_env.payload, UIPacketRunEvent)
         assert req3_env.payload.event.node == "node3"
         assert req3_env.msg_id == 7
         assert req3_env.payload.event.input_requested is False
 
         # 7) Final status finished
-        msg4_env = await ui.recv()
+        msg4_env = await _recv_skip_node_status(ui)
         assert isinstance(msg4_env.payload, UIPacketStatus)
         assert msg4_env.payload.prev == RunnerStatus.running
         assert msg4_env.payload.curr == RunnerStatus.finished
@@ -232,16 +247,16 @@ def test_ui_state_stop_while_waiting(monkeypatch):
         await ui.start(wf)
 
         # Consume UI reset packet
-        reset_env = await ui.recv()
+        reset_env = await _recv_skip_node_status(ui)
         assert isinstance(reset_env.payload, UIPacketUIReset)
 
         # First status is waiting_input (no prior running step)
-        s1_env = await ui.recv()
+        s1_env = await _recv_skip_node_status(ui)
         assert isinstance(s1_env.payload, UIPacketStatus)
         assert s1_env.payload.prev is None
         assert s1_env.payload.curr == RunnerStatus.waiting_input
 
-        ev1_env = await ui.recv()
+        ev1_env = await _recv_skip_node_status(ui)
         assert isinstance(ev1_env.payload, UIPacketRunEvent)
         assert ev1_env.payload.event.input_requested is True
 
@@ -271,9 +286,9 @@ def test_ui_state_replace_input_guard(monkeypatch):
         await ui.start(wf)
 
         # Drain reset, status and the input request event
-        await ui.recv()  # UIPacketUIReset
-        await ui.recv()  # UIPacketStatus waiting_input
-        req_env = await ui.recv()  # UIPacketRunEvent (input requested)
+        await _recv_skip_node_status(ui)  # UIPacketUIReset
+        await _recv_skip_node_status(ui)  # UIPacketStatus waiting_input
+        req_env = await _recv_skip_node_status(ui)  # UIPacketRunEvent (input requested)
         assert isinstance(req_env.payload, UIPacketRunEvent)
         assert req_env.payload.event.input_requested
 
@@ -286,7 +301,7 @@ def test_ui_state_replace_input_guard(monkeypatch):
         # Cleanup: cancel the driver to avoid leaks
         await ui.cancel()
         # Receive final canceled status
-        s_env = await ui.recv()
+        s_env = await _recv_skip_node_status(ui)
         assert isinstance(s_env.payload, UIPacketStatus)
         assert s_env.payload.curr == RunnerStatus.canceled
 
@@ -311,9 +326,9 @@ def test_project_state_reset_clears(monkeypatch):
         await ui.start(wf)
 
         # Drain first status to ensure driver started
-        reset_env = await ui.recv()
+        reset_env = await _recv_skip_node_status(ui)
         assert isinstance(reset_env.payload, UIPacketUIReset)
-        s_env = await ui.recv()
+        s_env = await _recv_skip_node_status(ui)
         assert isinstance(s_env.payload, UIPacketStatus)
 
         # Basic set/get/delete
@@ -334,9 +349,9 @@ def test_project_state_reset_clears(monkeypatch):
         await ui.cancel()
         # After reset, a UIReset packet is emitted. We need to consume it
         # before we can receive the final status packet from cancellation.
-        s_end_reset_env = await ui.recv()
+        s_end_reset_env = await _recv_skip_node_status(ui)
         assert isinstance(s_end_reset_env.payload, UIPacketUIReset)
-        s_end_env = await ui.recv()
+        s_end_env = await _recv_skip_node_status(ui)
         assert isinstance(s_end_env.payload, UIPacketStatus)
 
     asyncio.run(scenario())

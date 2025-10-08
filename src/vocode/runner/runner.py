@@ -48,6 +48,8 @@ from vocode.runner.models import (
     PACKET_MESSAGE,
     PACKET_FINAL_MESSAGE,
     PACKET_APPROVAL,
+    PACKET_STATUS_CHANGE,
+    ReqStatusChange,
 )
 
 
@@ -799,6 +801,21 @@ class Runner:
                         task.status = RunStatus.finished
                         return
 
+                    # Emit node transition event
+                    status_change = ReqStatusChange(
+                        old_status=self.status,
+                        new_status=self.status,
+                        old_node=current_runtime_node.name,
+                        new_node=next_runtime_node.name,
+                    )
+                    run_event = RunEvent(
+                        node=next_runtime_node.name,
+                        execution=Activity(type=ActivityType.executor),
+                        event=status_change,
+                        input_requested=False,
+                    )
+                    _ = yield run_event
+
                     current_runtime_node = next_runtime_node
                     pending_input_messages = list(next_input_messages)
                     incoming_policy_override = next_edge_policy
@@ -925,6 +942,21 @@ class Runner:
                         self.status = RunnerStatus.finished
                         task.status = RunStatus.finished
                         return
+
+                    # Emit node transition event
+                    status_change = ReqStatusChange(
+                        old_status=self.status,
+                        new_status=self.status,
+                        old_node=current_runtime_node.name,
+                        new_node=next_runtime_node.name,
+                    )
+                    run_event = RunEvent(
+                        node=next_runtime_node.name,
+                        execution=Activity(type=ActivityType.executor),
+                        event=status_change,
+                        input_requested=False,
+                    )
+                    _ = yield run_event
 
                     current_runtime_node = next_runtime_node
                     pending_input_messages = list(next_input_messages)

@@ -2,7 +2,7 @@ from typing import Annotated, Optional, Union, List, Literal, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 
-from vocode.state import Message, ToolCall, Activity, LogLevel
+from vocode.state import Message, ToolCall, Activity, LogLevel, RunnerStatus
 
 PACKET_MESSAGE_REQUEST = "message_request"
 PACKET_TOOL_CALL = "tool_call"
@@ -11,6 +11,7 @@ PACKET_FINAL_MESSAGE = "final_message"
 PACKET_LOG = "log"
 PACKET_APPROVAL = "approval"
 PACKET_TOKEN_USAGE = "token_usage"
+PACKET_STATUS_CHANGE = "status_change"
 
 # Packet kinds that are considered "interim" (do not end an executor cycle)
 INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_LOG, PACKET_TOKEN_USAGE)
@@ -88,6 +89,16 @@ class ReqLogMessage(BaseModel):
     text: str
     level: Optional[LogLevel] = None
 
+class ReqStatusChange(BaseModel):
+    """
+    Runner-emitted packet indicating a transition between nodes (and optional status change).
+    """
+    kind: Literal["status_change"] = PACKET_STATUS_CHANGE
+    old_status: RunnerStatus
+    new_status: RunnerStatus
+    old_node: Optional[str] = None
+    new_node: Optional[str] = None
+
 
 ReqPacket = Annotated[
     Union[
@@ -97,6 +108,7 @@ ReqPacket = Annotated[
         ReqFinalMessage,
         ReqTokenUsage,
         ReqLogMessage,
+        ReqStatusChange,
     ],
     Field(discriminator="kind"),
 ]
