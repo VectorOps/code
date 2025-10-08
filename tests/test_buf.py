@@ -19,15 +19,15 @@ def test_simple_append_and_diff():
     # First chunk includes prefix
     new1, old1 = buf.append("Hello")
     assert buf.full_text == "Hello"
-    assert _ft_to_lines_str(new1) == "Agent: Hello\n"
+    assert _ft_to_lines_str(new1) == "Hello\n"
     assert not old1
 
     # When appending to the same line, the whole line is re-rendered and returned
     # for overwriting in the terminal UI.
     new2, old2 = buf.append(" world")
     assert buf.full_text == "Hello world"
-    assert _ft_to_lines_str(new2) == "Agent: Hello world\n"
-    assert _ft_to_lines_str(old2) == "Agent: Hello\n"
+    assert _ft_to_lines_str(new2) == "Hello world\n"
+    assert _ft_to_lines_str(old2) == "Hello\n"
 
 
 def test_streaming_accumulation():
@@ -63,7 +63,7 @@ def test_streaming_markdown_code_block():
     final_render_str = _ft_to_lines_str(list(split_lines(to_formatted_text(final_render))))
 
     # Check that key parts are present
-    assert "Coder: Here is some code:" in final_render_str
+    assert "Here is some code:" in final_render_str
     assert "def main():" in final_render_str
     assert "print('Hello')" in final_render_str
     assert "Done." in final_render_str

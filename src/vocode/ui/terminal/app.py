@@ -11,15 +11,15 @@ import click
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.formatted_text import to_formatted_text
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.formatted_text.utils import split_lines, fragment_list_width
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.patch_stdout import patch_stdout
-from vocode.ui.terminal import colors
+from vocode.ui.terminal import colors, styles
 from vocode.ui.terminal.completer import TerminalCompleter
 from vocode.ui.terminal.ac_client import (
     make_canned_provider,
@@ -128,6 +128,59 @@ class TerminalApp:
         self.queued_resp: Optional[Union[RespMessage, RespApproval]] = None
         self.stream_throttler: Optional[StreamThrottler] = None
         self.last_streamed_text: Optional[str] = None
+        self._toolbar_ticker_task: Optional[asyncio.Task] = None
+
+    def _toolbar_should_animate(self) -> bool:
+        """
+        Animate toolbar when runner is running and not waiting for input.
+        """
+        if self.session is None or self.ui is None:
+            return False
+        if self.ui.status != RunnerStatus.running:
+            return False
+        # If there's a pending request that requires input, do not animate.
+        if (
+            self.pending_req_env
+            and self.pending_req_env.payload.kind == PACKET_RUN_EVENT
+        ):
+            if self.pending_req_env.payload.event.input_requested:
+                return False
+        return True
+
+    def _start_toolbar_ticker(self) -> None:
+        if self._toolbar_ticker_task is None or self._toolbar_ticker_task.done():
+            self._toolbar_ticker_task = asyncio.create_task(self._toolbar_ticker())
+
+    async def _stop_toolbar_ticker(self) -> None:
+        task = self._toolbar_ticker_task
+        if task and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        self._toolbar_ticker_task = None
+
+    async def _update_toolbar_ticker(self) -> None:
+        if self._toolbar_should_animate():
+            self._start_toolbar_ticker()
+        else:
+            await self._stop_toolbar_ticker()
+
+    async def _toolbar_ticker(self) -> None:
+        """
+        Periodically invalidate prompt_toolkit app to refresh toolbar frames.
+        """
+        try:
+            while self._toolbar_should_animate():
+                if self.session is None:
+                    break
+                try:
+                    # Cause prompt_toolkit to re-render, which will call our bottom_toolbar renderer.
+                    self.session.app.invalidate()
+                except Exception:
+                    pass
+                await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            pass
 
     def _unhandled_exception_handler(
         self, loop: asyncio.AbstractEventLoop, context: dict
@@ -270,6 +323,7 @@ class TerminalApp:
                 )
                 self.queued_resp = None
                 self.pending_req_env = None
+            await self._update_toolbar_ticker()
             return
         if ev.kind == PACKET_TOOL_CALL:
             self.last_streamed_text = None  # New stream context, clear old state
@@ -286,6 +340,7 @@ class TerminalApp:
                 )
                 self.queued_resp = None
                 self.pending_req_env = None
+            await self._update_toolbar_ticker()
             return
         if ev.kind == PACKET_FINAL_MESSAGE:
             streamed_text = self.last_streamed_text
@@ -303,10 +358,9 @@ class TerminalApp:
                         out("=" * 20 + " DEBUG DIFF " + "=" * 20)
                         sys.stdout.write("".join(diff))
                         out("=" * 52)
-
-                    speaker = ev.message.role or "assistant"
+                    # Do not include any speaker/role prefix in final message output
                     text = ev.message.text or ""
-                    out_fmt(colors.render_markdown(text, prefix=f"{speaker}: "))
+                    out_fmt(colors.render_markdown(text))
             self.pending_req_env = (
                 envelope if req_payload.event.input_requested else None
             )
@@ -316,6 +370,7 @@ class TerminalApp:
                 )
                 self.queued_resp = None
                 self.pending_req_env = None
+            await self._update_toolbar_ticker()
             return
 
     async def event_consumer(self) -> None:
@@ -329,6 +384,7 @@ class TerminalApp:
                 msg = envelope.payload
                 if msg.kind == PACKET_STATUS:
                     self.reset_interrupt()
+                    await self._update_toolbar_ticker()
                     continue
                 if msg.kind == PACKET_RUN_EVENT:
                     await self.handle_run_event(envelope)
@@ -336,6 +392,7 @@ class TerminalApp:
                 if msg.kind == PACKET_UI_RESET:
                     self.pending_req_env = None
                     self.queued_resp = None
+                    await self._update_toolbar_ticker()
                     continue
                 if msg.kind == PACKET_CUSTOM_COMMANDS:
                     await self.handle_custom_commands_packet(msg)
@@ -380,6 +437,7 @@ class TerminalApp:
                 "multiline": multiline,
                 "completer": completer,
                 "complete_while_typing": False,
+                "style": styles.get_pt_style(),
             }
             if editing_mode is not None:
                 kwargs["editing_mode"] = editing_mode
@@ -389,6 +447,7 @@ class TerminalApp:
                 "multiline": multiline,
                 "completer": completer,
                 "complete_while_typing": False,
+                "style": styles.get_pt_style(),
             }
             if editing_mode is not None:
                 kwargs["editing_mode"] = editing_mode
@@ -482,6 +541,8 @@ class TerminalApp:
             old_sigint = None
             old_sigterm = None
             old_sigusr2 = None
+
+        # Commands
         ctx = CommandContext(
             ui=self.ui,
             out=lambda s: out(s),
@@ -489,6 +550,7 @@ class TerminalApp:
             request_exit=self.request_exit,
             rpc=self.rpc,
         )
+
         # Banner
         show_banner = True if ui_cfg is None else ui_cfg.show_banner
         if show_banner:
@@ -497,19 +559,13 @@ class TerminalApp:
                 r"\ \  / | |_  / /`   | |  / / \ | |_) / / \ | |_) ( (`     / /`  / / \ | | \ | |_  ",
                 r" \_\/  |_|__ \_\_,  |_|  \_\_/ |_| \ \_\_/ |_|   _)_)     \_\_, \_\_/ |_|_/ |_|__ ",
             ]
-            colors_fg = [
-                "ansimagenta",
-                "ansiblue",
-                "ansicyan",
-                "ansigreen",
-                "ansiyellow",
-                "ansired",
+            fragments = [
+                ("class:banner.l1", banner_lines[0] + "\n"),
+                ("class:banner.l2", banner_lines[1] + "\n"),
+                ("class:banner.l3", banner_lines[2] + "\n"),
+                ("", "\n"),
+                ("", "Type /help for commands.\n"),
             ]
-            fragments = []
-            for line, fg in zip(banner_lines, colors_fg):
-                fragments.append((f"fg:{fg}", line + "\n"))
-            fragments.append(("", "\n"))
-            fragments.append(("", "Type /help for commands.\n"))
             out_fmt(fragments)
         else:
             out("Type /help for commands.")
@@ -599,6 +655,7 @@ class TerminalApp:
                 signal.signal(signal.SIGINT, old_sigint)
             with contextlib.suppress(Exception):
                 signal.signal(signal.SIGTERM, old_sigterm)
+            await self._stop_toolbar_ticker()
             if self.ui.is_active():
                 await self.ui.stop()
             consumer_task.cancel()

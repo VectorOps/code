@@ -12,7 +12,8 @@ from vocode.ui.terminal.colors import render_markdown
 class MessageBuffer:
     def __init__(self, speaker: str) -> None:
         self.speaker = speaker
-        self._prefix = f"{self.speaker}: "
+        # Remove speaker/role prefix from rendered output
+        self._prefix = ""
         self.full_text = ""
         self._cached_lines: List[List[Tuple[str, str]]] = []
 

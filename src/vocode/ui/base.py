@@ -81,6 +81,8 @@ class UIState:
         self._stop_signal: asyncio.Event = asyncio.Event()
         # LLM usage totals are stored on Project.llm_usage and proxied via properties.
         # Start background tasks for command deltas and incoming packet routing
+        # LLM usage totals are stored on Project.llm_usage and proxied via properties.
+        # Start background tasks for command deltas and incoming packet routing
         self._cmd_events_task = asyncio.create_task(self._forward_command_events())
         self._incoming_router_task = asyncio.create_task(self._route_incoming_packets())
 
@@ -379,6 +381,7 @@ class UIState:
                 )
             )
             self._last_status = curr
+        # (Ticker logic removed: UIState emits status changes only.)
 
     async def _drive_runner(self) -> None:
         """

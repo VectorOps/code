@@ -44,6 +44,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Simple styling
 *** [ ] Color usage
 *** [ ] Simple animations
+**** [ ] Add three spaces to animation to prevent closing ] from animating
+**** [ ] Ticker is not restarted after stopping for some reason or not always restarted
 *** [ ] Remove Agent: prefix
 ** [ ] Print node transitions
 ** [ ] Format tool calls
