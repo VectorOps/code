@@ -9,10 +9,11 @@ def get_pt_style() -> Style:
     return Style.from_dict(
         {
             # Toolbar styles
-            "bottom-toolbar": "bg:ansiblack fg:ansiwhite",
-            "toolbar": "bg:ansiblack fg:ansiwhite",
-            "toolbar.wf": "bg:ansiblack fg:ansigreen bold",
-            "toolbar.node": "bg:ansiblack fg:ansigreen",
+            "bottom-toolbar": "noreverse",
+            "bottom-toolbar.text": "noreverse",
+            "toolbar": "bg:#2E2E2E #F0F0F0",
+            "toolbar.wf": "bg:#2E2E2E fg:ansiwhite bold",
+            "toolbar.node": "bg:#2E2E2E fg:ansiwhite",
             # Prompt styles
             "prompt": "fg:#FFD700",
             # Banner styles

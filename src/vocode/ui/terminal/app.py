@@ -19,6 +19,7 @@ from prompt_toolkit.formatted_text.utils import split_lines, fragment_list_width
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.output import ColorDepth
 from vocode.ui.terminal import colors, styles
 from vocode.ui.terminal.completer import TerminalCompleter
 from vocode.ui.terminal.ac_client import (
@@ -349,6 +350,7 @@ class TerminalApp:
                 # If the final message is the same as what we just streamed, don't print it.
                 if streamed_text is None or ev.message.text != streamed_text:
                     if streamed_text is not None and ev.message.text:
+                        # TODO: Remove
                         diff = difflib.unified_diff(
                             streamed_text.splitlines(keepends=True),
                             ev.message.text.splitlines(keepends=True),
@@ -428,30 +430,26 @@ class TerminalApp:
             self.commands,
             general_provider=make_general_filelist_provider(self.rpc),
         )
+
+        pt_style = styles.get_pt_style()
+        kwargs = {
+            "multiline": multiline,
+            "completer": completer,
+            "complete_while_typing": False,
+            "style": pt_style,
+        }
+        if editing_mode is not None:
+            kwargs["editing_mode"] = editing_mode
+
         try:
             hist_dir = self.project.base_path / ".vocode"
             hist_dir.mkdir(parents=True, exist_ok=True)
             hist_path = hist_dir / "data" / "terminal_history"
-            kwargs = {
-                "history": FileHistory(str(hist_path)),
-                "multiline": multiline,
-                "completer": completer,
-                "complete_while_typing": False,
-                "style": styles.get_pt_style(),
-            }
-            if editing_mode is not None:
-                kwargs["editing_mode"] = editing_mode
-            self.session = PromptSession(**kwargs)
+            kwargs["history"] = FileHistory(str(hist_path))
         except Exception:
-            kwargs = {
-                "multiline": multiline,
-                "completer": completer,
-                "complete_while_typing": False,
-                "style": styles.get_pt_style(),
-            }
-            if editing_mode is not None:
-                kwargs["editing_mode"] = editing_mode
-            self.session = PromptSession(**kwargs)
+            pass  # History is optional
+
+        self.session = PromptSession(**kwargs)
         self.kb = KeyBindings()
         self.should_exit = False
         # Key bindings
@@ -566,7 +564,7 @@ class TerminalApp:
                 ("", "\n"),
                 ("", "Type /help for commands.\n"),
             ]
-            out_fmt(fragments)
+            print_formatted_text(to_formatted_text(fragments), style=pt_style)
         else:
             out("Type /help for commands.")
 

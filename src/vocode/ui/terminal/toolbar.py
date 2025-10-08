@@ -80,7 +80,9 @@ def build_prompt(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> Format
     return [("class:prompt", prompt_text)]
 
 
-def build_toolbar(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> FormattedText:
+def build_toolbar(
+    ui: UIState, pending_req: Optional[UIPacketRunEvent]
+) -> FormattedText:
     wf = ui.selected_workflow_name or "-"
     node = ui.current_node_name or "-"
     # Determine status display with "waiting input" and running animation.
@@ -91,7 +93,7 @@ def build_toolbar(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> Forma
     elif ui.status == RunnerStatus.running:
         # Animate dots: 1..3 then loop, appended to the status text
         dots = (int(time.monotonic()) % 3) + 1
-        status_display = f"{raw_status}{'.' * dots}"
+        status_display = f"{raw_status}{'.' * dots}{' ' * (3 - dots)}"
     else:
         status_display = raw_status
 
