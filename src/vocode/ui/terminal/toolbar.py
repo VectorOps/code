@@ -6,6 +6,7 @@ import time
 from prompt_toolkit.formatted_text import FormattedText, HTML
 from prompt_toolkit.formatted_text.utils import fragment_list_width
 
+
 from vocode.ui.base import UIState
 from vocode.ui.proto import UIPacketRunEvent
 from vocode.runner.models import (
@@ -16,6 +17,8 @@ from vocode.runner.models import (
 from vocode.models import Confirmation
 from vocode.state import RunnerStatus
 from vocode.ui.terminal import styles
+
+# Tool-call rendering happens in app.py when events are printed.
 
 
 def _abbr_int(n: int) -> str:
@@ -104,6 +107,7 @@ def build_toolbar(
         ("class:toolbar.node", node),
         ("class:toolbar", f" [{status_display}]"),
     ]
+    # Note: tool-call previews are rendered in app.py when events are printed.
 
     p = ui.acc_prompt_tokens
     c = ui.acc_completion_tokens

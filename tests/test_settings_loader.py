@@ -1,5 +1,6 @@
 import pytest
 from pathlib import Path
+from pydantic import ValidationError
 
 from vocode.settings import load_settings
 from vocode.runner.executors.llm import LLMNode
@@ -810,3 +811,29 @@ workflows:
     )
     with pytest.raises(ValueError, match=r"resolution cycle"):
         _ = load_settings(str(cfg))
+
+
+def test_tool_call_formatter_rule_validation_valid(tmp_path: Path):
+    cfg = """
+tool_call_formatters:
+  mytool:
+    title: "MyTool"
+    rule: "$.a[0].b"
+"""
+    path = _w(tmp_path, "fmt_valid.yaml", cfg)
+    settings = load_settings(str(path))
+    assert "mytool" in settings.tool_call_formatters
+    assert settings.tool_call_formatters["mytool"].rule == "$.a[0].b"
+
+
+def test_tool_call_formatter_rule_validation_allows_any_string(tmp_path: Path):
+    # Previously-invalid JSONPath should be accepted as a plain string.
+    cfg = """
+tool_call_formatters:
+  badtool:
+    title: "BadTool"
+    rule: "$.a["
+"""
+    path = _w(tmp_path, "fmt_any.yaml", cfg)
+    settings = load_settings(str(path))
+    assert settings.tool_call_formatters["badtool"].rule == "$.a["

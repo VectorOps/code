@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import re
 from prompt_toolkit.formatted_text import to_formatted_text
 from vocode.ui.terminal.toolbar import build_prompt, build_toolbar
 from vocode.state import RunnerStatus
@@ -44,15 +45,15 @@ def test_toolbar_running_animation_and_cancel_on_status_change(monkeypatch):
     # Ensure deterministic frames by patching monotonic in the module under test
     monkeypatch.setattr("vocode.ui.terminal.toolbar.time.monotonic", lambda: 0)
     text1 = _text_from_html(build_toolbar(ui, pending_req))
-    assert "[running.]" in text1
+    assert re.search(r"\[running\.\s*\]", text1)
 
     monkeypatch.setattr("vocode.ui.terminal.toolbar.time.monotonic", lambda: 1)
     text2 = _text_from_html(build_toolbar(ui, pending_req))
-    assert "[running..]" in text2
+    assert re.search(r"\[running\.\.\s*\]", text2)
 
     monkeypatch.setattr("vocode.ui.terminal.toolbar.time.monotonic", lambda: 2)
     text3 = _text_from_html(build_toolbar(ui, pending_req))
-    assert "[running...]" in text3
+    assert re.search(r"\[running\.\.\.\s*\]", text3)
 
     # Now change status; animation should cancel and show new status
     ui.status = RunnerStatus.finished

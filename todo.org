@@ -30,6 +30,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [X] Always show prompt. Add commands to stop/continue workflows
 ** [X] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
 ** [X] Streaming printing is broken with permanent toolbar visibility
+** [ ] Disable know warnings, they mess up UI output
+** [ ] Animation does not start after providing feedback message back to Node
 ** [ ] When LLM is waiting for response, need to show visual feedback to user
 ** [ ] Summarize tool calls for known tools. Create templates for tool calling that map parameters
 ** [ ] Ability to snoop into tool call details if needed, collapsed by default
@@ -52,6 +54,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [X] JSON formatter and highlighter
 *** [ ] Add a way (tab?) to expand/collapse JSON
 *** [ ] Require all tool calls from LLM to have description (Key Objective)
+*** [ ] Group related tool calls
 ** [X] Assume markdown as default formatter
 ** [ ] Wrapped lines don't move caret down correctly - next line overwrites it.
 ** [ ] Disable input and drop buffered input between prompts

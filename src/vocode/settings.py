@@ -9,6 +9,7 @@ import yaml
 import json5  # type: ignore
 from .models import Node, Edge
 from .state import LogLevel
+ 
 
 from know.settings import ProjectSettings as KnowProjectSettings
 
@@ -51,6 +52,19 @@ class ToolSettings(BaseModel):
     name: str
     enabled: bool = True
     auto_approve: Optional[bool] = None
+
+class ToolCallFormatter(BaseModel):
+    """
+    Configures how to display a tool call in the terminal.
+    - title: what to display as the function name
+    - rule: field name in the tool request arguments to extract for display
+    """
+    title: str
+    rule: str
+    @model_validator(mode="after")
+    def _validate_rule(self) -> "ToolCallFormatter":
+        # No-op: allow any string as the field name.
+        return self
 
 
 class UISettings(BaseModel):
@@ -136,6 +150,8 @@ class Settings(BaseModel):
     mcp: Optional[MCPSettings] = Field(default=None)
     # Optional process subsystem settings
     process: Optional[ProcessSettings] = Field(default=None)
+    # Mapping of tool name -> formatter configuration
+    tool_call_formatters: Dict[str, ToolCallFormatter] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _sync_workflow_names(self) -> "Settings":

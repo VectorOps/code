@@ -21,6 +21,7 @@ from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.output import ColorDepth
 from vocode.ui.terminal import colors, styles
+from vocode.ui.terminal.toolcall_format import render_tool_call
 from vocode.ui.terminal.completer import TerminalCompleter
 from vocode.ui.terminal.ac_client import (
     make_canned_provider,
@@ -328,10 +329,44 @@ class TerminalApp:
             return
         if ev.kind == PACKET_TOOL_CALL:
             self.last_streamed_text = None  # New stream context, clear old state
-            out(f"Tool calls requested: {len(ev.tool_calls)}")
-            for i, tc in enumerate(ev.tool_calls, start=1):
-                out(f"  {i}. {tc.name} arguments:")
-                out_fmt(colors.render_json(tc.arguments))
+            # Render each tool call as a formatted function-call preview.
+            fmt_map = (
+                self.ui.project.settings.tool_call_formatters
+                if (self.ui and self.ui.project.settings)
+                else None
+            )
+            term_width = shutil.get_terminal_size(fallback=(80, 24)).columns
+            # If input is requested, a confirmation is being asked for the tool call.
+            print_source = bool(req_payload.event.input_requested)
+            # Header
+            header_fragments = [
+                ("class:system.star", "* "),
+                ("class:system.text", "Tool call"),
+            ]
+            print_formatted_text(
+                to_formatted_text(header_fragments), style=styles.get_pt_style()
+            )
+            for tc in ev.tool_calls:
+                fragments = render_tool_call(
+                    tc.name,
+                    tc.arguments,
+                    fmt_map,
+                    terminal_width=term_width,
+                    print_source=print_source,
+                )
+                # Print a prefixed line: "| " + <formatted tool call>
+                # Use end="" for the prefix so the tool call prints on the same line.
+                print_formatted_text(
+                    to_formatted_text([("class:system.text", "| ")]),
+                    style=styles.get_pt_style(),
+                    end="",
+                )
+                print_formatted_text(
+                    to_formatted_text(fragments),
+                    style=styles.get_pt_style(),
+                )
+            # Empty line after the tool-call block
+            print_formatted_text("")
             self.pending_req_env = (
                 envelope if req_payload.event.input_requested else None
             )
@@ -387,6 +422,18 @@ class TerminalApp:
                 if msg.kind == PACKET_STATUS:
                     self.reset_interrupt()
                     await self._update_toolbar_ticker()
+                    # If node changed, print a styled "Running <node>" line
+                    curr_node = msg.curr_node
+                    prev_node = msg.prev_node
+                    if curr_node and curr_node != prev_node:
+                        fragments = [
+                            ("class:system.star", "* "),
+                            ("class:system.text", f"Running {curr_node}"),
+                        ]
+                        print_formatted_text(
+                            to_formatted_text(fragments),
+                            style=styles.get_pt_style(),
+                        )
                     continue
                 if msg.kind == PACKET_RUN_EVENT:
                     await self.handle_run_event(envelope)
@@ -486,8 +533,10 @@ class TerminalApp:
         try:
             old_sigint = signal.getsignal(signal.SIGINT)
             old_sigterm = signal.getsignal(signal.SIGTERM)
-            if hasattr(signal, "SIGUSR2"):
-                old_sigusr2 = signal.getsignal(signal.SIGUSR2)
+            try:
+                old_sigusr2 = signal.getsignal(signal.SIGUSR2)  # type: ignore[attr-defined]
+            except Exception:
+                old_sigusr2 = None
 
             def _sigint_handler(signum, frame):
                 # Suppress stacktrace dumps on Ctrl+C; just trigger a graceful stop/cancel.
@@ -523,7 +572,8 @@ class TerminalApp:
                         except Exception:
                             pass
 
-            if hasattr(signal, "SIGUSR2"):
+            try:
+                SIGUSR2 = signal.SIGUSR2  # type: ignore[attr-defined]
 
                 def _sigusr2_handler(signum, frame):
                     # External trigger for diagnostics even if UI is stuck.
@@ -533,7 +583,9 @@ class TerminalApp:
                         loop = None
                     diagnostics.dump_all(loop=loop)
 
-                signal.signal(signal.SIGUSR2, _sigusr2_handler)
+                signal.signal(SIGUSR2, _sigusr2_handler)
+            except Exception:
+                pass
             # signal.signal(signal.SIGTERM, _sigterm_handler)
         except Exception:
             old_sigint = None
