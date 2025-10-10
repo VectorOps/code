@@ -39,6 +39,10 @@ class PreprocessorSpec(BaseModel):
     name: str
     options: Dict[str, Any] = Field(default_factory=dict)
     mode: Mode = Field(default=Mode.System, description="Where to apply this preprocessor: system or last user message")
+    prepend: bool = Field(
+        default=False,
+        description="If true, preprocessor output is prepended to the target text; otherwise the preprocessor transforms/appends."
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -47,7 +51,7 @@ class PreprocessorSpec(BaseModel):
         # - "name" (string) -> defaults to Mode.System
         # - {"name": "name", "options": {...}, "mode": "system"|"user"|Mode}
         if isinstance(v, str):
-            return {"name": v, "options": {}, "mode": Mode.System}
+            return {"name": v, "options": {}, "mode": Mode.System, "prepend": False}
         if isinstance(v, dict):
             name = v.get("name")
             if not isinstance(name, str) or not name:
@@ -76,7 +80,8 @@ class PreprocessorSpec(BaseModel):
             else:
                 # Allow None -> default
                 mode = Mode.System
-            return {"name": name, "options": options, "mode": mode}
+            prepend_flag = bool(v.get("prepend", False))
+            return {"name": name, "options": options, "mode": mode, "prepend": prepend_flag}
         raise TypeError(
             "Preprocessor spec must be a string or a mapping with 'name', optional 'options', and optional 'mode'"
         )

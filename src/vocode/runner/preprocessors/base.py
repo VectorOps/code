@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Optional, Any, Union, Sequence
+from typing import Callable, Dict, List, Optional, Any, Sequence
 from dataclasses import dataclass
 from vocode.models import PreprocessorSpec
 
@@ -35,24 +35,32 @@ def list_preprocessors() -> Dict[str, Preprocessor]:
 
 
 def apply_preprocessors(
-    preprocessors: Sequence[Union[PreprocessorSpec, str, Dict[str, Any]]], text: str
+    preprocessors: Sequence[PreprocessorSpec], text: str
 ) -> str:
     """
     Apply a sequence of preprocessors to the given text.
-    - Accepts PreprocessorSpec instances, or coercible inputs:
-      * "name" (str)
-      * {"name": "name", "options": {...}} (dict)
-    - Passes the options mapping to the registered callback.
+    - Accepts a sequence of PreprocessorSpec.
+    - Passes spec.options to the registered callback.
+    - If spec.prepend is true, the preprocessor output is prepended to the input
+      rather than appended/transforming the whole text. To avoid double-appending in this mode,
+      the preprocessor is invoked with an empty base string to produce just the injection text.
     """
     result = text
-    for spec_like in preprocessors:
-        # Coerce into a PreprocessorSpec via pydantic model validation
-        spec = PreprocessorSpec.model_validate(spec_like)
+    for spec in preprocessors:
         pp = get_preprocessor(spec.name)
         if pp is None:
             raise ValueError(f"Unknown preprocessor '{spec.name}'")
-        out = pp.func(result, spec.options or {})
-        if not isinstance(out, str):
-            raise TypeError(f"Preprocessor '{spec.name}' must return a string")
-        result = out
+        opts = dict(spec.options or {})
+        if spec.prepend:
+            # Produce injection only, then prepend to current result
+            inj = pp.func("", opts)
+            if not isinstance(inj, str):
+                raise TypeError(f"Preprocessor '{spec.name}' must return a string")
+            result = f"{inj}{result}"
+        else:
+            # Back-compat: let preprocessor transform/append to current result
+            out = pp.func(result, opts)
+            if not isinstance(out, str):
+                raise TypeError(f"Preprocessor '{spec.name}' must return a string")
+            result = out
     return result

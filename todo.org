@@ -30,6 +30,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [X] Always show prompt. Add commands to stop/continue workflows
 ** [X] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
 ** [X] Streaming printing is broken with permanent toolbar visibility
+** [ ] When prompt is requested, sometimes toolbar status is not updated
 ** [ ] Disable know warnings, they mess up UI output
 ** [ ] Animation does not start after providing feedback message back to Node
 ** [ ] When LLM is waiting for response, need to show visual feedback to user
