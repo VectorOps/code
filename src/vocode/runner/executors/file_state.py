@@ -1,4 +1,4 @@
-from typing import AsyncIterator, Optional, Any, List, Dict
+from typing import AsyncIterator, Optional, Any, List, Dict, Tuple
 from pathlib import Path
 import hashlib
 
@@ -9,6 +9,7 @@ from vocode.models import Node, ResetPolicy
 from vocode.state import Message
 from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 from vocode.commands import CommandContext
+from vocode.runner.preprocessors.base import register_preprocessor
 
 STRICT_DEFAULT_PROMPT = (
     "The following files were explicitly added by the developer to your context. "
@@ -66,13 +67,8 @@ class FileStateContext(BaseModel):
             if norm_rel in self.files:
                 skipped += 1
                 continue
-            full = (project.base_path / norm_rel).resolve()
-            try:
-                file_hash = _hash_file(full)
-            except Exception:
-                # If hashing fails, still record presence with empty hash
-                file_hash = ""
-            self.files[norm_rel] = file_hash
+            # Do not compute hash at add time. Only track presence.
+            self.files[norm_rel] = ""
             added += 1
         return added, skipped
 
@@ -98,6 +94,57 @@ def get_file_state_ctx(project) -> FileStateContext:
         ctx = FileStateContext()
         project.project_state.set(key, ctx)
     return ctx
+
+
+def _build_file_state_injection(
+    project,
+    prompt: str,
+    prev_hashes: Optional[Dict[str, str]] = None,
+) -> Tuple[str, Dict[str, str], List[str]]:
+    """
+    Shared logic to:
+      - enumerate tracked files from FileStateContext
+      - compute current hashes
+      - determine which files to include (first run: all; otherwise: changed only)
+      - render injection text
+    Returns: (injection_text, current_hashes, include_rels)
+    """
+    ctx_files = get_file_state_ctx(project).list()
+    base = project.base_path
+
+    prev_hashes = dict(prev_hashes or {})
+
+    # Compute current hashes for tracked files that exist
+    cur_hashes: Dict[str, str] = {}
+    for rel in ctx_files:
+        full = base / rel
+        if not full.exists() or not full.is_file():
+            continue
+        try:
+            cur_hashes[rel] = _hash_file(full)
+        except Exception:
+            continue
+
+    # Which files to include
+    if prev_hashes:
+        include_rels = [rel for rel, h in cur_hashes.items() if prev_hashes.get(rel) != h]
+    else:
+        include_rels = list(cur_hashes.keys())
+
+    parts: List[str] = [prompt]
+    for rel in include_rels:
+        full = base / rel
+        try:
+            content = full.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            try:
+                content = full.read_bytes().decode("utf-8", errors="replace")
+            except Exception:
+                content = "[Error reading file content]"
+        parts.append(f"File: {rel}\n```\n{content}\n```")
+
+    final_text = "\n\n".join(parts)
+    return final_text, cur_hashes, include_rels
 
 
 class FileStateExecutor(Executor):
@@ -234,8 +281,6 @@ class FileStateExecutor(Executor):
         self, inp: ExecRunInput
     ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: FileStateNode = self.config  # type: ignore[assignment]
-        ctx_files = get_file_state_ctx(self.project).list()
-        base = self.project.base_path
 
         # Previous state (hashes) if available
         prev_hashes: Dict[str, str] = {}
@@ -245,43 +290,46 @@ class FileStateExecutor(Executor):
             # Back-compat if raw dict was persisted
             prev_hashes = {k: str(v) for k, v in inp.state.items()}
 
-        # Compute current hashes for tracked files that exist
-        cur_hashes: Dict[str, str] = {}
-        for rel in ctx_files:
-            full = base / rel
-            if not full.exists() or not full.is_file():
-                continue
-            try:
-                cur_hashes[rel] = _hash_file(full)
-            except Exception:
-                # Skip files we cannot hash
-                continue
-
-        # Which files to include:
-        # - First run (no state): include all
-        # - Subsequent runs: include only new/changed files
-        if prev_hashes:
-            include_rels = [
-                rel for rel, h in cur_hashes.items() if prev_hashes.get(rel) != h
-            ]
-        else:
-            include_rels = list(cur_hashes.keys())
-
-        parts: List[str] = [cfg.prompt]
-        for rel in include_rels:
-            full = base / rel
-            try:
-                content = full.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                try:
-                    content = full.read_bytes().decode("utf-8", errors="replace")
-                except Exception:
-                    content = "[Error reading file content]"
-            parts.append(f"File: {rel}\n```\n{content}\n```")
-
-        final_text = "\n\n".join(parts)
+        final_text, cur_hashes, _include_rels = _build_file_state_injection(
+            project=self.project,
+            prompt=cfg.prompt,
+            prev_hashes=prev_hashes,
+        )
         final = Message(role="agent", text=final_text)
-
-        # Persist current hashes for next run
         state_out = FileStateState(hashes=cur_hashes)
         yield ReqFinalMessage(message=final), state_out
+
+# Preprocessor that mirrors run() behavior for injection
+def _file_state_preprocessor(
+    project,
+    text: str,
+    options: Optional[Dict[str, Any]] = None,
+    **_: Any,
+) -> str:
+    opts = options or {}
+    prompt = opts.get("prompt", STRICT_DEFAULT_PROMPT)
+    # Persist previous hashes in project-scoped state
+    prev_key = "file_state_hashes"
+    prev_hashes = project.project_state.get(prev_key)
+    if not isinstance(prev_hashes, dict):
+        prev_hashes = {}
+
+    injection, cur_hashes, include_rels = _build_file_state_injection(
+        project=project, prompt=prompt, prev_hashes=prev_hashes
+    )
+    # Save current snapshot for next invocation
+    project.project_state.set(prev_key, cur_hashes)
+
+    # Only inject when there is something to include (first run or changes)
+    if include_rels:
+        base_text = text or ""
+        return (base_text + ("\n\n" if base_text else "") + injection).strip()
+    return text
+
+
+# Register at import time
+register_preprocessor(
+    name="file_state",
+    func=_file_state_preprocessor,
+    description="Injects tracked files from FileStateContext when added or changed (first run: all tracked files).",
+)

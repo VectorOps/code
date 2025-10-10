@@ -9,7 +9,7 @@ from litellm import acompletion, completion_cost
 from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 from vocode.runner.runner import Executor
-from vocode.models import Node, PreprocessorSpec, OutcomeStrategy
+from vocode.models import Node, PreprocessorSpec, OutcomeStrategy, Mode
 from vocode.state import Message, ToolCall, LogLevel
 from vocode.runner.models import (
     ReqPacket,
@@ -135,15 +135,27 @@ class LLMExecutor(Executor):
         self, cfg: LLMNode, history: List[Message]
     ) -> List[Dict[str, Any]]:
         msgs: List[Dict[str, Any]] = []
+        sys_specs = [p for p in (cfg.preprocessors or []) if p.mode == Mode.System]
+        user_specs = [p for p in (cfg.preprocessors or []) if p.mode == Mode.User]
+
         if cfg.system:
             sys_text = cfg.system
-            # Apply LLMNode-specific preprocessors to the system prompt only
-            preprocs = cfg.preprocessors or []
-            if preprocs:
-                sys_text = apply_preprocessors(preprocs, sys_text)
+            if sys_specs:
+                sys_text = apply_preprocessors(sys_specs, sys_text)
             msgs.append({"role": "system", "content": sys_text})
+
         for m in history:
             msgs.append(self._map_message_to_llm_dict(m, cfg))
+
+        # Apply user-mode preprocessors to the last user message, if any
+        if user_specs:
+            # Find the last 'user' role message
+            for idx in range(len(msgs) - 1, -1, -1):
+                if msgs[idx].get("role") == "user":
+                    orig = msgs[idx].get("content") or ""
+                    new_text = apply_preprocessors(user_specs, str(orig))
+                    msgs[idx]["content"] = new_text
+                    break
 
         return msgs
 

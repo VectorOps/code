@@ -30,20 +30,24 @@ class MessageMode(str, Enum):
     final_response = "final_response"
     all_messages = "all_messages"
     concatenate_final = "concatenate_final"
+class Mode(str, Enum):
+    System = "system"
+    User = "user"
 
 
 class PreprocessorSpec(BaseModel):
     name: str
     options: Dict[str, Any] = Field(default_factory=dict)
+    mode: Mode = Field(default=Mode.System, description="Where to apply this preprocessor: system or last user message")
 
     @model_validator(mode="before")
     @classmethod
     def _coerce(cls, v: Any) -> Any:
         # Accept either:
-        # - "name" (string)
-        # - {"name": "name", "options": {...}}
+        # - "name" (string) -> defaults to Mode.System
+        # - {"name": "name", "options": {...}, "mode": "system"|"user"|Mode}
         if isinstance(v, str):
-            return {"name": v, "options": {}}
+            return {"name": v, "options": {}, "mode": Mode.System}
         if isinstance(v, dict):
             name = v.get("name")
             if not isinstance(name, str) or not name:
@@ -57,9 +61,24 @@ class PreprocessorSpec(BaseModel):
                 raise TypeError(
                     "Preprocessor 'options' must be a mapping/dict if provided"
                 )
-            return {"name": name, "options": options}
+            raw_mode = v.get("mode", Mode.System)
+            # Normalize 'mode' accepting either enum or string (case-insensitive)
+            if isinstance(raw_mode, str):
+                low = raw_mode.strip().lower()
+                if low == "system":
+                    mode = Mode.System
+                elif low == "user":
+                    mode = Mode.User
+                else:
+                    raise ValueError("Preprocessor 'mode' must be 'system' or 'user'")
+            elif isinstance(raw_mode, Mode):
+                mode = raw_mode
+            else:
+                # Allow None -> default
+                mode = Mode.System
+            return {"name": name, "options": options, "mode": mode}
         raise TypeError(
-            "Preprocessor spec must be a string or a mapping with 'name' and optional 'options'"
+            "Preprocessor spec must be a string or a mapping with 'name', optional 'options', and optional 'mode'"
         )
 
 

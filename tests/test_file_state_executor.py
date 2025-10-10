@@ -93,3 +93,47 @@ async def test_file_state_executor_outputs_files_with_fences(tmp_path: Path):
         assert "- README.md" in msg2
         assert "Files in context:" in msg2
         assert "- src/a.py" in msg2
+
+@pytest.mark.asyncio
+async def test_file_state_commands_invalid_and_list_behavior(tmp_path: Path):
+    async with ProjectSandbox.create(tmp_path) as project:
+        graph = Graph(nodes=[FileStateNode(name="fs", confirmation="auto")], edges=[])
+        wf = Workflow(name="wf", graph=graph)
+        runner = Runner(wf, project)
+        ctx = CommandContext(project=project, ui=None)
+
+        # flist on empty state
+        lst0 = await project.commands.execute("flist", ctx, [])
+        assert lst0 == "(file_state empty)"
+
+        # Try adding a non-existent file
+        msg_missing = await project.commands.execute("fadd", ctx, ["no/such/file.txt"])
+        assert msg_missing is not None
+        assert "Errors:" in msg_missing
+        assert "File does not exist" in msg_missing
+        # State remains empty
+        lst1 = await project.commands.execute("flist", ctx, [])
+        assert lst1 == "(file_state empty)"
+
+        # Create a real file to add
+        (project.base_path / "docs").mkdir(parents=True, exist_ok=True)
+        real = project.base_path / "docs" / "note.md"
+        real.write_text("hello\n", encoding="utf-8")
+
+        msg_ok = await project.commands.execute("fadd", ctx, ["docs/note.md"])
+        assert msg_ok is not None
+        assert "Added:" in msg_ok
+        assert "- docs/note.md" in msg_ok
+
+        # Absolute path should be rejected
+        abs_path = str(real.resolve())
+        msg_abs = await project.commands.execute("fadd", ctx, [abs_path])
+        assert msg_abs is not None
+        assert "Errors:" in msg_abs
+        assert "Path must be relative to project" in msg_abs
+
+        # Escaping project root should be rejected
+        msg_escape = await project.commands.execute("fadd", ctx, ["../outside.txt"])
+        assert msg_escape is not None
+        assert "Errors:" in msg_escape
+        assert "Path escapes project root" in msg_escape
