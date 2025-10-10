@@ -107,6 +107,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Integrate Know
 *** [ ] Add progress report
 *** [ ] Figure out how to express 3rd party dependencies and give access
+*** [ ] Disable warnings
 ** [ ] Add pattern matching rules to auto-approve rule calls
 
 ** [ ] Shell tool
