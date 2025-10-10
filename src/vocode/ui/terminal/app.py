@@ -207,7 +207,16 @@ class TerminalApp:
         n = self.interrupt_count
         self.interrupt_count = n + 1
         assert self.ui is not None
-        await (self.ui.stop() if n == 0 else self.ui.cancel())
+        # Flush any active streaming before issuing stop to avoid lingering output.
+        await self._flush_and_clear_stream()
+        if n == 0:
+            await self.ui.stop()
+        else:
+            # Subsequent Ctrl+C presses are ignored (no cancel).
+            pass
+        # Clear any pending input locally and refresh toolbar state.
+        self.pending_req_env = None
+        await self._update_toolbar_ticker()
 
     def request_exit(self) -> None:
         self.should_exit = True
@@ -434,6 +443,17 @@ class TerminalApp:
                             to_formatted_text(fragments),
                             style=styles.get_pt_style(),
                         )
+                    # When runner is no longer active, clear pending input and stop any streaming.
+                    if msg.curr in (
+                        RunnerStatus.stopped,
+                        RunnerStatus.canceled,
+                        RunnerStatus.finished,
+                        RunnerStatus.idle,
+                    ):
+                        self.pending_req_env = None
+                        self.queued_resp = None
+                        await self._flush_and_clear_stream()
+                        await self._update_toolbar_ticker()
                     continue
                 if msg.kind == PACKET_RUN_EVENT:
                     await self.handle_run_event(envelope)
@@ -502,9 +522,9 @@ class TerminalApp:
         # Key bindings
         kb = self.kb
 
-        # @kb.add("c-c")
-        # def _kb_stop(event):
-        #    asyncio.create_task(self.stop_toggle())
+        @kb.add("c-c", eager=True)
+        def _kb_stop(event):
+            asyncio.create_task(self.stop_toggle())
 
         @kb.add("c-g", eager=True)
         def _kb_reset(event):
@@ -658,6 +678,7 @@ class TerminalApp:
                                 self.ui, msg_id, Message(role="user", text=text)
                             )
                         self.pending_req_env = None
+                        await self._update_toolbar_ticker()
                         continue
                     if ev.kind == PACKET_TOOL_CALL:
                         if text.strip().lower() in ("", "y", "yes"):
@@ -665,6 +686,7 @@ class TerminalApp:
                         else:
                             await respond_approval(self.ui, msg_id, False)
                         self.pending_req_env = None
+                        await self._update_toolbar_ticker()
                         continue
                     if ev.kind == PACKET_FINAL_MESSAGE:
                         conf = _current_node_confirmation(self.ui)
@@ -673,10 +695,12 @@ class TerminalApp:
                             if ans in ("y", "yes"):
                                 await respond_approval(self.ui, msg_id, True)
                                 self.pending_req_env = None
+                                await self._update_toolbar_ticker()
                                 continue
                             if ans in ("n", "no"):
                                 await respond_approval(self.ui, msg_id, False)
                                 self.pending_req_env = None
+                                await self._update_toolbar_ticker()
                                 continue
                             out("Please answer Y or N.")
                             continue
@@ -687,6 +711,7 @@ class TerminalApp:
                                 self.ui, msg_id, Message(role="user", text=text)
                             )
                         self.pending_req_env = None
+                        await self._update_toolbar_ticker()
                         continue
                 # No pending input and not a command: show contextual hints.
                 if self.ui.is_active():

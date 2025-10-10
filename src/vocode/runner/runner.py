@@ -116,6 +116,72 @@ class Runner:
         self._stop_requested: bool = False
         self._internal_cancel_requested: bool = False
 
+
+    def _bypass_skipped_nodes(
+        self,
+        start_runtime_node,
+        pending_input_messages: List[Message],
+    ):
+        """
+        Traverse forward while nodes are marked skip=True.
+        Returns (first_non_skipped_runtime_node | None, pending_input_messages, edge_reset_policy | None).
+        - If a skipped node has zero outcomes: traversal stops (returns None) => finish.
+        - If a skipped node has multiple outcomes: raise error (ambiguous).
+        - The returned edge_reset_policy is the policy from the last traversed edge into the final non-skipped node.
+        """
+        current = start_runtime_node
+        last_edge_policy = None
+        while current is not None and current.model.skip:
+            node_model = current.model
+            if not node_model.outcomes:
+                return None, pending_input_messages, None
+            if len(node_model.outcomes) != 1:
+                raise ValueError(
+                    f"Node '{node_model.name}' is marked skip=True but has {len(node_model.outcomes)} outcomes; cannot determine next node"
+                )
+            selected_outcome = node_model.outcomes[0].name
+            child = current.get_child_by_outcome(selected_outcome)
+            if child is None:
+                raise ValueError(
+                    f"No edge defined from node '{node_model.name}' via its only outcome"
+                )
+            # Capture edge reset policy for this hop (last one wins)
+            edge_reset_policy = next(
+                (
+                    e.reset_policy
+                    for e in self.workflow.graph.edges
+                    if e.source_node == node_model.name
+                    and e.source_outcome == selected_outcome
+                    and e.target_node == child.name
+                ),
+                None,
+            )
+            last_edge_policy = edge_reset_policy
+            current = child
+        return current, pending_input_messages, last_edge_policy
+
+    def _transition_and_bypass(self, current_runtime_node, exec_activity, step):
+        """
+        Compute next node transition from current_runtime_node via exec_activity,
+        then bypass any subsequent skipped nodes. Returns a tuple:
+        (next_runtime_node | None, next_input_messages | None, next_edge_policy | None)
+        """
+        next_runtime_node, next_input_messages, next_edge_policy = (
+            self._compute_node_transition(current_runtime_node, exec_activity, step)
+        )
+        if next_runtime_node is None:
+            return None, None, None
+        if next_runtime_node.model.skip:
+            bypass_node, next_input_messages, bypass_policy = (
+                self._bypass_skipped_nodes(next_runtime_node, next_input_messages)
+            )
+            next_runtime_node = bypass_node
+            if next_runtime_node is None:
+                return None, None, None
+            # Prefer policy from the last hop into the final non-skipped node
+            next_edge_policy = bypass_policy or next_edge_policy
+        return next_runtime_node, next_input_messages, next_edge_policy
+
     def cancel(self) -> None:
         """Cancel the currently running executor step, if any."""
         if self._current_exec_task and not self._current_exec_task.done():
@@ -637,6 +703,21 @@ class Runner:
 
         # Main loop
         while True:
+            # If current node (or a chain) is marked skip=True, bypass before creating a step.
+            if current_runtime_node is not None and current_runtime_node.model.skip:
+                next_node, pending_input_messages, skip_edge_policy = (
+                    self._bypass_skipped_nodes(
+                        current_runtime_node, pending_input_messages
+                    )
+                )
+                if next_node is None:
+                    self.status = RunnerStatus.finished
+                    task.status = RunStatus.finished
+                    return
+                current_runtime_node = next_node
+                if skip_edge_policy is not None:
+                    incoming_policy_override = skip_edge_policy
+
             # Create new step for new executions
             if step is None:
                 step = Step(node=current_runtime_node.name, status=RunStatus.running)
@@ -791,7 +872,7 @@ class Runner:
 
                     # Compute next node/inputs
                     next_runtime_node, next_input_messages, next_edge_policy = (
-                        self._compute_node_transition(
+                        self._transition_and_bypass(
                             current_runtime_node, last_exec_activity, step
                         )
                     )
@@ -933,7 +1014,7 @@ class Runner:
                     step.status = RunStatus.finished
 
                     next_runtime_node, next_input_messages, next_edge_policy = (
-                        self._compute_node_transition(
+                        self._transition_and_bypass(
                             current_runtime_node, req_activity, step
                         )
                     )

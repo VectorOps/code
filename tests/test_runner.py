@@ -51,6 +51,71 @@ async def asend_wrap(it, payload):
 
 
 @pytest.mark.asyncio
+async def test_skip_node_bypass_single_outcome(tmp_path: Path):
+    # Graph: Skip(S, skip=True) -> A
+    nodes = [
+        {"name": "S", "type": "skip_type", "outcomes": [OutcomeSlot(name="toA")], "skip": True},
+        {"name": "A", "type": "a", "outcomes": []},
+    ]
+    edges = [Edge(source_node="S", source_outcome="toA", target_node="A")]
+    g = Graph(nodes=nodes, edges=edges)
+    workflow = Workflow(name="workflow", graph=g)
+
+    class SkipExec(Executor):
+        type = "skip_type"
+        # Should never run
+        async def run(self, inp):
+            yield (ReqFinalMessage(message=msg("agent", "SHOULD_NOT_RUN")), None)
+
+    class AExec(Executor):
+        type = "a"
+        async def run(self, inp):
+            # Initial message should pass through unchanged
+            assert [m.text for m in inp.messages] == ["hello"]
+            yield (ReqFinalMessage(message=msg("agent", "Aout")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project, initial_message=msg("user", "hello"))
+        task = Assignment()
+        it = runner.run(task)
+
+        # First event should be from node A (skip S is bypassed silently)
+        ev = await next_event_wrap(it)
+        assert ev.node == "A"
+        assert ev.event.kind == "final_message"
+        with pytest.raises(StopAsyncIteration):
+            await asend_wrap(it, None)
+
+        # No step should have been created for the skipped node
+        assert [s.node for s in task.steps] == ["A"]
+        # Executor for S is still created
+        assert "S" in runner._executors
+
+
+@pytest.mark.asyncio
+async def test_skip_node_only_finishes_immediately(tmp_path: Path):
+    # Single-node graph with skip=True and no outcomes: should finish immediately with no events
+    nodes = [{"name": "S", "type": "skip_only", "outcomes": [], "skip": True}]
+    g = Graph(nodes=nodes, edges=[])
+    workflow = Workflow(name="w", graph=g)
+
+    class SkipOnlyExec(Executor):
+        type = "skip_only"
+        async def run(self, inp):
+            yield (ReqFinalMessage(message=msg("agent", "SHOULD_NOT_RUN")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+        with pytest.raises(StopAsyncIteration):
+            await it.__anext__()
+        assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
+        assert len(task.steps) == 0
+
+
+@pytest.mark.asyncio
 async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
     # Executor emits a tool call with auto_approve=True; runner should not prompt
     nodes = [{"name": "Tool", "type": "tool_auto", "outcomes": []}]

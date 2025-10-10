@@ -67,6 +67,10 @@ class Node(BaseModel):
     name: str = Field(..., description="Unique node name")
     type: str = Field(..., description="Node type identifier")
     outcomes: List[OutcomeSlot] = Field(default_factory=list)
+    skip: bool = Field(
+        default=False,
+        description="If true, runner will skip executing this node and suppress notifications; executor instance may still be created.",
+    )
     message_mode: MessageMode = Field(
         default=MessageMode.final_response,
         description=(

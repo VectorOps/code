@@ -33,31 +33,31 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Disable know warnings, they mess up UI output
 ** [ ] Animation does not start after providing feedback message back to Node
 ** [ ] When LLM is waiting for response, need to show visual feedback to user
-** [ ] Summarize tool calls for known tools. Create templates for tool calling that map parameters
+** [X] Summarize tool calls for known tools. Create templates for tool calling that map parameters
 ** [ ] Ability to snoop into tool call details if needed, collapsed by default
 ** [ ] Better multi-line inputs, don't require esc+enter to send
 ** [ ] Shortcuts - ESC to stop execution?
 ** [ ] Show how long individual steps took, in seconds
-** [ ] Continue after stopping shows prompt second time
+** [X] Continue after stopping shows prompt second time
 ** [ ] Continue after stopping does not show agent output upon response, but it's there
-** [ ] When ctrl+c is pressed while waiting for user input and runner is stopped, need to cancel waiter.
+** [X] When ctrl+c is pressed while waiting for user input and runner is stopped, need to cancel waiter.
 ** [ ] Add command to reload config without restart
-** [ ] Add shortcuts to cancel current input easily
+** [X] Add shortcuts to cancel current input easily
 ** [ ] Simple styling
-*** [ ] Color usage
+*** [X] Color usage
 *** [ ] Simple animations
-**** [ ] Add three spaces to animation to prevent closing ] from animating
-**** [ ] Ticker is not restarted after stopping for some reason or not always restarted
-*** [ ] Remove Agent: prefix
-** [ ] Print node transitions
+**** [X] Add three spaces to animation to prevent closing ] from animating
+**** [X] Ticker is not restarted after stopping for some reason or not always restarted
+*** [X] Remove Agent: prefix
+** [X] Print node transitions
 ** [ ] Format tool calls
 *** [X] JSON formatter and highlighter
 *** [ ] Add a way (tab?) to expand/collapse JSON
 *** [ ] Require all tool calls from LLM to have description (Key Objective)
-*** [ ] Group related tool calls
+*** [X] Group related tool calls
 ** [X] Assume markdown as default formatter
-** [ ] Wrapped lines don't move caret down correctly - next line overwrites it.
-** [ ] Disable input and drop buffered input between prompts
+** [X] Wrapped lines don't move caret down correctly - next line overwrites it.
+** [X] Disable input and drop buffered input between prompts
 ** [ ] Change workflow execution:
 - If workflow is selected, first message sent should start the workflow
 - If workflow is stopped after finishing, then sending a new message should resume same workflow from the beginning
