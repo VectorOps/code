@@ -5,7 +5,7 @@ import hashlib
 from pydantic import BaseModel, Field
 
 from vocode.runner.runner import Executor
-from vocode.models import Node, ResetPolicy
+from vocode.models import Node, ResetPolicy, PreprocessorSpec
 from vocode.state import Message
 from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 from vocode.commands import CommandContext
@@ -302,11 +302,11 @@ class FileStateExecutor(Executor):
 # Preprocessor that mirrors run() behavior for injection
 def _file_state_preprocessor(
     project,
+    spec: PreprocessorSpec,
     text: str,
-    options: Optional[Dict[str, Any]] = None,
     **_: Any,
 ) -> str:
-    opts = options or {}
+    opts = spec.options or {}
     prompt = opts.get("prompt", STRICT_DEFAULT_PROMPT)
     # Persist previous hashes in project-scoped state
     prev_key = "file_state_hashes"
@@ -323,7 +323,13 @@ def _file_state_preprocessor(
     # Only inject when there is something to include (first run or changes)
     if include_rels:
         base_text = text or ""
-        return (base_text + ("\n\n" if base_text else "") + injection).strip()
+        if spec.prepend:
+            # Place injection before the current text
+            merged = (injection + ("\n\n" if base_text else "") + base_text).strip()
+        else:
+            # Default: place injection after the current text
+            merged = (base_text + ("\n\n" if base_text else "") + injection).strip()
+        return merged
     return text
 
 

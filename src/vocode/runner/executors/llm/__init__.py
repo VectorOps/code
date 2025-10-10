@@ -141,7 +141,7 @@ class LLMExecutor(Executor):
         if cfg.system:
             sys_text = cfg.system
             if sys_specs:
-                sys_text = apply_preprocessors(sys_specs, sys_text)
+                sys_text = apply_preprocessors(sys_specs, self.project, sys_text)
             msgs.append({"role": "system", "content": sys_text})
 
         for m in history:
@@ -153,7 +153,7 @@ class LLMExecutor(Executor):
             for idx in range(len(msgs) - 1, -1, -1):
                 if msgs[idx].get("role") == "user":
                     orig = msgs[idx].get("content") or ""
-                    new_text = apply_preprocessors(user_specs, str(orig))
+                    new_text = apply_preprocessors(user_specs, self.project, str(orig))
                     msgs[idx]["content"] = new_text
                     break
 

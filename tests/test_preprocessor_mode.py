@@ -9,7 +9,11 @@ from vocode.state import Message
 register_preprocessor(
     name="mark",
     description="append marker",
-    func=lambda text, opts: f"{text}{opts.get('suffix', '')}",
+    func=lambda project, spec, text: (
+        f"{(spec.options or {}).get('suffix', '')}{text}"
+        if spec.prepend
+        else f"{text}{(spec.options or {}).get('suffix', '')}"
+    ),
 )
 
 
