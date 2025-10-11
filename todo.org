@@ -61,10 +61,6 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [X] Assume markdown as default formatter
 ** [X] Wrapped lines don't move caret down correctly - next line overwrites it.
 ** [X] Disable input and drop buffered input between prompts
-** [ ] Change workflow execution:
-- If workflow is selected, first message sent should start the workflow
-- If workflow is stopped after finishing, then sending a new message should resume same workflow from the beginning
-- If workflow is canceled, then workflow should start new workflow
 ** [X] ctrl+c when runner is active does nothing - should stop the runner (verify, might not be the case)
 ** [?] We might have deadlock somewhere that does not break with ctrl+c
 - Added debugging stacktraces for now

@@ -14,6 +14,7 @@ PACKET_RUN_INPUT = "run_input"
 PACKET_ACK = "ack"
 PACKET_COMPLETION_REQUEST = "completion_request"
 PACKET_COMPLETION_RESULT = "completion_result"
+PACKET_UI_RELOAD = "ui_reload"
 
 
 class UIPacketRunEvent(BaseModel):
@@ -81,6 +82,9 @@ class UIPacketCompletionResult(BaseModel):
 class UIPacketAck(BaseModel):
     kind: Literal["ack"] = PACKET_ACK
 
+class UIPacketUIReload(BaseModel):
+    kind: Literal["ui_reload"] = PACKET_UI_RELOAD
+
 
 UIPacket = Annotated[
     Union[
@@ -94,6 +98,7 @@ UIPacket = Annotated[
         UIPacketCompletionResult,
         UIPacketCommandResult,
         UIPacketAck,
+        UIPacketUIReload,
     ],
     Field(discriminator="kind"),
 ]

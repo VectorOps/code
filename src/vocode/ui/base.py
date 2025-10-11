@@ -29,11 +29,13 @@ from .proto import (
     UIPacketCompletionResult,
     UIPacketCommandResult,
     UIPacketRunCommand,
+    UIPacketAck,
     UICommand,
     PACKET_RUN_INPUT,
     PACKET_RUN_COMMAND,
     PACKET_COMPLETION_REQUEST,
     PACKET_COMPLETION_RESULT,
+    PACKET_UI_RELOAD,
 )
 from .rpc import RpcHelper
 
@@ -530,6 +532,8 @@ class UIState:
                     await self._handle_run_command(envelope)
                 elif kind == PACKET_COMPLETION_REQUEST:
                     await self._handle_completion_request(envelope)
+                elif kind == PACKET_UI_RELOAD:
+                    await self._handle_ui_reload(envelope)
                 else:
                     # Non-command/completion requests should be handled elsewhere (e.g., RPC responses).
                     # Ignore unknown requests.
@@ -593,3 +597,63 @@ class UIState:
                 payload=resp,
             )
         )
+
+    async def _handle_ui_reload(self, envelope: UIPacketEnvelope) -> None:
+        """
+        Force reload:
+        - Cancel any current runner
+        - Stop command forwarding
+        - Shutdown current Project
+        - Create and start a new Project from the same base_path
+        - Restart command forwarding and send UI reset
+        - ACK the request
+        """
+        try:
+            # Force cancel any active runner
+            await self._shutdown_current_runner(cancel=True)
+
+            # Stop forwarding command events
+            if self._cmd_events_task and not self._cmd_events_task.done():
+                self._cmd_events_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._cmd_events_task
+            self._cmd_events_task = None
+
+            # Shutdown current project
+            with contextlib.suppress(Exception):
+                await self.project.shutdown()
+
+            # Recreate a fresh project and start it
+            from vocode.project import Project as VocodeProject
+
+            base = self.project.base_path
+            new_project = VocodeProject.from_base_path(base)
+            await new_project.start()
+
+            # Swap the project
+            self.project = new_project
+
+            # Reset UIState high-level selections
+            self.workflow = None
+            self.assignment = None
+            self._initial_message = None
+            self._selected_workflow_name = None
+            self._current_node_name = None
+            self._last_status = None
+
+            # Restart command forwarder with the new project
+            self._cmd_events_task = asyncio.create_task(self._forward_command_events())
+
+            # Ask UI to clear any state
+            await self._send_ui_reset()
+        except Exception as e:
+            logger.exception("UIState: project reload failed: %s", e)
+        finally:
+            # Always ACK so the caller can proceed
+            await self._outgoing.put(
+                UIPacketEnvelope(
+                    msg_id=self._next_msg_id(),
+                    source_msg_id=envelope.msg_id,
+                    payload=UIPacketAck(),
+                )
+            )

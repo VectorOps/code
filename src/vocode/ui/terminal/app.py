@@ -45,6 +45,7 @@ from vocode.ui.proto import (
     PACKET_CUSTOM_COMMANDS,
     PACKET_COMMAND_RESULT,
     PACKET_RUN_COMMAND,
+    UIPacketUIReload,
 )
 from vocode.ui.rpc import RpcHelper
 from vocode.runner.models import (
@@ -492,6 +493,28 @@ class TerminalApp:
         self.commands = register_default_commands(
             Commands(), self.ui, ac_factory=ac_factory
         )
+        # Add '/reload' here to access the PromptSession for confirmation
+        @self.commands.register("/reload", "Reload config and restart project state")
+        async def _reload_cmd(ctx: CommandContext, args: list[str]) -> None:
+            # Prompt for confirmation. Require 'yes' or 'y'.
+            try:
+                assert self.session is not None
+                ans = await self.session.prompt_async(
+                    "Reload configuration and restart project? Type 'yes' to confirm: "
+                )
+            except Exception:
+                ans = ""
+            if ans.strip().lower() not in ("yes", "y"):
+                out("Reload cancelled.")
+                return
+            try:
+                # Flush any active streaming before reload
+                await self._flush_and_clear_stream()
+                assert self.rpc is not None
+                await self.rpc.call(UIPacketUIReload(), timeout=None)
+                out("Reloaded project.")
+            except Exception as e:
+                out(f"Reload failed: {e}")
         completer = TerminalCompleter(
             self.ui,
             self.commands,
