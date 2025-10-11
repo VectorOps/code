@@ -81,15 +81,16 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 **** [X] Add support for multi-blocks where multiple things are getting deleted and added.
 **** [X] Add support for multiple patch blocks or provide better instructions
 **** [X] Better error instructions when blocks overlap
-**** [ ] Allow same file to be mentioned multiple times?
+**** [X] Allow same file to be mentioned multiple times?
 *** [ ] Unified Diff format
 * [ ] Nodes
 ** [ ] Add a node that injects files in context. Add file manager.
 *** [X] Needs file auto-complete UI support
 *** [X] Show files added and removed, as well as current list of files for /fadd and /fdel
-*** [ ] Figure out a way to inject files into patch without apply_patch having access to readfile
+*** [X] Figure out a way to inject files into patch without apply_patch having access to readfile
 *** [ ] [#A] Add a way to manage context and inject files to context while looping in LLM node
 ** [ ] LLM node
+*** [ ] Verify that injectors add to system prompt only once. Ensure that user prompt also only added once.
 *** [ ] Add tool calling budgets (number of calls, tokens, etc)
 *** [ ] Detect tool call loops
 *** [ ] Auto-retry on timeout

@@ -192,80 +192,64 @@ class ApplyPatchExecutor(Executor):
                 write_fn=tracking_write,
                 delete_fn=tracking_remove,
             )
-            # Compose result message based on statuses and errors
-            created = sorted(
-                [f for f, s in statuses.items() if s == FileApplyStatus.Create]
-            )
-            updated_full = sorted(
-                [f for f, s in statuses.items() if s == FileApplyStatus.Update]
-            )
-            updated_partial = sorted(
-                [f for f, s in statuses.items() if s == FileApplyStatus.PartialUpdate]
-            )
-            deleted = sorted(
-                [f for f, s in statuses.items() if s == FileApplyStatus.Delete]
-            )
+            # Categorize by status
+            created = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Create])
+            updated_full = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Update])
+            updated_partial = sorted([f for f, s in statuses.items() if s == FileApplyStatus.PartialUpdate])
+            deleted = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Delete])
 
             if errs:
-                # Determine what actually got applied based on successful IO (changes_map)
-                actually_applied = sorted(changes_map.keys())
-                applied_any = bool(actually_applied)
+                # Determine what actually got applied (successful IO only)
+                applied_files = set(changes_map.keys())
+                applied_any = bool(applied_files)
 
-                failed_files = sorted(
-                    {e.filename for e in errs if getattr(e, "filename", None)}
-                )
-                # Ask to regenerate chunks for partial files and for files that failed entirely
-                targets_for_fix = sorted(
-                    set(updated_partial) | (set(failed_files) - set(actually_applied))
-                )
+                # Intersect status categories with actually applied changes to remove ambiguity
+                applied_created = sorted([f for f in created if f in applied_files])
+                applied_updated_full = sorted([f for f in updated_full if f in applied_files])
+                applied_updated_partial = sorted([f for f in updated_partial if f in applied_files])
+                applied_deleted = sorted([f for f in deleted if f in applied_files])
 
+                # Files that had errors and did not result in any applied change
+                failed_files = sorted({e.filename for e in errs if getattr(e, "filename", None)})
+                not_applied_failed = sorted([f for f in failed_files if f not in applied_files])
+
+                # Compose precise summary
                 lines: list[str] = []
                 if not applied_any:
-                    # Nothing was applied at all: request a brand new full patch
-                    lines.append("Failed to apply patch. No changes were applied.")
-                    lines.append(
-                        "Please generate a new complete patch that applies cleanly to the current repository state."
-                    )
+                    lines.append("Patch application failed. No changes were applied.")
                 else:
-                    # Some changes landed: summarize precisely and ask to regenerate only failed chunks
-                    lines.append(
-                        "Applied patch partially. Some changes were written, but at least one chunk failed."
-                    )
-
-                    # What actually happened on disk
-                    if actually_applied:
-                        lines.append("Successfully applied to files:")
-                        for f in actually_applied:
+                    lines.append("Patch application completed with errors. Summary:")
+                    if applied_created:
+                        lines.append("Added files (fully applied):")
+                        for f in applied_created:
+                            lines.append(f"* {f}")
+                    if applied_updated_full:
+                        lines.append("Fully updated files:")
+                        for f in applied_updated_full:
+                            lines.append(f"* {f}")
+                    if applied_updated_partial:
+                        lines.append("Partially updated files (some chunks failed):")
+                        for f in applied_updated_partial:
+                            lines.append(f"* {f}")
+                    if applied_deleted:
+                        lines.append("Deleted files (fully applied):")
+                        for f in applied_deleted:
                             lines.append(f"* {f}")
 
-                    # Be explicit about partials
-                    if updated_partial:
-                        lines.append(
-                            "Files with partial updates (some chunks applied, some failed):"
-                        )
-                        for f in updated_partial:
-                            lines.append(f"* {f}")
+                # Guidance: target regeneration for failed parts and files with no applied changes
+                targets_for_fix = sorted(set(applied_updated_partial) | set(not_applied_failed))
+                if targets_for_fix:
+                    lines.append("Please regenerate patch chunks only for the failed parts in these files:")
+                    for f in targets_for_fix:
+                        lines.append(f"* {f}")
 
-                    # Ask for regeneration of failed pieces only
-                    if targets_for_fix:
-                        lines.append(
-                            "Please regenerate patch chunks only for the failed parts in these files:"
-                        )
-                        for f in targets_for_fix:
-                            lines.append(f"* {f}")
-                    else:
-                        # Fallback if we could not identify a specific target list
-                        lines.append(
-                            "Please regenerate patch chunks for the parts that failed."
-                        )
-
-                # Append detailed error list with hints
+                # Append detailed error list with filename/line/hint
                 lines.append("Errors:")
                 for e in errs:
                     loc = ""
-                    if e.filename and e.line:
+                    if getattr(e, "filename", None) and getattr(e, "line", None):
                         loc = f"{e.filename}:{e.line}: "
-                    elif e.filename:
+                    elif getattr(e, "filename", None):
                         loc = f"{e.filename}: "
                     lines.append(f"* {loc}{e.msg}")
                     if getattr(e, "hint", None):
@@ -277,15 +261,20 @@ class ApplyPatchExecutor(Executor):
                 # Success summary
                 lines = ["Applied patch successfully."]
                 if created:
-                    lines.append("Added:")
+                    lines.append("Added files:")
                     for f in created:
                         lines.append(f"* {f}")
                 if updated_full:
-                    lines.append("Updated:")
+                    lines.append("Fully updated files:")
                     for f in updated_full:
                         lines.append(f"* {f}")
+                if updated_partial:
+                    # Normally shouldn't occur on success (errs == []), but include for completeness.
+                    lines.append("Partially updated files:")
+                    for f in updated_partial:
+                        lines.append(f"* {f}")
                 if deleted:
-                    lines.append("Deleted:")
+                    lines.append("Deleted files:")
                     for f in deleted:
                         lines.append(f"* {f}")
                 final = Message(role="agent", text="\n".join(lines))
