@@ -10,6 +10,7 @@ from vocode.runner.models import (
     ReqInterimMessage,
     ReqLogMessage,
     ReqFinalMessage,
+    ReqStop,
     RespMessage,
     RespApproval,
     RunInput,
@@ -2025,3 +2026,35 @@ tools:
     from vocode.tools import get_all_tools
 
     assert "mcp_echo" not in get_all_tools()
+
+
+class StopExecutor(Executor):
+    type = "stop_test"
+    async def run(self, inp):
+        # Request stop immediately
+        yield (ReqStop(reason="executor requested stop"), None)
+        return
+
+
+@pytest.mark.asyncio
+async def test_executor_can_request_stop(tmp_path: Path):
+    # Register stub executor
+    Executor.register("stop_test", StopExecutor)
+
+    # Build a workflow with a single stop node
+    nodes = [{"name": "Stop", "type": "stop_test", "outcomes": []}]
+    g = Graph(nodes=nodes, edges=[])
+    workflow = Workflow(name="w", graph=g)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        ev = await next_event_wrap(it)
+        assert ev.node == "Stop"
+        assert ev.event.kind == "stop"
+        # Runner should stop after emitting the stop event
+        with pytest.raises(StopAsyncIteration):
+            await asend_wrap(it, None)
+        assert runner.status == RunnerStatus.stopped

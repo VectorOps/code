@@ -6,6 +6,7 @@ import re
 import asyncio
 from vocode.runner.preprocessors.base import apply_preprocessors
 from litellm import acompletion, completion_cost
+import litellm
 from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 from vocode.runner.runner import Executor
@@ -454,73 +455,118 @@ class LLMExecutor(Executor):
                 None,
             )
 
-            # Start streaming
-            completion_coro = acompletion(
-                model=cfg.model,
-                messages=conv,
-                temperature=cfg.temperature,
-                max_tokens=effective_max_tokens,
-                tools=tools,
-                tool_choice="auto" if tools else None,
-                stream=True,
-                stream_options={"include_usage": True},
-                **extra_args,
-            )
-            # Wrap in a named task for better diagnostics
-            task_name = f"llm.acompletion:{cfg.name}"
-            stream_task = asyncio.create_task(completion_coro, name=task_name)
-            stream = await stream_task
-
-            # Collect streamed content and tool_calls; emit interim messages for content chunks
-            async for chunk in stream:
+            # Start streaming with retries and error handling
+            max_retries = 3
+            attempt = 0
+            while True:
                 try:
-                    ch = (chunk.get("choices") or [])[0]
-                    delta = ch.get("delta") or {}
-                except Exception:
-                    delta = {}
+                    completion_coro = acompletion(
+                        model=cfg.model,
+                        messages=conv,
+                        temperature=cfg.temperature,
+                        max_tokens=effective_max_tokens,
+                        tools=tools,
+                        tool_choice="auto" if tools else None,
+                        stream=True,
+                        stream_options={"include_usage": True},
+                        **extra_args,
+                    )
+                    # Wrap in a named task for better diagnostics
+                    task_name = f"llm.acompletion:{cfg.name}"
+                    stream_task = asyncio.create_task(completion_coro, name=task_name)
+                    stream = await stream_task
 
-                # Stream content
-                content_piece = delta.get("content")
-                if content_piece:
-                    assistant_text_parts.append(content_piece)
-                    # Emit an interim message with just this piece
-                    _ = yield (
-                        ReqInterimMessage(
-                            message=Message(
-                                role="agent", text=content_piece, node=cfg.name
+                    # Collect streamed content and tool_calls; emit interim messages for content chunks
+                    async for chunk in stream:
+                        try:
+                            ch = (chunk.get("choices") or [])[0]
+                            delta = ch.get("delta") or {}
+                        except Exception:
+                            delta = {}
+
+                        # Stream content
+                        content_piece = delta.get("content")
+                        if content_piece:
+                            assistant_text_parts.append(content_piece)
+                            _ = yield (
+                                ReqInterimMessage(
+                                    message=Message(
+                                        role="agent", text=content_piece, node=cfg.name
+                                    )
+                                ),
+                                None,
                             )
+
+                        # Accumulate streamed tool_calls (OpenAI-style deltas)
+                        tc_deltas = delta.get("tool_calls") or []
+                        for dtc in tc_deltas:
+                            idx = dtc.get("index", 0)
+                            _id = dtc.get("id")
+                            _type = dtc.get("type")
+                            fn = dtc.get("function") or {}
+                            name = fn.get("name")
+                            args_part = fn.get("arguments") or ""
+
+                            entry = tool_calls_by_idx.get(idx)
+                            if entry is None:
+                                entry = {
+                                    "id": None,
+                                    "type": "function",
+                                    "function": {"name": None, "arguments": ""},
+                                }
+                                tool_calls_by_idx[idx] = entry
+
+                            if _id:
+                                entry["id"] = _id
+                            if _type:
+                                entry["type"] = _type
+                            if name:
+                                entry["function"]["name"] = name
+                            if args_part:
+                                entry["function"]["arguments"] += args_part
+                    break  # success
+                except Exception as e:
+                    status_code = getattr(e, "status_code", None)
+                    try:
+                        should_retry = bool(litellm._should_retry(status_code))
+                    except Exception:
+                        should_retry = False
+
+                    if should_retry and attempt < max_retries:
+                        attempt += 1
+                        if isinstance(e, litellm.RateLimitError):
+                            await asyncio.sleep(0.5 * (2 ** (attempt - 1)))
+                        else:
+                            await asyncio.sleep(0)
+                        _ = yield (
+                            ReqLogMessage(
+                                level=LogLevel.warning,
+                                text=f"LLM retry {attempt}/{max_retries} after error (status={status_code}): {str(e)}",
+                            ),
+                            None,
+                        )
+                        continue
+
+                    _ = yield (
+                        ReqLogMessage(
+                            level=LogLevel.error,
+                            text=f"LLM error (status={status_code}): {str(e)}",
                         ),
                         None,
                     )
-
-                # Accumulate streamed tool_calls (OpenAI-style deltas) by index, concatenating arguments
-                tc_deltas = delta.get("tool_calls") or []
-                for dtc in tc_deltas:
-                    # OpenAI-style tool_calls deltas are dicts; accumulate by index and concatenate arguments
-                    idx = dtc.get("index", 0)
-                    _id = dtc.get("id")
-                    _type = dtc.get("type")
-                    fn = dtc.get("function") or {}
-                    name = fn.get("name")
-                    args_part = fn.get("arguments") or ""
-
-                    entry = tool_calls_by_idx.get(idx)
-                    if entry is None:
-                        entry = {
-                            "id": None,
-                            "type": "function",
-                            "function": {"name": None, "arguments": ""},
-                        }
-                        tool_calls_by_idx[idx] = entry
-
-                    if _id:
-                        entry["id"] = _id
-                    if _type:
-                        entry["type"] = _type
-                    if name:
-                        entry["function"]["name"] = name
-                    if args_part:
-                        entry["function"]["arguments"] += args_part
+                    selected_outcome = None
+                    if len(outcomes) > 1:
+                        selected_outcome = outcomes[0]
+                    error_msg = Message(
+                        role="agent", text=f"Error: {str(e)}", node=cfg.name
+                    )
+                    yield (
+                        ReqFinalMessage(
+                            message=error_msg, outcome_name=selected_outcome
+                        ),
+                        state,
+                    )
+                    return
 
             assistant_text = "".join(assistant_text_parts)
 

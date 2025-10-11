@@ -12,6 +12,7 @@ PACKET_LOG = "log"
 PACKET_APPROVAL = "approval"
 PACKET_TOKEN_USAGE = "token_usage"
 PACKET_STATUS_CHANGE = "status_change"
+PACKET_STOP = "stop"
 
 # Packet kinds that are considered "interim" (do not end an executor cycle)
 INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_LOG, PACKET_TOKEN_USAGE)
@@ -99,6 +100,13 @@ class ReqStatusChange(BaseModel):
     old_node: Optional[str] = None
     new_node: Optional[str] = None
 
+class ReqStop(BaseModel):
+    """
+    Executor-emitted packet requesting the runner to stop gracefully.
+    """
+    kind: Literal["stop"] = PACKET_STOP
+    reason: Optional[str] = None
+
 
 ReqPacket = Annotated[
     Union[
@@ -109,6 +117,7 @@ ReqPacket = Annotated[
         ReqTokenUsage,
         ReqLogMessage,
         ReqStatusChange,
+        ReqStop,
     ],
     Field(discriminator="kind"),
 ]

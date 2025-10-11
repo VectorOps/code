@@ -538,3 +538,93 @@ async def test_llm_executor_tool_call_auto_approve_none_when_unset(
         _, pkt, _ = await drain_until_non_interim(agen)
         assert pkt.kind == "tool_call"
         assert pkt.tool_calls[0].auto_approve is None
+
+
+class FlakyACompletionStub:
+    def __init__(self, exc, ok_sequences):
+        self.exc = exc
+        self.ok = ACompletionStub(ok_sequences)
+        self.calls = 0
+
+    async def __call__(self, *args, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            raise self.exc
+        return await self.ok(*args, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_retries_on_rate_limit(monkeypatch, tmp_path):
+    async with ProjectSandbox.create(tmp_path) as project:
+        node = LLMNode(
+            name="llm",
+            model="test-model",
+            system="You are a helpful assistant.",
+            outcomes=[OutcomeSlot(name="done")],
+        )
+        exec = LLMExecutor(config=node, project=project)
+
+        # Patch litellm acompletion to raise RateLimit once then succeed
+        rate_exc = llm_mod.litellm.RateLimitError(
+            "rate limit", llm_provider="test", model="test-model"
+        )
+        setattr(rate_exc, "status_code", 429)
+        monkeypatch.setattr(
+            llm_mod,
+            "acompletion",
+            FlakyACompletionStub(
+                rate_exc,
+                [
+                    [chunk_content("Hello"), chunk_content(" world")],
+                ],
+            ),
+        )
+        # Avoid real sleeping
+        slept = {"called": 0}
+
+        async def fake_sleep(_):
+            slept["called"] += 1
+            return None
+
+        monkeypatch.setattr(llm_mod.asyncio, "sleep", fake_sleep)
+
+        agen = exec.run(
+            ExecRunInput(messages=[Message(role="user", text="hi")], state=None)
+        )
+        _, pkt, _ = await drain_until_non_interim(agen)
+        assert isinstance(pkt, ReqFinalMessage)
+        # Final message should be the verbatim concatenation of streamed chunks
+        assert pkt.message.text == "Hello world"
+        assert slept["called"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_non_retryable_returns_error_packet(monkeypatch, tmp_path):
+    async with ProjectSandbox.create(tmp_path) as project:
+        node = LLMNode(
+            name="llm",
+            model="test-model",
+            system="You are a helpful assistant.",
+            outcomes=[OutcomeSlot(name="done"), OutcomeSlot(name="alt")],
+        )
+        exec = LLMExecutor(config=node, project=project)
+
+        class FakeErr(Exception):
+            def __init__(self, msg, status_code):
+                super().__init__(msg)
+                self.status_code = status_code
+
+        # Never retry
+        monkeypatch.setattr(llm_mod.litellm, "_should_retry", lambda status: False)
+
+        async def raising_acompletion(*args, **kwargs):
+            raise FakeErr("bad request", 400)
+
+        monkeypatch.setattr(llm_mod, "acompletion", raising_acompletion)
+
+        agen = exec.run(
+            ExecRunInput(messages=[Message(role="user", text="hi")], state=None)
+        )
+        _, pkt, _ = await drain_until_non_interim(agen)
+        assert isinstance(pkt, ReqFinalMessage)
+        assert "error" in (pkt.message.text or "").lower()

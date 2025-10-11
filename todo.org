@@ -44,7 +44,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [X] Continue after stopping shows prompt second time
 ** [ ] Continue after stopping does not show agent output upon response, but it's there
 ** [X] When ctrl+c is pressed while waiting for user input and runner is stopped, need to cancel waiter.
-** [ ] Add command to reload config without restart
+** [X] Add command to reload config without restart
 ** [X] Add shortcuts to cancel current input easily
 ** [ ] Simple styling
 *** [X] Color usage
@@ -84,9 +84,10 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [X] Needs file auto-complete UI support
 *** [X] Show files added and removed, as well as current list of files for /fadd and /fdel
 *** [X] Figure out a way to inject files into patch without apply_patch having access to readfile
-*** [ ] [#A] Add a way to manage context and inject files to context while looping in LLM node
+*** [X] Add a way to manage context and inject files to context while looping in LLM node
 ** [ ] LLM node
-*** [ ] Verify that injectors add to system prompt only once. Ensure that user prompt also only added once.
+*** [X] Verify that injectors add to system prompt only once. Ensure that user prompt also only added once.
+*** [ ] Report % token usage
 *** [ ] Add tool calling budgets (number of calls, tokens, etc)
 *** [ ] Detect tool call loops
 *** [ ] Auto-retry on timeout

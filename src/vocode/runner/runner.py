@@ -50,6 +50,7 @@ from vocode.runner.models import (
     PACKET_APPROVAL,
     PACKET_STATUS_CHANGE,
     ReqStatusChange,
+    PACKET_STOP,
 )
 
 
@@ -962,6 +963,13 @@ class Runner:
                         step.executions.append(resp_activity)
 
                 resume_activity = None
+
+                # PACKET_STOP: stop runner immediately after emitting the event
+                if req.kind == PACKET_STOP:
+                    self.status = RunnerStatus.stopped
+                    if step is not None:
+                        step.status = RunStatus.stopped
+                    return
 
                 # PACKET_FINAL_MESSAGE: finalize (with confirm/prompt)
                 if req.kind == PACKET_FINAL_MESSAGE:
