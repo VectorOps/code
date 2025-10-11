@@ -117,3 +117,39 @@ def test_preprocessor_mode_user_prepend():
     contents = [m["content"] for m in msgs if m["role"] == "user"]
     assert contents[0] == "first"
     assert contents[-1] == " [U]second"
+
+
+def test_preprocessor_mode_system_append_then_preprocess_suffix():
+    cfg = LLMNode(
+        name="node1",
+        model="dummy-model",
+        system="SYS",
+        system_append=" EXT",
+        preprocessors=[
+            PreprocessorSpec(name="mark", mode=Mode.System, options={"suffix": " [S]"})
+        ],
+    )
+    execu = LLMExecutor(config=cfg, project=DummyProject())
+    msgs = execu._build_base_messages(cfg, [Message(role="user", text="hi", node=None)])
+    assert msgs[0]["role"] == "system"
+    # Append happens before preprocessors, so suffix applies to the combined string
+    assert msgs[0]["content"] == "SYS EXT [S]"
+
+
+def test_preprocessor_mode_system_append_then_preprocess_prepend():
+    cfg = LLMNode(
+        name="node1",
+        model="dummy-model",
+        system="SYS",
+        system_append=" EXT",
+        preprocessors=[
+            PreprocessorSpec(
+                name="mark", mode=Mode.System, options={"suffix": " [S]"}, prepend=True
+            )
+        ],
+    )
+    execu = LLMExecutor(config=cfg, project=DummyProject())
+    msgs = execu._build_base_messages(cfg, [Message(role="user", text="hi", node=None)])
+    assert msgs[0]["role"] == "system"
+    # Prepend happens before the combined string
+    assert msgs[0]["content"] == " [S]SYS EXT"

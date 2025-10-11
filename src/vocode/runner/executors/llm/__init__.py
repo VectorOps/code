@@ -65,6 +65,10 @@ class LLMNode(Node):
     type: str = "llm"
     model: str
     system: Optional[str] = None
+    system_append: Optional[str] = Field(
+        default=None,
+        description="Optional content appended to the main system prompt before preprocessors are applied.",
+    )
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     outcome_strategy: OutcomeStrategy = Field(default=OutcomeStrategy.tag)
@@ -139,8 +143,11 @@ class LLMExecutor(Executor):
         sys_specs = [p for p in (cfg.preprocessors or []) if p.mode == Mode.System]
         user_specs = [p for p in (cfg.preprocessors or []) if p.mode == Mode.User]
 
-        if cfg.system:
-            sys_text = cfg.system
+        # Build the main system message (base + optional append), then apply system preprocessors
+        base_system = cfg.system or ""
+        append_system = cfg.system_append or ""
+        sys_text = f"{base_system}{append_system}"
+        if sys_text:
             if sys_specs:
                 sys_text = apply_preprocessors(sys_specs, self.project, sys_text)
             msgs.append({"role": "system", "content": sys_text})

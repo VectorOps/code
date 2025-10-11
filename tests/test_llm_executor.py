@@ -628,3 +628,27 @@ async def test_llm_executor_non_retryable_returns_error_packet(monkeypatch, tmp_
         _, pkt, _ = await drain_until_non_interim(agen)
         assert isinstance(pkt, ReqFinalMessage)
         assert "error" in (pkt.message.text or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_system_append_included_in_messages(monkeypatch, tmp_path):
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        system="Base",
+        system_append=" EXT",
+    )
+    seq = [chunk_content("ok")]
+    stub = ACompletionStub([seq])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        agen = LLMExecutor(cfg, project).run(
+            ExecRunInput(messages=[Message(role="user", text="hello")], state=None)
+        )
+        # Drain until final (no tools/outcomes enforced)
+        _, pkt, _ = await drain_until_non_interim(agen)
+        assert pkt.kind == "final_message"
+        sent_msgs = stub.calls[0]["messages"]
+        assert sent_msgs[0]["role"] == "system"
+        assert sent_msgs[0]["content"] == "Base EXT"

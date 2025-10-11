@@ -94,7 +94,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Auto-retry when throttled
 *** [ ] Add stats for the number of tokens in the context and context window limits
 *** [ ] Figure out why pricing estimates are all zeroes
-*** [ ] Add a way to append text to default system prompt
+*** [X] Add a way to append text to default system prompt
 ** [ ] Create RepoMap node - call into Know with provided prompt
 ** [X] Create documentation node - read AGENT.md files for all paths that are mentioned in previous messages.
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
