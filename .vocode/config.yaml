@@ -125,6 +125,25 @@ workflows:
       - apply.fail -> coder:keep_state
       - test.success -> prompt
       - test.fail -> architect:keep_state
+  # Aider-like explicit coder loop
+  ask:
+    nodes:
+      - name: prompt
+        type: input
+        message: Enter your request
+        confirmation: auto
+        hide_final_output: true
+        outcomes:
+          - name: done
+      - $include:
+          template: nodes/analyst.yaml
+        tools:
+          - vectorops_search
+          - vectorops_summarize_files
+          - vectorops_read_files
+    edges:
+      - prompt.done -> analyst
+      - analyst.done -> prompt
   idler:
     nodes:
       - name: prompt

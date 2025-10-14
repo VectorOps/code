@@ -6,7 +6,7 @@
 ** [ ] Add prefix variant of preprocessor to enable caching.
 ** [ ] Figure out a way to print warnings or logs
 * [ ] Runner
-** [ ] Emit event to UI when runner state changes: starts, stops, moves to next node, etc.
+** [X] Emit event to UI when runner state changes: starts, stops, moves to next node, etc.
 ** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
 ** [ ] Add a way to restrict number of loops when cycling
 ** [ ] Stopping executor with ctrl+c during input and then starting it with /use does not stop at input, but retries last input node - verify
@@ -87,6 +87,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [X] Add a way to manage context and inject files to context while looping in LLM node
 ** [ ] LLM node
 *** [X] Verify that injectors add to system prompt only once. Ensure that user prompt also only added once.
+*** [ ] Report tool token usage
 *** [ ] Report % token usage
 *** [ ] Add tool calling budgets (number of calls, tokens, etc)
 *** [ ] Detect tool call loops
