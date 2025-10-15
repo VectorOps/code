@@ -188,8 +188,11 @@ class TerminalApp:
     def _unhandled_exception_handler(
         self, loop: asyncio.AbstractEventLoop, context: dict
     ) -> None:
+        if self.should_exit:
+            return
         msg = context.get("exception", context["message"])
-        out(f"\n--- Unhandled exception in event loop ---\n{msg}\n")
+        coro = out(f"\n--- Unhandled exception in event loop ---\n{msg}\n")
+        asyncio.run_coroutine_threadsafe(coro, loop)
 
     def _pending_run_event_payload(self) -> Optional[UIPacketRunEvent]:
         """
@@ -780,6 +783,9 @@ async def run_terminal(project: Project) -> None:
     # Thin wrapper: defer to TerminalApp for all terminal behavior.
     app = TerminalApp(project)
     await app.run()
+
+    # Suppress exceptions
+    app.should_exit = True
 
 
 @click.command()
