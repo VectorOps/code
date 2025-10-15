@@ -69,7 +69,7 @@ def test_preprocessor_mode_user():
     # System unchanged
     assert msgs[0]["role"] == "system"
     assert msgs[0]["content"] == "SYS"
-    # Last user mutated, earlier user not mutated
+    # Last user mutated; earlier user messages not mutated
     contents = [m["content"] for m in msgs if m["role"] == "user"]
     assert contents[0] == "first"
     assert contents[-1] == "second [U]"
@@ -113,7 +113,7 @@ def test_preprocessor_mode_user_prepend():
     # System unchanged
     assert msgs[0]["role"] == "system"
     assert msgs[0]["content"] == "SYS"
-    # Last user mutated with prefix, earlier user not mutated
+    # Last user mutated with prefix; earlier user messages not mutated
     contents = [m["content"] for m in msgs if m["role"] == "user"]
     assert contents[0] == "first"
     assert contents[-1] == " [U]second"

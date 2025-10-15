@@ -6,7 +6,7 @@ from vocode.runner.runner import Runner
 from vocode.state import Assignment
 from vocode.runner.models import RunInput, PACKET_FINAL_MESSAGE
 from vocode.models import Graph, Workflow
-from vocode.runner.executors.fileread import FilereadNode
+from vocode.runner.executors.fileread import FileReadNode
 
 
 @pytest.mark.asyncio
@@ -21,8 +21,8 @@ async def test_fileread_executor_concatenates_file_contents(tmp_path: Path):
         f1.write_text(c1, encoding="utf-8")
         f2.write_text(c2, encoding="utf-8")
 
-        # Build workflow with a single Fileread node; set confirmation=auto
-        node = FilereadNode(name="fr", files=["src/one.txt", "two.txt"], confirmation="auto")
+        # Build workflow with a single FileRead node; set confirmation=auto
+        node = FileReadNode(name="fr", files=["src/one.txt", "two.txt"], confirmation="auto")
         graph = Graph(nodes=[node], edges=[])
         wf = Workflow(name="wf", graph=graph)
         runner = Runner(wf, project)
@@ -43,7 +43,7 @@ async def test_fileread_executor_concatenates_file_contents(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_fileread_executor_rejects_invalid_paths(tmp_path: Path):
     async with ProjectSandbox.create(tmp_path) as project:
-        node = FilereadNode(name="fr", files=["../escape.txt"], confirmation="auto")
+        node = FileReadNode(name="fr", files=["../escape.txt"], confirmation="auto")
         graph = Graph(nodes=[node], edges=[])
         wf = Workflow(name="wf", graph=graph)
         runner = Runner(wf, project)

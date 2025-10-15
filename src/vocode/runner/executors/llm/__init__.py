@@ -143,22 +143,31 @@ class LLMExecutor(Executor):
         sys_specs = [p for p in (cfg.preprocessors or []) if p.mode == Mode.System]
         user_specs = [p for p in (cfg.preprocessors or []) if p.mode == Mode.User]
 
-        # Build the main system message (base + optional append), then apply system preprocessors
-        base_system = cfg.system or ""
-        append_system = cfg.system_append or ""
-        sys_text = f"{base_system}{append_system}"
-        if sys_text:
-            if sys_specs:
-                sys_text = apply_preprocessors(sys_specs, self.project, sys_text)
-            msgs.append({"role": "system", "content": sys_text})
+        # Detect if history already includes a system message authored by this node
+        has_node_system = any(
+            (m.role == "system" and m.node == cfg.name) for m in (history or [])
+        )
 
+        # If a system message from this node already exists, do not inject or preprocess
+        if not has_node_system:
+            # Build the main system message (base + optional append), then apply system preprocessors
+            base_system = cfg.system or ""
+            append_system = cfg.system_append or ""
+            sys_text = f"{base_system}{append_system}"
+            if sys_text:
+                if sys_specs:
+                    sys_text = apply_preprocessors(sys_specs, self.project, sys_text)
+                msgs.append({"role": "system", "content": sys_text})
+
+        # Map history into msgs; remember indices corresponding to newly added entries
+        start_idx = len(msgs)
         for m in history:
             msgs.append(self._map_message_to_llm_dict(m, cfg))
 
-        # Apply user-mode preprocessors to the last user message, if any
-        if user_specs:
-            # Find the last 'user' role message
-            for idx in range(len(msgs) - 1, -1, -1):
+        # Apply user-mode preprocessors to the last input user message (latest in provided history)
+        # Skip all preprocessors when a node-authored system message exists in history
+        if user_specs and not has_node_system:
+            for idx in range(len(msgs) - 1, start_idx - 1, -1):
                 if msgs[idx].get("role") == "user":
                     orig = msgs[idx].get("content") or ""
                     new_text = apply_preprocessors(user_specs, self.project, str(orig))

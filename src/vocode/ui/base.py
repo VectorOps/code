@@ -412,7 +412,13 @@ class UIState:
 
                 # Convert runner status-change packets to UIPacketStatus
                 if req.event.kind == PACKET_STATUS_CHANGE:
-                    sc = req.event  # type: ignore[attr-defined]
+                    sc = req.event
+                    node_description = None
+                    if sc.new_node and self.workflow:
+                        node = self.workflow.graph.node_by_name.get(sc.new_node)
+                        if node:
+                            node_description = node.description
+
                     await self._outgoing.put(
                         UIPacketEnvelope(
                             msg_id=self._next_msg_id(),
@@ -421,6 +427,7 @@ class UIState:
                                 curr=sc.new_status,
                                 prev_node=sc.old_node,
                                 curr_node=sc.new_node,
+                                curr_node_description=node_description,
                             ),
                         )
                     )

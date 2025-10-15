@@ -30,6 +30,8 @@ class MessageMode(str, Enum):
     final_response = "final_response"
     all_messages = "all_messages"
     concatenate_final = "concatenate_final"
+
+
 class Mode(str, Enum):
     System = "system"
     User = "user"
@@ -38,10 +40,13 @@ class Mode(str, Enum):
 class PreprocessorSpec(BaseModel):
     name: str
     options: Dict[str, Any] = Field(default_factory=dict)
-    mode: Mode = Field(default=Mode.System, description="Where to apply this preprocessor: system or last user message")
+    mode: Mode = Field(
+        default=Mode.System,
+        description="Where to apply this preprocessor: system or last user message",
+    )
     prepend: bool = Field(
         default=False,
-        description="If true, preprocessor output is prepended to the target text; otherwise the preprocessor transforms/appends."
+        description="If true, preprocessor output is prepended to the target text; otherwise the preprocessor transforms/appends.",
     )
 
     @model_validator(mode="before")
@@ -81,7 +86,12 @@ class PreprocessorSpec(BaseModel):
                 # Allow None -> default
                 mode = Mode.System
             prepend_flag = bool(v.get("prepend", False))
-            return {"name": name, "options": options, "mode": mode, "prepend": prepend_flag}
+            return {
+                "name": name,
+                "options": options,
+                "mode": mode,
+                "prepend": prepend_flag,
+            }
         raise TypeError(
             "Preprocessor spec must be a string or a mapping with 'name', optional 'options', and optional 'mode'"
         )
@@ -90,6 +100,9 @@ class PreprocessorSpec(BaseModel):
 class Node(BaseModel):
     name: str = Field(..., description="Unique node name")
     type: str = Field(..., description="Node type identifier")
+    description: Optional[str] = Field(
+        None, description="Node description for UI display"
+    )
     outcomes: List[OutcomeSlot] = Field(default_factory=list)
     skip: bool = Field(
         default=False,

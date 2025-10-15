@@ -2,20 +2,21 @@
 * [ ] Cleanup and optimizations
 ** [X] Autocompleters needs consts at model level
 * [ ] Preprocessors
-** [ ] Add user prompt preprocessor (instead of just system prompt) through configuration
-** [ ] Add prefix variant of preprocessor to enable caching.
+** [X] Add user prompt preprocessor (instead of just system prompt) through configuration
+** [X] Add prefix variant of preprocessor to enable caching.
 ** [ ] Figure out a way to print warnings or logs
 * [ ] Runner
 ** [X] Emit event to UI when runner state changes: starts, stops, moves to next node, etc.
 ** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
 ** [ ] Add a way to restrict number of loops when cycling
-** [ ] Stopping executor with ctrl+c during input and then starting it with /use does not stop at input, but retries last input node - verify
+** [X] Stopping executor with ctrl+c during input and then starting it with /use does not stop at input, but retries last input node - verify
 * [ ] Configuration
 ** [ ] Add human-readable names to nodes
 ** [ ] Update templates and parametrize them via variables
 ** [ ] Figure out why confirmation override for discovery did not work
 ** [ ] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
 ** [ ] Tweak prompt for discovery to only work with existing files
+** [ ] Rewrite system prompt for analyst node
 Concrete example: files that were read and already in context.
 * [ ] Error handling
 ** [ ] Add exception handlers
@@ -29,17 +30,31 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [X] UI protocol
 ** [ ] Add syntax name hint to apply formatting
 * [ ] Terminal UI
+** [ ] Node transitions are printed out of order:
+*** Running apply
+**** Running test
+Applied patch successfully.
+Fully updated files:
+**** src/vocode/runner/executors/fileread.py
+** [ ] Fix await
+--- Unhandled exception in event loop ---
+Unclosed client session
+
+/Users/serge/work/code/src/vocode/ui/terminal/helpers.py:32: RuntimeWarning: coroutine 'run_in_terminal.<locals>.run' was never awaited
+
+--- Unhandled exception in event loop ---
+Unclosed connector
+
 ** [X] Always show prompt. Add commands to stop/continue workflows
 ** [X] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
 ** [X] Streaming printing is broken with permanent toolbar visibility
 ** [ ] When prompt is requested, sometimes toolbar status is not updated
 ** [ ] Disable know warnings, they mess up UI output
-** [ ] Animation does not start after providing feedback message back to Node
-** [ ] When LLM is waiting for response, need to show visual feedback to user
+** [ ] Animation does not always start after providing feedback message back to Node
+** [X] When LLM is waiting for response, need to show visual feedback to user
 ** [X] Summarize tool calls for known tools. Create templates for tool calling that map parameters
 ** [ ] Ability to snoop into tool call details if needed, collapsed by default
 ** [ ] Better multi-line inputs, don't require esc+enter to send
-** [ ] Shortcuts - ESC to stop execution?
 ** [ ] Show how long individual steps took, in seconds
 ** [X] Continue after stopping shows prompt second time
 ** [ ] Continue after stopping does not show agent output upon response, but it's there
@@ -67,10 +82,10 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [X] Add file context management once corresponding node is created
 ** [X] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
 ** [ ] Fix estimated cost calculation
-** [ ] Highlighting does not work if ``` opener is not in the beginning of the line
+** [X] Highlighting does not work if ``` opener is not in the beginning of the line
 * [ ] Block parsers
 ** [ ] Diff parsers
-*** [ ] Fix stats reporting - only report if file was fully patched in patched section
+*** [X] Fix stats reporting - only report if file was fully patched in patched section
 *** [X] GPT V4A diff format
 **** [X] Better error reporting and verify apply patch cycle
 **** [X] When multiple chunks match, but we can't match any of the chunks - return all possible lines
@@ -78,6 +93,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 **** [X] Add support for multiple patch blocks or provide better instructions
 **** [X] Better error instructions when blocks overlap
 **** [X] Allow same file to be mentioned multiple times?
+*** [ ] Patch format
+**** [ ] Fix error reporting when block can not be found
 *** [ ] Unified Diff format
 * [ ] Nodes
 ** [ ] Add a node that injects files in context. Add file manager.
@@ -91,8 +108,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Report % token usage
 *** [ ] Add tool calling budgets (number of calls, tokens, etc)
 *** [ ] Detect tool call loops
-*** [ ] Auto-retry on timeout
-*** [ ] Auto-retry when throttled
+*** [X] Auto-retry on timeout
+*** [X] Auto-retry when throttled
 *** [ ] Add stats for the number of tokens in the context and context window limits
 *** [ ] Figure out why pricing estimates are all zeroes
 *** [X] Add a way to append text to default system prompt

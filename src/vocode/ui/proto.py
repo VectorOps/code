@@ -26,12 +26,14 @@ class UIPacketUIReset(BaseModel):
     kind: Literal["ui_reset"] = PACKET_UI_RESET
     # No payload for now; acts as a directive.
 
+
 class UIPacketStatus(BaseModel):
     kind: Literal["status"] = PACKET_STATUS
     prev: Optional[RunnerStatus] = None
     curr: RunnerStatus
     prev_node: Optional[str] = None
     curr_node: Optional[str] = None
+    curr_node_description: Optional[str] = None
 
 
 class UICommand(BaseModel):
@@ -81,6 +83,7 @@ class UIPacketCompletionResult(BaseModel):
 
 class UIPacketAck(BaseModel):
     kind: Literal["ack"] = PACKET_ACK
+
 
 class UIPacketUIReload(BaseModel):
     kind: Literal["ui_reload"] = PACKET_UI_RELOAD

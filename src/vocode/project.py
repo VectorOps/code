@@ -63,7 +63,6 @@ class Project:
         tools: Dict[str, "BaseTool"],
         know: KnowProject,
     ):
-        print(base_path)
         self.base_path: Path = base_path
         self.config_relpath: Path = config_relpath
         self.settings: Optional[Settings] = settings
@@ -170,7 +169,11 @@ class Project:
                 if (self.settings and self.settings.process)
                 else "local"
             )
-            env = self.settings.process.env if (self.settings and self.settings.process) else None
+            env = (
+                self.settings.process.env
+                if (self.settings and self.settings.process)
+                else None
+            )
             env_policy = EnvPolicy(
                 inherit_parent=(env.inherit_parent if env else True),
                 allowlist=(env.allowlist if env else None),

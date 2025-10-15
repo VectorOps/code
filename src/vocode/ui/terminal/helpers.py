@@ -22,23 +22,24 @@ if TYPE_CHECKING:
     from prompt_toolkit import PromptSession
 
 
-def out(*args, **kwargs) -> None:
+async def out(*args, **kwargs) -> None:
     def _p():
         print(*args, **kwargs, flush=True)
 
     try:
-        run_in_terminal(_p)
+        await run_in_terminal(_p)
     except Exception:
         _p()
 
 
-def out_fmt(ft) -> None:
+async def out_fmt(ft) -> None:
     # Print prompt_toolkit AnyFormattedText with our console style.
     def _p():
         print_formatted_text(to_formatted_text(ft), style=colors.get_console_style())
 
     try:
-        run_in_terminal(_p)
+        # TODO: Do we need run_in_terminal?
+        await run_in_terminal(_p)
     except Exception:
         # Fallback: degrade to plain text
         print(to_formatted_text(ft).text, flush=True)
@@ -168,9 +169,7 @@ class StreamThrottler:
         if not text_to_flush:
             return
 
-        new_changed_lines, old_changed_lines = self._stream_buffer.append(
-            text_to_flush
-        )
+        new_changed_lines, old_changed_lines = self._stream_buffer.append(text_to_flush)
         do_print = bool(new_changed_lines or old_changed_lines)
 
         if do_print:

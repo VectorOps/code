@@ -4,6 +4,6 @@ from .message import MessageExecutor
 from .llm_usage_stats import LLMUsageStatsExecutor
 from .file_state import FileStateExecutor  # ensure registration
 from .exec import ExecExecutor  # register process-spawning executor
-from .fileread import FilereadExecutor
+from .fileread import FileReadExecutor
 
-__all__ = ["InputExecutor", "MessageExecutor", "LLMUsageStatsExecutor", "FileStateExecutor", "ExecExecutor", "FilereadExecutor"]
+__all__ = ["InputExecutor", "MessageExecutor", "LLMUsageStatsExecutor", "FileStateExecutor", "ExecExecutor", "FileReadExecutor"]

@@ -254,19 +254,19 @@ class TerminalApp:
                     if res is None:
                         return
                     if res.kind != PACKET_COMMAND_RESULT:
-                        ctx.out(
+                        await ctx.out(
                             f"Command '{_cname}' failed: unexpected response {res.kind}"
                         )
                         return
                     if res.ok:
                         if res.output:
-                            ctx.out(res.output)
+                            await ctx.out(res.output)
                     else:
-                        ctx.out(
+                        await ctx.out(
                             f"Command '{_cname}' failed: {res.error or 'unknown error'}"
                         )
                 except Exception as e:
-                    ctx.out(f"Error executing command '{_cname}': {e}")
+                    await ctx.out(f"Error executing command '{_cname}': {e}")
                 finally:
                     self.pending_cmd = None
 
@@ -301,7 +301,7 @@ class TerminalApp:
                 return
             if self.stream_throttler:
                 await self._flush_and_clear_stream()
-            out(f"[{msg_level.value}] " + ev.text)
+            await out(f"[{msg_level.value}] " + ev.text)
             return
 
         if ev.kind == PACKET_MESSAGE and ev.message:
@@ -325,7 +325,7 @@ class TerminalApp:
         if ev.kind == PACKET_MESSAGE_REQUEST:
             self.last_streamed_text = None  # New stream context, clear old state
             if ev.message:
-                out_fmt(colors.render_markdown(ev.message))
+                await out_fmt(colors.render_markdown(ev.message))
             self.pending_req_env = (
                 envelope if req_payload.event.input_requested else None
             )
@@ -335,6 +335,8 @@ class TerminalApp:
                 )
                 self.queued_resp = None
                 self.pending_req_env = None
+            if self.session:
+                self.session.app.invalidate()
             await self._update_toolbar_ticker()
             return
         if ev.kind == PACKET_TOOL_CALL:
@@ -386,6 +388,8 @@ class TerminalApp:
                 )
                 self.queued_resp = None
                 self.pending_req_env = None
+            if self.session:
+                self.session.app.invalidate()
             await self._update_toolbar_ticker()
             return
         if ev.kind == PACKET_FINAL_MESSAGE:
@@ -402,12 +406,12 @@ class TerminalApp:
                             fromfile="streamed",
                             tofile="final",
                         )
-                        out("=" * 20 + " DEBUG DIFF " + "=" * 20)
-                        sys.stdout.write("".join(diff))
-                        out("=" * 52)
+                        await out("=" * 20 + " DEBUG DIFF " + "=" * 20)
+                        await out("".join(diff))
+                        await out("=" * 52)
                     # Do not include any speaker/role prefix in final message output
                     text = ev.message.text or ""
-                    out_fmt(colors.render_markdown(text))
+                    await out_fmt(colors.render_markdown(text))
             self.pending_req_env = (
                 envelope if req_payload.event.input_requested else None
             )
@@ -417,6 +421,8 @@ class TerminalApp:
                 )
                 self.queued_resp = None
                 self.pending_req_env = None
+            if self.session:
+                self.session.app.invalidate()
             await self._update_toolbar_ticker()
             return
 
@@ -436,9 +442,10 @@ class TerminalApp:
                     curr_node = msg.curr_node
                     prev_node = msg.prev_node
                     if curr_node and curr_node != prev_node:
+                        node_display = msg.curr_node_description or curr_node
                         fragments = [
                             ("class:system.star", "* "),
-                            ("class:system.text", f"Running {curr_node}"),
+                            ("class:system.text", f"Running {node_display}"),
                         ]
                         print_formatted_text(
                             to_formatted_text(fragments),
@@ -493,6 +500,7 @@ class TerminalApp:
         self.commands = register_default_commands(
             Commands(), self.ui, ac_factory=ac_factory
         )
+
         # Add '/reload' here to access the PromptSession for confirmation
         @self.commands.register("/reload", "Reload config and restart project state")
         async def _reload_cmd(ctx: CommandContext, args: list[str]) -> None:
@@ -505,16 +513,17 @@ class TerminalApp:
             except Exception:
                 ans = ""
             if ans.strip().lower() not in ("yes", "y"):
-                out("Reload cancelled.")
+                await out("Reload cancelled.")
                 return
             try:
                 # Flush any active streaming before reload
                 await self._flush_and_clear_stream()
                 assert self.rpc is not None
                 await self.rpc.call(UIPacketUIReload(), timeout=None)
-                out("Reloaded project.")
+                await out("Reloaded project.")
             except Exception as e:
-                out(f"Reload failed: {e}")
+                await out(f"Reload failed: {e}")
+
         completer = TerminalCompleter(
             self.ui,
             self.commands,
@@ -565,7 +574,7 @@ class TerminalApp:
                 diagnostics.dump_all(loop=loop)
 
             try:
-                run_in_terminal(_dump)
+                await run_in_terminal(_dump)
             except Exception:
                 _dump()
 
@@ -661,7 +670,7 @@ class TerminalApp:
             ]
             print_formatted_text(to_formatted_text(fragments), style=pt_style)
         else:
-            out("Type /help for commands.")
+            await out("Type /help for commands.")
 
         consumer_task = asyncio.create_task(self.event_consumer())
         try:
@@ -687,7 +696,7 @@ class TerminalApp:
                     if self.should_exit:
                         break
                     if not handled:
-                        out("Unknown command. Type /help")
+                        await out("Unknown command. Type /help")
                     continue
                 if self.pending_req_env is not None:
                     assert self.pending_req_env.payload.kind == PACKET_RUN_EVENT
@@ -725,7 +734,7 @@ class TerminalApp:
                                 self.pending_req_env = None
                                 await self._update_toolbar_ticker()
                                 continue
-                            out("Please answer Y or N.")
+                            await out("Please answer Y or N.")
                             continue
                         if text.strip() == "":
                             await respond_approval(self.ui, msg_id, True)
@@ -738,11 +747,11 @@ class TerminalApp:
                         continue
                 # No pending input and not a command: show contextual hints.
                 if self.ui.is_active():
-                    out(
+                    await out(
                         "No input is currently requested. Press Ctrl+C to stop the run, then respond when prompted."
                     )
                 else:
-                    out(
+                    await out(
                         "No active run. Start a workflow with /run <workflow> or /use <workflow>. Type /workflows to list available workflows."
                     )
                 continue
@@ -796,5 +805,7 @@ if __name__ == "__main__":
 
     warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince211)
     warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince20)
+    warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince20)
+    warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 
     main()

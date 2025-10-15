@@ -18,12 +18,12 @@ async def test_fileread_preprocessor_concatenates_and_skips_invalid(tmp_path: Pa
         f1.write_text("A", encoding="utf-8")
         f2.write_text("B", encoding="utf-8")
 
-        pp = get_preprocessor("fileread")
+        pp = get_preprocessor("file_read")
         assert pp is not None
 
         # Include valid file, missing file, another valid file, and a directory
         spec = PreprocessorSpec(
-            name="fileread",
+            name="file_read",
             options={"paths": ["src/a.txt", "missing.txt", "b.txt", "dir"]},
         )
         out = pp.func(project, spec, "BASE")
@@ -39,11 +39,11 @@ async def test_fileread_preprocessor_prepend(tmp_path: Path):
         f1.write_text("A", encoding="utf-8")
         f2.write_text("B", encoding="utf-8")
 
-        pp = get_preprocessor("fileread")
+        pp = get_preprocessor("file_read")
         assert pp is not None
 
         spec = PreprocessorSpec(
-            name="fileread",
+            name="file_read",
             options={"paths": ["a.txt", "b.txt"]},
             prepend=True,
         )

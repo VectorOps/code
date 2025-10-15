@@ -7,18 +7,18 @@ from vocode.state import Message
 from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 
 
-class FilereadNode(Node):
-    type: str = "fileread"
+class FileReadNode(Node):
+    type: str = "file_read"
     files: List[str]
 
 
-class FilereadExecutor(Executor):
-    type = "fileread"
+class FileReadExecutor(Executor):
+    type = "file_read"
 
     def __init__(self, config: Node, project) -> None:
         super().__init__(config=config, project=project)
-        if not isinstance(config, FilereadNode):
-            raise TypeError("FilereadExecutor requires config to be a FilereadNode")
+        if not isinstance(config, FileReadNode):
+            raise TypeError("FileReadExecutor requires config to be a FileReadNode")
 
     def _validate_relpath(self, rel: str) -> str:
         p = Path(rel)
@@ -37,7 +37,7 @@ class FilereadExecutor(Executor):
         return full.as_posix()
 
     async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
-        cfg: FilereadNode = self.config  # type: ignore[assignment]
+        cfg: FileReadNode = self.config  # type: ignore[assignment]
 
         contents: List[str] = []
         for rel in cfg.files:

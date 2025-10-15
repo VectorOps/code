@@ -142,8 +142,11 @@ class ApplyPatchExecutor(Executor):
             # Use the last message text as the source
             source_text = inp.messages[-1].text or ""
         if not source_text or not source_text.strip():
-            # Ask user for a message containing a patch
-            yield (ReqMessageRequest(), inp.state)
+            final = Message(
+                role="agent",
+                text="No patch was provided. The patch application has failed.",
+            )
+            yield (ReqFinalMessage(message=final, outcome_name="fail"), inp.state)
             return
 
         outcome = "success"

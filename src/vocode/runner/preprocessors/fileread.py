@@ -75,7 +75,7 @@ def _fileread_preprocessor(project: Any, spec: PreprocessorSpec, text: str, **_:
 
 # Register at import time
 register_preprocessor(
-    name="fileread",
+    name="file_read",
     func=_fileread_preprocessor,
     description="Reads files from options.paths (or options.files) and concatenates contents; skips invalid/missing paths.",
 )
