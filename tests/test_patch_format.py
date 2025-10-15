@@ -104,6 +104,9 @@ def test_update_partial_when_search_not_found():
     assert statuses == {"file.txt": FileApplyStatus.PartialUpdate}
     assert "file.txt" not in writes
     assert any("Failed to locate exact SEARCH" in e.msg and e.filename == "file.txt" for e in errors)
+    err = next(e for e in errors if "Failed to locate exact SEARCH" in e.msg)
+    assert "Block not found" in err.hint
+    assert "missing" in err.hint
 
 
 def test_delete_success():

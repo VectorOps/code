@@ -574,7 +574,7 @@ class TerminalApp:
                 diagnostics.dump_all(loop=loop)
 
             try:
-                await run_in_terminal(_dump)
+                run_in_terminal(_dump)
             except Exception:
                 _dump()
 

@@ -344,9 +344,10 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List[Commit], Li
             # UPDATE
             start_idx = _find_subsequence(file_lines, act.search)
             if start_idx is None:
+                block_text = "\n".join(act.search)
                 add_error(
                     f"Failed to locate exact SEARCH block in {path}",
-                    hint="SEARCH content must match current file exactly (contiguous block).",
+                    hint=f"SEARCH content must match current file exactly. Block not found:\n---\n{block_text}\n---",
                     filename=path,
                     line=act.start_line,
                 )
