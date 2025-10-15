@@ -28,6 +28,9 @@ class TokenUsageTotals(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cost_dollars: float = 0.0
+    current_prompt_tokens: Optional[int] = None
+    current_completion_tokens: Optional[int] = None
+    token_limit: Optional[int] = None
 
 
 class ReqMessageRequest(BaseModel):
@@ -77,6 +80,9 @@ class ReqTokenUsage(BaseModel):
     acc_prompt_tokens: int
     acc_completion_tokens: int
     acc_cost_dollars: float
+    current_prompt_tokens: Optional[int] = None
+    current_completion_tokens: Optional[int] = None
+    token_limit: Optional[int] = None
     # Indicates usage was generated in this process (hint for UIs)
     local: Optional[bool] = True
 

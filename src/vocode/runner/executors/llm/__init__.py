@@ -106,6 +106,9 @@ class LLMState(BaseModel):
     expect: LLMExpect = LLMExpect.none
     pending_outcome_name: Optional[str] = None
     tool_rounds: int = 0
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_cost_dollars: float = 0.0
 
 
 # Executor
@@ -614,6 +617,10 @@ class LLMExecutor(Executor):
                 cost_delta=round_cost,
             )
 
+            state.total_prompt_tokens += prompt_tokens
+            state.total_completion_tokens += completion_tokens
+            state.total_cost_dollars += round_cost
+
             # Build final assistant message dict and append to conversation
             streamed_tool_calls = []
             # Deterministic order by index to preserve original sequence
@@ -691,6 +698,9 @@ class LLMExecutor(Executor):
                         acc_prompt_tokens=self.project.llm_usage.prompt_tokens,
                         acc_completion_tokens=self.project.llm_usage.completion_tokens,
                         acc_cost_dollars=self.project.llm_usage.cost_dollars,
+                        current_prompt_tokens=state.total_prompt_tokens,
+                        current_completion_tokens=state.total_completion_tokens,
+                        token_limit=effective_max_tokens,
                         local=True,
                     ),
                     state,
@@ -732,6 +742,9 @@ class LLMExecutor(Executor):
                     acc_prompt_tokens=self.project.llm_usage.prompt_tokens,
                     acc_completion_tokens=self.project.llm_usage.completion_tokens,
                     acc_cost_dollars=self.project.llm_usage.cost_dollars,
+                    current_prompt_tokens=state.total_prompt_tokens,
+                    current_completion_tokens=state.total_completion_tokens,
+                    token_limit=effective_max_tokens,
                     local=True,
                 ),
                 state,
