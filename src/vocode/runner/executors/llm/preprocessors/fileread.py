@@ -73,6 +73,7 @@ def _fileread_preprocessor(
     if not inject:
         return messages
 
+    # Find target message
     target_message: Optional[Message] = None
     if not messages:
         role = "system" if spec.mode == Mode.System else "user"
@@ -90,14 +91,18 @@ def _fileread_preprocessor(
                     target_message = msg
                     break
 
+    # Update message
     if target_message:
         base_text = target_message.text or ""
         if inject in base_text:
             return messages
+
+        sep = opts.get("separator", "\n\n")
+
         if spec.prepend:
-            target_message.text = f"{inject}{base_text}"
+            target_message.text = f"{inject}{sep}{base_text}"
         else:
-            target_message.text = f"{base_text}{inject}"
+            target_message.text = f"{base_text}{sep}{inject}"
 
     return messages
 

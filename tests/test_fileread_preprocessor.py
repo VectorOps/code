@@ -31,7 +31,7 @@ async def test_fileread_preprocessor_concatenates_and_skips_invalid(tmp_path: Pa
         messages = [Message(text="BASE", role="user")]
         out_messages = pp.func(project, spec, messages)
         # Concatenate valid files only, appended to the base text (no separators)
-        assert out_messages[0].text == "BASEAB"
+        assert out_messages[0].text == "BASE\n\nAB"
 
 
 @pytest.mark.asyncio
@@ -54,7 +54,7 @@ async def test_fileread_preprocessor_prepend(tmp_path: Path):
         messages = [Message(text="X", role="user")]
         out_messages = pp.func(project, spec, messages)
         # Prepend concatenated content before the input text
-        assert out_messages[0].text == "ABX"
+        assert out_messages[0].text == "AB\n\nX"
 
 
 @pytest.mark.asyncio
@@ -73,8 +73,8 @@ async def test_fileread_preprocessor_does_not_reinject(tmp_path: Path):
         )
         messages = [Message(text="BASE", role="user")]
         out_messages = pp.func(project, spec, messages)
-        assert out_messages[0].text == "BASE-X-"
+        assert out_messages[0].text == "BASE\n\n-X-"
 
         # Calling it again should not change the message
         final_messages = pp.func(project, spec, out_messages)
-        assert final_messages[0].text == "BASE-X-"
+        assert final_messages[0].text == "BASE\n\n-X-"

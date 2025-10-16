@@ -93,7 +93,7 @@ async def test_file_state_preprocessor_skips_when_unchanged_and_includes_when_ch
         out_messages_again = pp.func(project, spec4, messages_again)
         again = out_messages_again[0].text
         # No tracked files changed or present now; only the prompt should be there
-        assert again == "PROMPT"
+        assert again == "\n\nPROMPT"
 
 
 @pytest.mark.asyncio

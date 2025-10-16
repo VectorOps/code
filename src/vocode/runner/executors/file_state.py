@@ -316,6 +316,7 @@ def _file_state_preprocessor(
 ) -> List[Message]:
     opts = spec.options or {}
     prompt = opts.get("prompt", STRICT_DEFAULT_PROMPT)
+    sep = opts.get("separator", "\n\n")
 
     # Persist previous hashes in project-scoped state
     prev_key = "file_state_hashes"
@@ -333,7 +334,6 @@ def _file_state_preprocessor(
     # Only inject on first run (no prev_hashes) or if the state has changed.
     if prev_hashes and cur_hashes == prev_hashes:
         return messages
-
 
     target_message: Optional[Message] = None
     if not messages:
@@ -355,9 +355,9 @@ def _file_state_preprocessor(
         if injection in base_text:
             return messages
         if spec.prepend:
-            target_message.text = f"{injection}{base_text}"
+            target_message.text = f"{injection}{sep}{base_text}"
         else:
-            target_message.text = f"{base_text}{injection}"
+            target_message.text = f"{base_text}{sep}{injection}"
     return messages
 
 
