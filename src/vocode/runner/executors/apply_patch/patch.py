@@ -44,6 +44,7 @@ Deletes: put entire current file in SEARCH; leave REPLACE empty.
 ## Self-check before emitting
 1. All planned changes covered?
 2. SEARCH sections exact? Imports/types/tests correct? Unrelated edits avoided?
+3. Are changes minimal? Whole files or whole functions are not included?
 """
 
 
