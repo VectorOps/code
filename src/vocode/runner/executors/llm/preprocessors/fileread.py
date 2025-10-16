@@ -92,6 +92,8 @@ def _fileread_preprocessor(
 
     if target_message:
         base_text = target_message.text or ""
+        if inject in base_text:
+            return messages
         if spec.prepend:
             target_message.text = f"{inject}{base_text}"
         else:

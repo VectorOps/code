@@ -334,6 +334,7 @@ def _file_state_preprocessor(
     if prev_hashes and cur_hashes == prev_hashes:
         return messages
 
+
     target_message: Optional[Message] = None
     if not messages:
         role = "system" if spec.mode == Mode.System else "user"
@@ -351,6 +352,8 @@ def _file_state_preprocessor(
 
     if target_message:
         base_text = target_message.text or ""
+        if injection in base_text:
+            return messages
         if spec.prepend:
             target_message.text = f"{injection}{base_text}"
         else:

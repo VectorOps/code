@@ -45,6 +45,9 @@ def _diff_preprocessor(project, spec: PreprocessorSpec, messages: List[Message])
                 break
 
     if target_message:
+        if instruction in (target_message.text or ""):
+            return messages
+
         if spec.prepend:
             target_message.text = f"{instruction}{suffix}{target_message.text}"
         else:

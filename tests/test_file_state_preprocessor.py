@@ -94,3 +94,26 @@ async def test_file_state_preprocessor_skips_when_unchanged_and_includes_when_ch
         again = out_messages_again[0].text
         # No tracked files changed or present now; only the prompt should be there
         assert again == "PROMPT"
+
+
+@pytest.mark.asyncio
+async def test_file_state_preprocessor_does_not_reinject(tmp_path: Path):
+    async with ProjectSandbox.create(tmp_path) as project:
+        f1 = project.base_path / "a.py"
+        f1.write_text("pass", encoding="utf-8")
+
+        ctx = file_state_mod.get_file_state_ctx(project)
+        ctx.add(["a.py"], project)
+
+        pp = get_preprocessor("file_state")
+        assert pp is not None
+
+        spec = PreprocessorSpec(name="file_state", mode=Mode.System)
+
+        # Manually inject the content first
+        injection, _, _ = file_state_mod._build_file_state_injection(project, "The following files were explicitly added by the developer to your context. Discard and ignore any prior versions of these files you received earlier. Use only the versions provided below.", {})
+        messages = [Message(text=injection, role="system")]
+
+        # Running the preprocessor should not change the message
+        out_messages = pp.func(project, spec, messages)
+        assert out_messages[0].text == injection

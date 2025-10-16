@@ -55,3 +55,26 @@ async def test_fileread_preprocessor_prepend(tmp_path: Path):
         out_messages = pp.func(project, spec, messages)
         # Prepend concatenated content before the input text
         assert out_messages[0].text == "ABX"
+
+
+@pytest.mark.asyncio
+async def test_fileread_preprocessor_does_not_reinject(tmp_path: Path):
+    async with ProjectSandbox.create(tmp_path) as project:
+        f1 = project.base_path / "a.txt"
+        f1.write_text("-X-", encoding="utf-8")
+
+        pp = get_preprocessor("file_read")
+        assert pp is not None
+
+        spec = PreprocessorSpec(
+            name="file_read",
+            options={"paths": ["a.txt"]},
+            mode=Mode.User,
+        )
+        messages = [Message(text="BASE", role="user")]
+        out_messages = pp.func(project, spec, messages)
+        assert out_messages[0].text == "BASE-X-"
+
+        # Calling it again should not change the message
+        final_messages = pp.func(project, spec, out_messages)
+        assert final_messages[0].text == "BASE-X-"
