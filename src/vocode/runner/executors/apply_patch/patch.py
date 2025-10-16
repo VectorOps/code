@@ -127,7 +127,13 @@ def parse_patch(text: str) -> Tuple[Patch, List[PatchError]]:
     # Multiple blocks per file are allowed; maintain order of appearance
     # actions will be appended to patch.actions for each block encountered
 
-    def add_error(msg: str, *, line: Optional[int] = None, hint: Optional[str] = None, filename: Optional[str] = None):
+    def add_error(
+        msg: str,
+        *,
+        line: Optional[int] = None,
+        hint: Optional[str] = None,
+        filename: Optional[str] = None,
+    ):
         errors.append(PatchError(msg=msg, line=line, hint=hint, filename=filename))
 
     while i < len(lines):
@@ -139,7 +145,11 @@ def parse_patch(text: str) -> Tuple[Patch, List[PatchError]]:
         fence_start_line = i + 1
         i += 1
         if i >= len(lines):
-            add_error("Unterminated code fence", line=fence_start_line, hint="Add closing `` for the patch block")
+            add_error(
+                "Unterminated code fence",
+                line=fence_start_line,
+                hint="Add closing `` for the patch block",
+            )
             break
 
         # First line inside fence must be the file path
@@ -147,7 +157,12 @@ def parse_patch(text: str) -> Tuple[Patch, List[PatchError]]:
         path = lines[i].strip()
         i += 1
         if not _is_relative_path(path):
-            add_error(f"Path must be relative: {path!r}", line=path_line_no, hint="Use a relative repo path", filename=path)
+            add_error(
+                f"Path must be relative: {path!r}",
+                line=path_line_no,
+                hint="Use a relative repo path",
+                filename=path,
+            )
             # Skip to next fence end
             while i < len(lines) and not FENCE_RE.match(lines[i].strip()):
                 i += 1
@@ -205,7 +220,11 @@ def parse_patch(text: str) -> Tuple[Patch, List[PatchError]]:
 
         # Expect closing fence
         if i >= len(lines) or not FENCE_RE.match(lines[i].strip()):
-            add_error("Missing closing code fence ``", line=i + 1 if i < len(lines) else None, filename=path)
+            add_error(
+                "Missing closing code fence ``",
+                line=i + 1 if i < len(lines) else None,
+                filename=path,
+            )
             # Attempt to continue scanning
             while i < len(lines) and not FENCE_RE.match(lines[i].strip()):
                 i += 1
@@ -228,7 +247,11 @@ def parse_patch(text: str) -> Tuple[Patch, List[PatchError]]:
         elif search_lines and replace_lines:
             action_type = ActionType.UPDATE
         else:
-            add_error("Empty patch block (no SEARCH and no REPLACE content)", line=path_line_no, filename=path)
+            add_error(
+                "Empty patch block (no SEARCH and no REPLACE content)",
+                line=path_line_no,
+                filename=path,
+            )
             continue
         # Append block to this file's action list
         patch.actions.setdefault(path, []).append(
@@ -243,7 +266,9 @@ def parse_patch(text: str) -> Tuple[Patch, List[PatchError]]:
     return patch, errors
 
 
-def load_files(paths: List[str], open_fn: Callable[[str], str]) -> Tuple[Dict[str, str], List[PatchError]]:
+def load_files(
+    paths: List[str], open_fn: Callable[[str], str]
+) -> Tuple[Dict[str, str], List[PatchError]]:
     files: Dict[str, str] = {}
     errs: List[PatchError] = []
     for path in paths:
@@ -277,13 +302,21 @@ def _find_subsequence(hay: List[str], needle: List[str]) -> Optional[int]:
     return None
 
 
-def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List[Commit], List[PatchError], Dict[str, FileApplyStatus]]:
+def build_commits(
+    patch: Patch, files: Dict[str, str]
+) -> Tuple[List[Commit], List[PatchError], Dict[str, FileApplyStatus]]:
     commits: List[Commit] = []
     errors: List[PatchError] = []
     changes: Dict[str, FileChange] = {}
     status_map: Dict[str, FileApplyStatus] = {}
 
-    def add_error(msg: str, *, line: Optional[int] = None, hint: Optional[str] = None, filename: Optional[str] = None):
+    def add_error(
+        msg: str,
+        *,
+        line: Optional[int] = None,
+        hint: Optional[str] = None,
+        filename: Optional[str] = None,
+    ):
         errors.append(PatchError(msg=msg, line=line, hint=hint, filename=filename))
 
     for path, actions in patch.actions.items():
@@ -364,15 +397,25 @@ def build_commits(patch: Patch, files: Dict[str, str]) -> Tuple[List[Commit], Li
             continue
 
         if not existed:
-            new_content = _join_lines(file_lines, eol=had_eol)  # had_eol set above for add branch as False
+            new_content = _join_lines(
+                file_lines, eol=had_eol
+            )  # had_eol set above for add branch as False
             changes[path] = FileChange(type=ActionType.ADD, new_content=new_content)
-            status_map[path] = FileApplyStatus.PartialUpdate if any_failed else FileApplyStatus.Create
+            status_map[path] = (
+                FileApplyStatus.PartialUpdate if any_failed else FileApplyStatus.Create
+            )
         else:
             # Only emit an UPDATE change if at least one update actually applied
-            status_map[path] = FileApplyStatus.PartialUpdate if any_failed else FileApplyStatus.Update
+            status_map[path] = (
+                FileApplyStatus.PartialUpdate if any_failed else FileApplyStatus.Update
+            )
             if applied_any:
                 new_content = _join_lines(file_lines, eol=had_eol)
-                changes[path] = FileChange(type=ActionType.UPDATE, old_content=original_content, new_content=new_content)
+                changes[path] = FileChange(
+                    type=ActionType.UPDATE,
+                    old_content=original_content,
+                    new_content=new_content,
+                )
 
     if changes:
         commits.append(Commit(changes=changes))
@@ -429,7 +472,10 @@ def process_patch(
         if not acts:
             continue
         first = acts[0]
-        needs_read = any(a.type == ActionType.UPDATE for a in acts) and first.type != ActionType.ADD
+        needs_read = (
+            any(a.type == ActionType.UPDATE for a in acts)
+            and first.type != ActionType.ADD
+        )
         if needs_read:
             to_read.append(p)
     files, read_errors = load_files(to_read, open_fn)
