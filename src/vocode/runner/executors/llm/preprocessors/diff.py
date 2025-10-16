@@ -4,12 +4,10 @@ from typing import List, Dict, Any, Optional
 from vocode.runner.executors.apply_patch import SUPPORTED_PATCH_FORMATS
 from vocode.models import PreprocessorSpec
 
-from vocode.runner.preprocessors.base import register_preprocessor
+from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 
 
-def _diff_preprocessor(
-    project, spec: PreprocessorSpec, text: str, **_: Any
-) -> str:
+def _diff_preprocessor(project, spec: PreprocessorSpec, text: str, **_: Any) -> str:
     """
     Inject additional system instructions for diff patching formats.
     Options:

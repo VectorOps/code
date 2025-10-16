@@ -1,9 +1,10 @@
 from typing import Callable, Dict, List, Optional, Any, Sequence
 from dataclasses import dataclass
 from vocode.models import PreprocessorSpec
+from vocode.state import Message
 
 # Callback signature: accepts (project, spec, text)
-PreprocessorFunc = Callable[[Any, PreprocessorSpec, str], str]
+PreprocessorFunc = Callable[[Any, PreprocessorSpec, List[Message]], List[Message]]
 
 
 @dataclass(frozen=True)
@@ -35,20 +36,13 @@ def list_preprocessors() -> Dict[str, Preprocessor]:
 
 
 def apply_preprocessors(
-    preprocessors: Sequence[PreprocessorSpec], project: Any, text: str
-) -> str:
+    preprocessors: Sequence[PreprocessorSpec], project: Any, messages: List[Message]
+) -> List[Message]:
     """
-    Apply a sequence of preprocessors to the given text.
-    - Accepts a sequence of PreprocessorSpec.
-    - Passes the full PreprocessorSpec and project to the registered callback.
+    Apply a sequence of preprocessors to a list of messages.
     """
-    result = text
+    current_messages = list(messages)
     for spec in preprocessors:
-        pp = get_preprocessor(spec.name)
-        if pp is None:
-            raise ValueError(f"Unknown preprocessor '{spec.name}'")
-        out = pp.func(project, spec, result)
-        if not isinstance(out, str):
-            raise TypeError(f"Preprocessor '{spec.name}' must return a string")
-        result = out
-    return result
+        if preprocessor := get_preprocessor(spec.name):
+            current_messages = preprocessor.func(project, spec, current_messages)
+    return current_messages

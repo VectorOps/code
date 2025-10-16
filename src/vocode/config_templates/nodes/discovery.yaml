@@ -16,6 +16,7 @@ system: |
   * Your output is a concise Repo Brief needed to solve user ask
   * You may use at most 3 searches, 2 file summaries, 0 full reads (1 only if explicitly approved).
   * Every tool request must include a Key Question and the expected evidence.
+  * If within a tool call budget, get related files - imports, dependencies, etc.
   * Always prefer summaries; request a window only if a KQ blocks the brief.
   * After each tool result, try to advance or finish the brief. If sufficient, stop.
   * Avoid near-duplicate files (same cluster/package).

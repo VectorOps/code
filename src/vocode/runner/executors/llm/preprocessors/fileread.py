@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, List
 
 from vocode.models import PreprocessorSpec
-from vocode.runner.preprocessors.base import register_preprocessor
+from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 
 
 def _validate_relpath(rel: str, project) -> Path | None:
@@ -37,7 +37,9 @@ def _read_file_text(full: Path) -> str:
             return ""
 
 
-def _fileread_preprocessor(project: Any, spec: PreprocessorSpec, text: str, **_: Any) -> str:
+def _fileread_preprocessor(
+    project: Any, spec: PreprocessorSpec, text: str, **_: Any
+) -> str:
     """
     Reads files listed in options['paths'] (or options['files']) and concatenates their contents.
     - Silently skips absolute, escaping, non-existent, or non-file paths.

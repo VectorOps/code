@@ -2,8 +2,8 @@ import pytest
 from pathlib import Path
 
 from vocode.testing import ProjectSandbox
-from vocode.runner.preprocessors.base import get_preprocessor
-import vocode.runner.preprocessors.fileread as fileread_mod  # ensure registration on import
+from vocode.runner.executors.llm.preprocessors.base import get_preprocessor
+import vocode.runner.executors.llm.preprocessors.fileread as fileread_mod  # ensure registration on import
 from vocode.models import PreprocessorSpec
 
 

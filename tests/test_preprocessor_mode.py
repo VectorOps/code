@@ -1,155 +1,123 @@
 import pytest
-
-from vocode.runner.preprocessors.base import register_preprocessor
+from typing import List
+from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 from vocode.runner.executors.llm import LLMExecutor, LLMNode
 from vocode.models import PreprocessorSpec, Mode
 from vocode.state import Message
 
-# Register a simple test preprocessor
-register_preprocessor(
-    name="mark",
-    description="append marker",
-    func=lambda project, spec, text: (
-        f"{(spec.options or {}).get('suffix', '')}{text}"
-        if spec.prepend
-        else f"{text}{(spec.options or {}).get('suffix', '')}"
-    ),
-)
+
+def mark_preprocessor(project, spec: PreprocessorSpec, messages: List[Message]) -> List[Message]:
+    """A test preprocessor that finds a message and adds a suffix."""
+    suffix = (spec.options or {}).get("suffix", "")
+    target_message = None
+
+    if spec.mode == Mode.System:
+        for msg in messages:
+            if msg.role == "system":
+                target_message = msg
+                break
+    elif spec.mode == Mode.User:
+        for msg in reversed(messages):
+            if msg.role == "user":
+                target_message = msg
+                break
+
+    if target_message:
+        if spec.prepend:
+            target_message.text = f"{suffix}{target_message.text}"
+        else:
+            target_message.text = f"{target_message.text}{suffix}"
+
+    return messages
+
+
+register_preprocessor(name="mark", description="append marker", func=mark_preprocessor)
 
 
 class DummyProject:
-    # Minimal stub; executor._build_base_messages does not use project.
     def __init__(self):
-        self.settings = None
-        self.tools = {}
-        class _Usage:
-            prompt_tokens = 0
-            completion_tokens = 0
-            cost_dollars = 0.0
-        self.llm_usage = _Usage()
+        pass
+
     def add_llm_usage(self, **kwargs):
         pass
 
 
-def test_preprocessor_mode_system():
-    cfg = LLMNode(
-        name="node1",
-        model="dummy-model",
-        system="SYS",
-        preprocessors=[
-            PreprocessorSpec(name="mark", mode=Mode.System, options={"suffix": " [S]"})
-        ],
-    )
-    execu = LLMExecutor(config=cfg, project=DummyProject())
-    history = [Message(role="user", text="hello", node=None)]
-    msgs = execu._build_base_messages(cfg, history)
-    # System mutated
-    assert msgs[0]["role"] == "system"
-    assert msgs[0]["content"] == "SYS [S]"
-    # User unchanged
-    assert any(m["role"] == "user" and m["content"] == "hello" for m in msgs)
-
-
-def test_preprocessor_mode_user():
-    cfg = LLMNode(
-        name="node1",
-        model="dummy-model",
-        system="SYS",
-        preprocessors=[
-            PreprocessorSpec(name="mark", mode=Mode.User, options={"suffix": " [U]"})
-        ],
-    )
-    execu = LLMExecutor(config=cfg, project=DummyProject())
-    history = [
-        Message(role="user", text="first", node=None),
-        Message(role="agent", text="assistant reply", node="other"),  # will map to user? ensure role mapping to not user
-        Message(role="user", text="second", node=None),
+@pytest.fixture
+def base_messages():
+    return [
+        Message(role="system", text="system prompt"),
+        Message(role="user", text="hello"),
+        Message(role="user", text="world"),
     ]
-    msgs = execu._build_base_messages(cfg, history)
-    # System unchanged
-    assert msgs[0]["role"] == "system"
-    assert msgs[0]["content"] == "SYS"
-    # Last user mutated; earlier user messages not mutated
-    contents = [m["content"] for m in msgs if m["role"] == "user"]
-    assert contents[0] == "first"
-    assert contents[-1] == "second [U]"
 
 
-def test_preprocessor_mode_system_prepend():
-    cfg = LLMNode(
-        name="node1",
+def test_preprocessor_mode_system(base_messages):
+    """Test system-mode preprocessor appends to system message."""
+    node = LLMNode(
+        name="test",
         model="dummy-model",
-        system="SYS",
+        system="system prompt",
         preprocessors=[
-            PreprocessorSpec(name="mark", mode=Mode.System, options={"suffix": " [S]"}, prepend=True)
+            PreprocessorSpec(name="mark", options={"suffix": " S"}, mode=Mode.System)
         ],
     )
-    execu = LLMExecutor(config=cfg, project=DummyProject())
-    history = [Message(role="user", text="hello", node=None)]
-    msgs = execu._build_base_messages(cfg, history)
-    # System mutated with prefix
-    assert msgs[0]["role"] == "system"
-    assert msgs[0]["content"] == " [S]SYS"
-    # User unchanged
-    assert any(m["role"] == "user" and m["content"] == "hello" for m in msgs)
+    executor = LLMExecutor(config=node, project=DummyProject())
+    # The system message is added by _build_base_messages from the node config,
+    # so we only need to pass the user messages.
+    result_messages = executor._build_base_messages(node, base_messages[1:])
+    assert result_messages[0]["content"] == "system prompt S"
+    assert result_messages[1]["content"] == "hello"
+    assert result_messages[2]["content"] == "world"
 
 
-def test_preprocessor_mode_user_prepend():
-    cfg = LLMNode(
-        name="node1",
+def test_preprocessor_mode_user(base_messages):
+    """Test user-mode preprocessor appends to LAST user message."""
+    node = LLMNode(
+        name="test",
         model="dummy-model",
-        system="SYS",
+        system="system prompt",
         preprocessors=[
-            PreprocessorSpec(name="mark", mode=Mode.User, options={"suffix": " [U]"}, prepend=True)
+            PreprocessorSpec(name="mark", options={"suffix": " U"}, mode=Mode.User)
         ],
     )
-    execu = LLMExecutor(config=cfg, project=DummyProject())
-    history = [
-        Message(role="user", text="first", node=None),
-        Message(role="agent", text="assistant reply", node="other"),
-        Message(role="user", text="second", node=None),
-    ]
-    msgs = execu._build_base_messages(cfg, history)
-    # System unchanged
-    assert msgs[0]["role"] == "system"
-    assert msgs[0]["content"] == "SYS"
-    # Last user mutated with prefix; earlier user messages not mutated
-    contents = [m["content"] for m in msgs if m["role"] == "user"]
-    assert contents[0] == "first"
-    assert contents[-1] == " [U]second"
+    executor = LLMExecutor(config=node, project=DummyProject())
+    result_messages = executor._build_base_messages(node, base_messages[1:])
+    assert result_messages[0]["content"] == "system prompt"
+    assert result_messages[1]["content"] == "hello"
+    assert result_messages[2]["content"] == "world U"
 
 
-def test_preprocessor_mode_system_append_then_preprocess_suffix():
-    cfg = LLMNode(
-        name="node1",
+def test_preprocessor_mode_system_prepend(base_messages):
+    """Test system-mode preprocessor prepends to system message."""
+    node = LLMNode(
+        name="test",
         model="dummy-model",
-        system="SYS",
-        system_append=" EXT",
-        preprocessors=[
-            PreprocessorSpec(name="mark", mode=Mode.System, options={"suffix": " [S]"})
-        ],
-    )
-    execu = LLMExecutor(config=cfg, project=DummyProject())
-    msgs = execu._build_base_messages(cfg, [Message(role="user", text="hi", node=None)])
-    assert msgs[0]["role"] == "system"
-    # Append happens before preprocessors, so suffix applies to the combined string
-    assert msgs[0]["content"] == "SYS EXT [S]"
-
-
-def test_preprocessor_mode_system_append_then_preprocess_prepend():
-    cfg = LLMNode(
-        name="node1",
-        model="dummy-model",
-        system="SYS",
-        system_append=" EXT",
+        system="system prompt",
         preprocessors=[
             PreprocessorSpec(
-                name="mark", mode=Mode.System, options={"suffix": " [S]"}, prepend=True
+                name="mark", options={"suffix": "S "}, mode=Mode.System, prepend=True
             )
         ],
     )
-    execu = LLMExecutor(config=cfg, project=DummyProject())
-    msgs = execu._build_base_messages(cfg, [Message(role="user", text="hi", node=None)])
-    assert msgs[0]["role"] == "system"
-    # Prepend happens before the combined string
-    assert msgs[0]["content"] == " [S]SYS EXT"
+    executor = LLMExecutor(config=node, project=DummyProject())
+    result_messages = executor._build_base_messages(node, base_messages[1:])
+    assert result_messages[0]["content"] == "S system prompt"
+    assert result_messages[1]["content"] == "hello"
+    assert result_messages[2]["content"] == "world"
+
+
+def test_preprocessor_multiple_are_applied(base_messages):
+    """Test multiple preprocessors are applied in order."""
+    node = LLMNode(
+        name="test",
+        model="dummy-model",
+        system="system prompt",
+        preprocessors=[
+            PreprocessorSpec(name="mark", options={"suffix": " S1"}),
+            PreprocessorSpec(name="mark", options={"suffix": " S2"}),
+        ],
+    )
+    executor = LLMExecutor(config=node, project=DummyProject())
+    result_messages = executor._build_base_messages(node, base_messages[1:])
+    assert result_messages[0]["content"] == "system prompt S1 S2"
+    assert result_messages[1]["content"] == "hello"

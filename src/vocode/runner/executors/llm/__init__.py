@@ -4,7 +4,7 @@ from typing import AsyncIterator, List, Optional, Dict, Any, Final
 import json
 import re
 import asyncio
-from vocode.runner.preprocessors.base import apply_preprocessors
+from vocode.runner.executors.llm.preprocessors.base import apply_preprocessors
 from litellm import acompletion, completion_cost
 import litellm
 from enum import Enum
@@ -25,90 +25,13 @@ from vocode.runner.models import (
 )
 
 from vocode.settings import ToolSettings  # type: ignore
+from .models import LLMToolSpec, LLMNode, LLMExpect, LLMState
 
 
 CHOOSE_OUTCOME_TOOL_NAME: Final[str] = "__choose_outcome__"
 OUTCOME_TAG_RE = re.compile(r"^\s*OUTCOME\s*:\s*([A-Za-z0-9_\-]+)\s*$")
 OUTCOME_LINE_PREFIX_RE = re.compile(r"^\s*OUTCOME\s*:\s*")
 MAX_ROUNDS = 32
-
-
-# Node configuration
-class LLMToolSpec(BaseModel):
-    name: str
-    auto_approve: Optional[bool] = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce(cls, v: Any) -> Any:
-        # Accept either:
-        # - "tool_name"
-        # - {"name": "tool_name", "auto_approve": bool|None}
-        if isinstance(v, str):
-            return {"name": v, "auto_approve": None}
-        if isinstance(v, dict):
-            name = v.get("name")
-            if not isinstance(name, str) or not name:
-                raise ValueError("Tool spec must include non-empty 'name'")
-            auto = v.get("auto_approve", None)
-            if auto is not None and not isinstance(auto, bool):
-                raise TypeError(
-                    "LLMToolSpec.auto_approve must be a boolean if provided"
-                )
-            return {"name": name, "auto_approve": auto}
-        raise TypeError(
-            "Tool spec must be a string or mapping with 'name' and optional 'auto_approve'"
-        )
-
-
-class LLMNode(Node):
-    type: str = "llm"
-    model: str
-    system: Optional[str] = None
-    system_append: Optional[str] = Field(
-        default=None,
-        description="Optional content appended to the main system prompt before preprocessors are applied.",
-    )
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    outcome_strategy: OutcomeStrategy = Field(default=OutcomeStrategy.tag)
-    # Structured tool specs with short-hand coercion from strings
-    tools: List[LLMToolSpec] = Field(
-        default_factory=list,
-        description="Enabled tools (supports string or object spec)",
-    )
-    extra: Dict[str, Any] = Field(default_factory=dict)
-    preprocessors: List[PreprocessorSpec] = Field(
-        default_factory=list,
-        description="Pre-execution preprocessors applied to the LLM system prompt",
-    )
-    function_tokens_pct: Optional[int] = Field(
-        default=None,
-        ge=1,
-        le=100,
-        description=(
-            "Optional percent (1-100) of the model's total token limit to use as max_tokens "
-            "when tools are enabled (function-answer mode). "
-            "Requires extra['model_max_tokens'] to be set."
-        ),
-    )
-
-
-# Internal LLM state
-class LLMExpect(str, Enum):
-    none = "none"
-    tools = "tools"
-    post_final_user = "post_final_user"
-
-
-class LLMState(BaseModel):
-    conv: List[Dict[str, Any]] = Field(default_factory=list)
-    expect: LLMExpect = LLMExpect.none
-    pending_outcome_name: Optional[str] = None
-    tool_rounds: int = 0
-    total_prompt_tokens: int = 0
-    total_completion_tokens: int = 0
-    total_cost_dollars: float = 0.0
 
 
 # Executor
@@ -142,42 +65,23 @@ class LLMExecutor(Executor):
     def _build_base_messages(
         self, cfg: LLMNode, history: List[Message]
     ) -> List[Dict[str, Any]]:
-        msgs: List[Dict[str, Any]] = []
-        sys_specs = [p for p in (cfg.preprocessors or []) if p.mode == Mode.System]
-        user_specs = [p for p in (cfg.preprocessors or []) if p.mode == Mode.User]
+        system_prompt_parts = []
+        if cfg.system:
+            system_prompt_parts.append(cfg.system)
+        if cfg.system_append:
+            system_prompt_parts.append(cfg.system_append)
+        system_prompt = "".join(system_prompt_parts)
 
-        # Detect if history already includes a system message authored by this node
-        has_node_system = any(
-            (m.role == "system" and m.node == cfg.name) for m in (history or [])
-        )
+        base_messages = list(history)
+        if system_prompt:
+            base_messages.insert(0, Message(role="system", text=system_prompt, node=cfg.name))
 
-        # If a system message from this node already exists, do not inject or preprocess
-        if not has_node_system:
-            # Build the main system message (base + optional append), then apply system preprocessors
-            base_system = cfg.system or ""
-            append_system = cfg.system_append or ""
-            sys_text = f"{base_system}{append_system}"
-            if sys_text:
-                if sys_specs:
-                    sys_text = apply_preprocessors(sys_specs, self.project, sys_text)
-                msgs.append({"role": "system", "content": sys_text})
+        if cfg.preprocessors:
+            base_messages = apply_preprocessors(
+                cfg.preprocessors, self.project, base_messages
+            )
 
-        # Map history into msgs; remember indices corresponding to newly added entries
-        start_idx = len(msgs)
-        for m in history:
-            msgs.append(self._map_message_to_llm_dict(m, cfg))
-
-        # Apply user-mode preprocessors to the last input user message (latest in provided history)
-        # Skip all preprocessors when a node-authored system message exists in history
-        if user_specs and not has_node_system:
-            for idx in range(len(msgs) - 1, start_idx - 1, -1):
-                if msgs[idx].get("role") == "user":
-                    orig = msgs[idx].get("content") or ""
-                    new_text = apply_preprocessors(user_specs, self.project, str(orig))
-                    msgs[idx]["content"] = new_text
-                    break
-
-        return msgs
+        return [self._map_message_to_llm_dict(m, cfg) for m in base_messages]
 
     def _parse_outcome_from_text(
         self, text: str, valid_outcomes: List[str]

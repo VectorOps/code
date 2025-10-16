@@ -9,7 +9,7 @@ from vocode.models import Node, ResetPolicy, PreprocessorSpec
 from vocode.state import Message
 from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 from vocode.commands import CommandContext
-from vocode.runner.preprocessors.base import register_preprocessor
+from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 
 STRICT_DEFAULT_PROMPT = (
     "The following files were explicitly added by the developer to your context. "
@@ -127,7 +127,9 @@ def _build_file_state_injection(
 
     # Which files to include
     if prev_hashes:
-        include_rels = [rel for rel, h in cur_hashes.items() if prev_hashes.get(rel) != h]
+        include_rels = [
+            rel for rel, h in cur_hashes.items() if prev_hashes.get(rel) != h
+        ]
     else:
         include_rels = list(cur_hashes.keys())
 
@@ -298,6 +300,7 @@ class FileStateExecutor(Executor):
         final = Message(role="agent", text=final_text)
         state_out = FileStateState(hashes=cur_hashes)
         yield ReqFinalMessage(message=final), state_out
+
 
 # Preprocessor that mirrors run() behavior for injection
 def _file_state_preprocessor(
