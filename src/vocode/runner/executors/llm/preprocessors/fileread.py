@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Optional
 
-from vocode.models import PreprocessorSpec
-from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
+from vocode.models import Mode, PreprocessorSpec
+from vocode.runner.executors.llm.preprocessors.base import (
+    register_preprocessor,
+)
+from vocode.state import Message
 
 
 def _validate_relpath(rel: str, project) -> Path | None:
@@ -38,12 +41,13 @@ def _read_file_text(full: Path) -> str:
 
 
 def _fileread_preprocessor(
-    project: Any, spec: PreprocessorSpec, text: str, **_: Any
-) -> str:
+    project: Any, spec: PreprocessorSpec, messages: List[Message]
+) -> List[Message]:
     """
     Reads files listed in options['paths'] (or options['files']) and concatenates their contents.
     - Silently skips absolute, escaping, non-existent, or non-file paths.
-    - Honors spec.prepend to place content before/after input text.
+    - Injects content into a message determined by spec.mode ('system' or 'user').
+    - If message list is empty, creates a new message.
     - No separators are added (mirrors FilereadExecutor concatenation).
     """
     opts = spec.options or {}
@@ -67,12 +71,33 @@ def _fileread_preprocessor(
 
     inject = "".join(parts)
     if not inject:
-        return text
+        return messages
 
-    base_text = text or ""
-    if spec.prepend:
-        return f"{inject}{base_text}"
-    return f"{base_text}{inject}"
+    target_message: Optional[Message] = None
+    if not messages:
+        role = "system" if spec.mode == Mode.System else "user"
+        target_message = Message(text="", role=role)
+        messages.append(target_message)
+    else:
+        if spec.mode == Mode.System:
+            for msg in messages:
+                if msg.role == "system":
+                    target_message = msg
+                    break
+        elif spec.mode == Mode.User:
+            for msg in reversed(messages):
+                if msg.role == "user":
+                    target_message = msg
+                    break
+
+    if target_message:
+        base_text = target_message.text or ""
+        if spec.prepend:
+            target_message.text = f"{inject}{base_text}"
+        else:
+            target_message.text = f"{base_text}{inject}"
+
+    return messages
 
 
 # Register at import time

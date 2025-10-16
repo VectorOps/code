@@ -1,9 +1,15 @@
 import pytest
 from typing import List
+from unittest.mock import patch
 from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 from vocode.runner.executors.llm import LLMExecutor, LLMNode
 from vocode.models import PreprocessorSpec, Mode
 from vocode.state import Message
+
+
+# Faking this import, since it's only used for test setup
+from vocode.runner.executors.llm.preprocessors import diff # noqa
+
 
 
 def mark_preprocessor(project, spec: PreprocessorSpec, messages: List[Message]) -> List[Message]:
@@ -121,3 +127,26 @@ def test_preprocessor_multiple_are_applied(base_messages):
     result_messages = executor._build_base_messages(node, base_messages[1:])
     assert result_messages[0]["content"] == "system prompt S1 S2"
     assert result_messages[1]["content"] == "hello"
+
+
+def test_diff_preprocessor(base_messages):
+    """Test diff preprocessor modifies system message."""
+    node = LLMNode(
+        name="test",
+        model="dummy-model",
+        system="system prompt",
+        preprocessors=[
+            PreprocessorSpec(name="diff", options={"format": "test_format"})
+        ],
+    )
+    executor = LLMExecutor(config=node, project=DummyProject())
+
+    with patch(
+        "vocode.runner.executors.llm.preprocessors.diff.SUPPORTED_PATCH_FORMATS",
+        {"test_format": type("obj", (object,), {"system_prompt": " DIFF"})}
+    ):
+        result_messages = executor._build_base_messages(node, base_messages[1:])
+
+    assert result_messages[0]["content"] == "system prompt DIFF"
+    assert result_messages[1]["content"] == "hello"
+    assert result_messages[2]["content"] == "world"

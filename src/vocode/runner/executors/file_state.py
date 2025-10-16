@@ -302,15 +302,21 @@ class FileStateExecutor(Executor):
         yield ReqFinalMessage(message=final), state_out
 
 
-# Preprocessor that mirrors run() behavior for injection
+from typing import Any, List, Optional
+
+from ...models import Mode, PreprocessorSpec
+from ...state import Message
+from .llm.preprocessors.base import (
+    register_preprocessor,
+)
+
+
 def _file_state_preprocessor(
-    project,
-    spec: PreprocessorSpec,
-    text: str,
-    **_: Any,
-) -> str:
+    project: Any, spec: PreprocessorSpec, messages: List[Message]
+) -> List[Message]:
     opts = spec.options or {}
     prompt = opts.get("prompt", STRICT_DEFAULT_PROMPT)
+
     # Persist previous hashes in project-scoped state
     prev_key = "file_state_hashes"
     prev_hashes = project.project_state.get(prev_key)
@@ -320,25 +326,36 @@ def _file_state_preprocessor(
     injection, cur_hashes, include_rels = _build_file_state_injection(
         project=project, prompt=prompt, prev_hashes=prev_hashes
     )
+
     # Save current snapshot for next invocation
     project.project_state.set(prev_key, cur_hashes)
 
-    # Only inject when there is something to include (first run or changes)
-    if include_rels:
-        base_text = text or ""
+    # Only inject on first run (no prev_hashes) or if the state has changed.
+    if prev_hashes and cur_hashes == prev_hashes:
+        return messages
+
+    target_message: Optional[Message] = None
+    if not messages:
+        role = "system" if spec.mode == Mode.System else "user"
+        target_message = Message(text="", role=role)
+        messages.append(target_message)
+    else:
+        if spec.mode == Mode.System:
+            target_message = next(
+                (msg for msg in messages if msg.role == "system"), None
+            )
+        elif spec.mode == Mode.User:
+            target_message = next(
+                (msg for msg in reversed(messages) if msg.role == "user"), None
+            )
+
+    if target_message:
+        base_text = target_message.text or ""
         if spec.prepend:
-            # Place injection before the current text
-            merged = (injection + ("\n\n" if base_text else "") + base_text).strip()
+            target_message.text = f"{injection}{base_text}"
         else:
-            # Default: place injection after the current text
-            merged = (base_text + ("\n\n" if base_text else "") + injection).strip()
-        return merged
-    return text
+            target_message.text = f"{base_text}{injection}"
+    return messages
 
 
-# Register at import time
-register_preprocessor(
-    name="file_state",
-    func=_file_state_preprocessor,
-    description="Injects tracked files from FileStateContext when added or changed (first run: all tracked files).",
-)
+register_preprocessor("file_state", _file_state_preprocessor)

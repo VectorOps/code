@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import List, Dict, Any, Optional
 from vocode.runner.executors.apply_patch import SUPPORTED_PATCH_FORMATS
-from vocode.models import PreprocessorSpec
+from vocode.models import PreprocessorSpec, Mode
+from vocode.state import Message
 
 from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 
 
-def _diff_preprocessor(project, spec: PreprocessorSpec, text: str, **_: Any) -> str:
+def _diff_preprocessor(project, spec: PreprocessorSpec, messages: List[Message]) -> List[Message]:
     """
     Inject additional system instructions for diff patching formats.
     Options:
@@ -25,15 +26,31 @@ def _diff_preprocessor(project, spec: PreprocessorSpec, text: str, **_: Any) -> 
 
     entry = SUPPORTED_PATCH_FORMATS.get(fmt)
     if not entry:
-        return text
+        return messages
+
     instruction = entry.system_prompt
 
-    base_text = text or ""
-    if spec.prepend:
-        merged = (instruction + ("\n\n" if base_text else "") + base_text).strip()
-    else:
-        merged = (base_text + ("\n\n" if base_text else "") + instruction).strip()
-    return merged
+    suffix = (spec.options or {}).get("suffix", "")
+    target_message = None
+
+    if spec.mode == Mode.System:
+        for msg in messages:
+            if msg.role == "system":
+                target_message = msg
+                break
+    elif spec.mode == Mode.User:
+        for msg in reversed(messages):
+            if msg.role == "user":
+                target_message = msg
+                break
+
+    if target_message:
+        if spec.prepend:
+            target_message.text = f"{instruction}{suffix}{target_message.text}"
+        else:
+            target_message.text = f"{target_message.text}{suffix}{instruction}"
+
+    return messages
 
 
 # Register at import time

@@ -23,4 +23,8 @@ system: |
   * Never request “whole repo” reads or wide globs.
 
   ## Required Output
-  * Only a list of relevant files with short description summary
+  * Only a list of relevant files with short description summary.
+
+  ## Checklist
+  * Make sure that provided relevant files are addressing users request.
+  * Make sure to provide related files, if possible.

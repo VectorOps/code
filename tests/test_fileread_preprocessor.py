@@ -3,8 +3,9 @@ from pathlib import Path
 
 from vocode.testing import ProjectSandbox
 from vocode.runner.executors.llm.preprocessors.base import get_preprocessor
-import vocode.runner.executors.llm.preprocessors.fileread as fileread_mod  # ensure registration on import
-from vocode.models import PreprocessorSpec
+from vocode.runner.executors.llm.preprocessors import fileread as fileread_mod  # ensure registration on import
+from vocode.models import Mode, PreprocessorSpec
+from vocode.state import Message
 
 
 @pytest.mark.asyncio
@@ -25,10 +26,12 @@ async def test_fileread_preprocessor_concatenates_and_skips_invalid(tmp_path: Pa
         spec = PreprocessorSpec(
             name="file_read",
             options={"paths": ["src/a.txt", "missing.txt", "b.txt", "dir"]},
+            mode=Mode.User,
         )
-        out = pp.func(project, spec, "BASE")
+        messages = [Message(text="BASE", role="user")]
+        out_messages = pp.func(project, spec, messages)
         # Concatenate valid files only, appended to the base text (no separators)
-        assert out == "BASEAB"
+        assert out_messages[0].text == "BASEAB"
 
 
 @pytest.mark.asyncio
@@ -46,7 +49,9 @@ async def test_fileread_preprocessor_prepend(tmp_path: Path):
             name="file_read",
             options={"paths": ["a.txt", "b.txt"]},
             prepend=True,
+            mode=Mode.User,
         )
-        out = pp.func(project, spec, "X")
+        messages = [Message(text="X", role="user")]
+        out_messages = pp.func(project, spec, messages)
         # Prepend concatenated content before the input text
-        assert out == "ABX"
+        assert out_messages[0].text == "ABX"

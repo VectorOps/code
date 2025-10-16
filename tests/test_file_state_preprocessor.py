@@ -1,10 +1,12 @@
 import pytest
 from pathlib import Path
+from vocode.models import Mode
 
 from vocode.testing import ProjectSandbox
 from vocode.runner.executors.llm.preprocessors.base import get_preprocessor
 from vocode.runner.executors import file_state as file_state_mod
 from vocode.models import PreprocessorSpec
+from vocode.state import Message
 
 
 @pytest.mark.asyncio
@@ -30,8 +32,10 @@ async def test_file_state_preprocessor_injects_tracked_files_on_first_run(
         assert pp is not None
 
         # First invocation: both files should be injected
-        spec = PreprocessorSpec(name="file_state", options={"prompt": "PROMPT"})
-        text = pp.func(project, spec, "")
+        spec = PreprocessorSpec(name="file_state", options={"prompt": "PROMPT"}, mode=Mode.System)
+        messages = [Message(text="", role="system")]
+        out_messages = pp.func(project, spec, messages)
+        text = out_messages[0].text
         assert "PROMPT" in text
         assert "File: src/a.py" in text
         assert "print('hi')" in text
@@ -58,19 +62,23 @@ async def test_file_state_preprocessor_skips_when_unchanged_and_includes_when_ch
         assert pp is not None
 
         # First call: inject both
-        spec = PreprocessorSpec(name="file_state", options={"prompt": "PROMPT"})
-        _ = pp.func(project, spec, "")
+        spec = PreprocessorSpec(name="file_state", options={"prompt": "PROMPT"}, mode=Mode.System)
+        messages = [Message(text="", role="system")]
+        _ = pp.func(project, spec, messages)
 
         # Second call with no changes: should return input unchanged (no injection)
         base = "BASE"
-        spec2 = PreprocessorSpec(name="file_state", options={"prompt": "PROMPT"})
-        out_no_change = pp.func(project, spec2, base)
-        assert out_no_change == base
+        messages_no_change = [Message(text=base, role="user")]
+        spec2 = PreprocessorSpec(name="file_state", options={"prompt": "PROMPT"}, mode=Mode.User)
+        out_messages_no_change = pp.func(project, spec2, messages_no_change)
+        assert out_messages_no_change[0].text == base
 
         # Modify one file; only that file should be injected on next call
         f1.write_text("print('changed')\n", encoding="utf-8")
-        spec3 = PreprocessorSpec(name="file_state", options={"prompt": "PROMPT"})
-        out_changed = pp.func(project, spec3, "")
+        messages_changed = [Message(text="", role="system")]
+        spec3 = PreprocessorSpec(name="file_state", options={"prompt": "PROMPT"}, mode=Mode.System)
+        out_messages_changed = pp.func(project, spec3, messages_changed)
+        out_changed = out_messages_changed[0].text
         assert "PROMPT" in out_changed
         assert "File: src/a.py" in out_changed
         assert "print('changed')" in out_changed
@@ -80,7 +88,9 @@ async def test_file_state_preprocessor_skips_when_unchanged_and_includes_when_ch
         # Removing a tracked file: it should no longer be considered for injection
         removed, skipped = ctx.remove(["src/a.py"])
         assert removed == 1
-        spec4 = PreprocessorSpec(name="file_state", options={"prompt": "PROMPT"})
-        again = pp.func(project, spec4, "")
-        # No tracked files changed or present now; nothing injected
-        assert again == ""
+        messages_again = [Message(text="", role="system")]
+        spec4 = PreprocessorSpec(name="file_state", options={"prompt": "PROMPT"}, mode=Mode.System)
+        out_messages_again = pp.func(project, spec4, messages_again)
+        again = out_messages_again[0].text
+        # No tracked files changed or present now; only the prompt should be there
+        assert again == "PROMPT"
