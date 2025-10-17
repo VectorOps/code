@@ -196,10 +196,18 @@ class ApplyPatchExecutor(Executor):
                 delete_fn=tracking_remove,
             )
             # Categorize by status
-            created = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Create])
-            updated_full = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Update])
-            updated_partial = sorted([f for f, s in statuses.items() if s == FileApplyStatus.PartialUpdate])
-            deleted = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Delete])
+            created = sorted(
+                [f for f, s in statuses.items() if s == FileApplyStatus.Create]
+            )
+            updated_full = sorted(
+                [f for f, s in statuses.items() if s == FileApplyStatus.Update]
+            )
+            updated_partial = sorted(
+                [f for f, s in statuses.items() if s == FileApplyStatus.PartialUpdate]
+            )
+            deleted = sorted(
+                [f for f, s in statuses.items() if s == FileApplyStatus.Delete]
+            )
 
             if errs:
                 # Determine what actually got applied (successful IO only)
@@ -208,13 +216,21 @@ class ApplyPatchExecutor(Executor):
 
                 # Intersect status categories with actually applied changes to remove ambiguity
                 applied_created = sorted([f for f in created if f in applied_files])
-                applied_updated_full = sorted([f for f in updated_full if f in applied_files])
-                applied_updated_partial = sorted([f for f in updated_partial if f in applied_files])
+                applied_updated_full = sorted(
+                    [f for f in updated_full if f in applied_files]
+                )
+                applied_updated_partial = sorted(
+                    [f for f in updated_partial if f in applied_files]
+                )
                 applied_deleted = sorted([f for f in deleted if f in applied_files])
 
                 # Files that had errors and did not result in any applied change
-                failed_files = sorted({e.filename for e in errs if getattr(e, "filename", None)})
-                not_applied_failed = sorted([f for f in failed_files if f not in applied_files])
+                failed_files = sorted(
+                    {e.filename for e in errs if getattr(e, "filename", None)}
+                )
+                not_applied_failed = sorted(
+                    [f for f in failed_files if f not in applied_files]
+                )
 
                 # Compose precise summary
                 lines: list[str] = []
@@ -240,11 +256,19 @@ class ApplyPatchExecutor(Executor):
                             lines.append(f"* {f}")
 
                 # Guidance: target regeneration for failed parts and files with no applied changes
-                targets_for_fix = sorted(set(applied_updated_partial) | set(not_applied_failed))
+                targets_for_fix = sorted(
+                    set(applied_updated_partial) | set(not_applied_failed)
+                )
                 if targets_for_fix:
-                    lines.append("Please regenerate patch chunks only for the failed parts in these files:")
+                    lines.append(
+                        "Please regenerate patch chunks for the failed parts in these files:"
+                    )
                     for f in targets_for_fix:
                         lines.append(f"* {f}")
+                    lines.append(
+                        "If there were other files that were not mentioned in"
+                        "this response and not successfully applied, regenerate chunks for them as well."
+                    )
 
                 # Append detailed error list with filename/line/hint
                 lines.append("Errors:")

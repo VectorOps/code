@@ -3,6 +3,7 @@ import contextlib
 import difflib
 import signal
 import sys
+import time
 from typing import Optional, Union
 import shutil
 from pathlib import Path
@@ -512,6 +513,8 @@ class TerminalApp:
                 print("Exception", traceback.format_exc())
 
     async def run(self) -> None:
+        start_time = time.monotonic()
+
         loop = asyncio.get_running_loop()
         loop.set_exception_handler(self._unhandled_exception_handler)
         # 1) Print banner first (no dependency on UI/session)
@@ -685,7 +688,12 @@ class TerminalApp:
         consumer_task = asyncio.create_task(self.event_consumer())
 
         # 3) Start project after UI is initialized.
+        await out("Starting project...")
+
         await self.project.start()
+
+        end_time = time.monotonic()
+        await out(f"Project started in {end_time - start_time:.2f}s.")
 
         try:
             while True:

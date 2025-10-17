@@ -20,6 +20,7 @@ system: |
   * Always prefer summaries; request a window only if a KQ blocks the brief.
   * After each tool result, try to advance or finish the brief. If sufficient, stop.
   * Never request “whole repo” reads or wide globs.
+  * If user mentions a file name and you can't find it, use glob-based search to find file in the repo. For example, `app.py` could be searched as `**/app.py`.
 
   ## Task Breakdown & File Discovery
   * Decompose the user ask into key areas:
