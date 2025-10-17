@@ -172,15 +172,19 @@ class UIState:
             self._drive_task = asyncio.create_task(self._drive_runner())
             self._stop_watcher_task = asyncio.create_task(self._watch_stop_signal())
 
-    async def stop(self) -> None:
+    async def stop(self, *, wait: bool = True) -> None:
         """
         Politely stop the runner (allowing it to be resumed later).
         """
         async with self._lock:
-            if self.runner is None:
+            drive_task = self._drive_task
+            if self.runner is None or drive_task is None:
                 return
             self._stop_signal.set()
             self.runner.stop()
+            if wait:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await drive_task
 
     async def cancel(self) -> None:
         """
@@ -227,6 +231,7 @@ class UIState:
             # Always instruct UI to reset when a runner restarts.
             await self._send_ui_reset()
             self._drive_task = asyncio.create_task(self._drive_runner())
+            self._stop_watcher_task = asyncio.create_task(self._watch_stop_signal())
 
     # ------------------------
     # Workflow helpers and accessors

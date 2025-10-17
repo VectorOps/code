@@ -800,14 +800,23 @@ class TerminalApp:
                         await self._update_toolbar_ticker()
                         continue
 
-                # No pending input and not a command: show contextual hints.
+                # No pending input and not a command.
+                if self.ui.status == RunnerStatus.stopped and text:
+                    # If stopped, treat this as a replacement for the last user input.
+                    await self.ui.replace_user_input(
+                        RespMessage(message=Message(role="user", text=text))
+                    )
+                    # await self.ui.restart()
+                    continue
+
+                # Show contextual hints otherwise.
                 if self.ui.is_active():
                     await out(
-                        "No input is currently requested. Press Ctrl+C to stop the run, then respond when prompted."
+                        "No input is currently requested. Press Ctrl+C to stop the run."
                     )
                 else:
                     await out(
-                        "No active run. Start a workflow with /run <workflow> or /use <workflow>. Type /workflows to list available workflows."
+                        "No active run. Start a workflow with /run <workflow> or /use <workflow>."
                     )
                 continue
         except (EOFError, KeyboardInterrupt):

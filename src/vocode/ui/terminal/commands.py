@@ -15,7 +15,9 @@ from prompt_toolkit.completion import Completion
 from vocode.state import RunnerStatus
 from vocode.ui.rpc import RpcHelper
 from vocode.ui.proto import (
-    UIPacketCompletionRequest, PACKET_COMPLETION_RESULT, UIPacketUIReload
+    UIPacketCompletionRequest,
+    PACKET_COMPLETION_RESULT,
+    UIPacketUIReload,
 )
 
 if TYPE_CHECKING:
@@ -90,7 +92,7 @@ class Commands:
             parts = list(lexer)
         except ValueError as e:
             # Unbalanced quotes or similar parsing error.
-            ctx.out(f"Parse error: {e}")
+            await ctx.out(f"Parse error: {e}")
             return True
 
         if not parts:
@@ -123,39 +125,39 @@ async def _workflows(ctx: CommandContext, args: List[str]) -> None:
         names = ctx.ui.list_workflows()
 
     if not names:
-        ctx.out("No workflows configured.")
+        await ctx.out("No workflows configured.")
         return
     for n in names:
-        ctx.out(f"- {n}")
+        await ctx.out(f"- {n}")
 
 
 async def _use(ctx: CommandContext, args: List[str]) -> None:
     if not args:
-        ctx.out("Usage: /use <workflow>")
+        await ctx.out("Usage: /use <workflow>")
         return
     name = args[0]
     try:
         await ctx.ui.use(name)
     except Exception as e:
-        ctx.out(f"Failed to start workflow '{name}': {e}")
+        await ctx.out(f"Failed to start workflow '{name}': {e}")
 
 
 async def _run(ctx: CommandContext, args: List[str]) -> None:
     if not args:
-        ctx.out("Usage: /run <workflow>")
+        await ctx.out("Usage: /run <workflow>")
         return
     name = args[0]
     try:
         await ctx.ui.use(name)
     except Exception as e:
-        ctx.out(f"Failed to run workflow '{name}': {e}")
+        await ctx.out(f"Failed to run workflow '{name}': {e}")
 
 
 async def _reset(ctx: CommandContext, args: List[str]) -> None:
     try:
         await ctx.ui.reset()
     except Exception as e:
-        ctx.out(f"Failed to reset: {e}")
+        await ctx.out(f"Failed to reset: {e}")
 
 
 async def _stop(ctx: CommandContext, args: List[str]) -> None:
@@ -170,31 +172,34 @@ async def _continue(ctx: CommandContext, args: List[str]) -> None:
     status = ctx.ui.status
     if status != RunnerStatus.stopped:
         if status == RunnerStatus.running:
-            ctx.out("Run is already in progress.")
+            await ctx.out("Run is already in progress.")
         elif status == RunnerStatus.waiting_input:
-            ctx.out("Runner is waiting for input.")
+            await ctx.out("Runner is waiting for input.")
         else:
-            ctx.out(f"Cannot continue when status is '{status.value}'. Try /reset.")
+            await ctx.out(
+                f"Cannot continue when status is '{status.value}'. Try /reset."
+            )
         return
     try:
         await ctx.ui.restart()
     except Exception as e:
-        ctx.out(f"Failed to continue: {e}")
+        await ctx.out(f"Failed to continue: {e}")
+
 
 async def _reload(ctx: CommandContext, args: List[str]) -> None:
     """
     Reload project configuration and restart UI/project state.
     To avoid accidental reloads, require an explicit confirmation argument.
     """
-    confirm = (args[0].strip().lower() if args else "")
+    confirm = args[0].strip().lower() if args else ""
     if confirm not in ("confirm", "yes", "y"):
-        ctx.out("This will reload the project. Run '/reload confirm' to proceed.")
+        await ctx.out("This will reload the project. Run '/reload confirm' to proceed.")
         return
     try:
         await ctx.rpc.call(UIPacketUIReload(), timeout=None)
-        ctx.out("Reloaded project.")
+        await ctx.out("Reloaded project.")
     except Exception as e:
-        ctx.out(f"Reload failed: {e}")
+        await ctx.out(f"Reload failed: {e}")
 
 
 def register_default_commands(
@@ -205,12 +210,12 @@ def register_default_commands(
     # Help must access the instance to list commands; define it in this scope.
     @commands.register("/help", "Show available commands")
     async def _help(ctx: CommandContext, args: List[str]) -> None:
-        ctx.out("Commands:")
+        await ctx.out("Commands:")
         for c in commands.list_commands():
             if c.usage:
-                ctx.out(f"  {c.name} {c.usage} - {c.help}")
+                await ctx.out(f"  {c.name} {c.usage} - {c.help}")
             else:
-                ctx.out(f"  {c.name} - {c.help}")
+                await ctx.out(f"  {c.name} - {c.help}")
 
     # Register the rest of the built-ins against this instance.
     commands.register("/workflows", "List available workflows")(_workflows)
