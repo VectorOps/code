@@ -139,6 +139,10 @@ class TerminalApp:
         self._op_message = None
         self._op_progress = None
         self._op_total = None
+        self.old_sigint = None
+        self.old_sigterm = None
+        self.old_sigusr2 = None
+        self.consumer_task: Optional[asyncio.Task] = None
 
     def _toolbar_should_animate(self) -> bool:
         """
@@ -218,6 +222,7 @@ class TerminalApp:
                 run_in_terminal(_dump)
             except Exception:
                 _dump()
+
         return kb
 
     def _unhandled_exception_handler(
@@ -228,6 +233,79 @@ class TerminalApp:
         msg = context.get("exception", context["message"])
         coro = out(f"\n--- Unhandled exception in event loop ---\n{msg}\n")
         asyncio.run_coroutine_threadsafe(coro, loop)
+
+    def _setup_signal_handlers(self) -> None:
+        try:
+            self.old_sigint = signal.getsignal(signal.SIGINT)
+            self.old_sigterm = signal.getsignal(signal.SIGTERM)
+            try:
+                self.old_sigusr2 = signal.getsignal(signal.SIGUSR2)  # type: ignore[attr-defined]
+            except Exception:
+                self.old_sigusr2 = None
+
+            def _sigint_handler(signum, frame):
+                # Suppress stacktrace dumps on Ctrl+C; just trigger a graceful stop/cancel.
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.call_soon_threadsafe(
+                        lambda: asyncio.create_task(self.stop_toggle())
+                    )
+                except RuntimeError:
+                    try:
+                        asyncio.create_task(self.stop_toggle())
+                    except Exception:
+                        pass
+
+            signal.signal(signal.SIGINT, _sigint_handler)
+
+            def _sigterm_handler(signum, frame):
+                try:
+                    self.request_exit()
+                finally:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.call_soon_threadsafe(
+                            lambda: asyncio.create_task(
+                                self.ui.cancel() if self.ui else asyncio.sleep(0)
+                            )
+                        )
+                    except RuntimeError:
+                        try:
+                            asyncio.create_task(
+                                self.ui.cancel() if self.ui else asyncio.sleep(0)
+                            )
+                        except Exception:
+                            pass
+
+            try:
+                SIGUSR2 = signal.SIGUSR2  # type: ignore[attr-defined]
+
+                def _sigusr2_handler(signum, frame):
+                    diagnostics.dump_all(loop=asyncio.get_running_loop())
+
+                signal.signal(SIGUSR2, _sigusr2_handler)
+            except Exception:
+                pass
+        except Exception:
+            self.old_sigint, self.old_sigterm, self.old_sigusr2 = None, None, None
+
+    async def _cleanup(self) -> None:
+        """Gracefully shut down the application."""
+        with contextlib.suppress(Exception):
+            if self.old_sigint:
+                signal.signal(signal.SIGINT, self.old_sigint)
+        with contextlib.suppress(Exception):
+            if self.old_sigterm:
+                signal.signal(signal.SIGTERM, self.old_sigterm)
+        await self._stop_toolbar_ticker()
+        if self.ui and self.ui.is_active():
+            await self.ui.stop()
+        if self.consumer_task:
+            self.consumer_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.consumer_task
+        with contextlib.suppress(Exception):
+            await self.project.shutdown()
 
     def _pending_run_event_payload(self) -> Optional[UIPacketRunEvent]:
         """
@@ -608,71 +686,7 @@ class TerminalApp:
         self.session = PromptSession(**kwargs)
         self.kb = self._create_key_bindings()
         self.should_exit = False
-        # Signal handlers
-        old_sigint = None
-        old_sigterm = None
-        old_sigusr2 = None
-        try:
-            old_sigint = signal.getsignal(signal.SIGINT)
-            old_sigterm = signal.getsignal(signal.SIGTERM)
-            try:
-                old_sigusr2 = signal.getsignal(signal.SIGUSR2)  # type: ignore[attr-defined]
-            except Exception:
-                old_sigusr2 = None
-
-            def _sigint_handler(signum, frame):
-                # Suppress stacktrace dumps on Ctrl+C; just trigger a graceful stop/cancel.
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.call_soon_threadsafe(
-                        lambda: asyncio.create_task(self.stop_toggle())
-                    )
-                except RuntimeError:
-                    try:
-                        asyncio.create_task(self.stop_toggle())
-                    except Exception:
-                        pass
-
-            signal.signal(signal.SIGINT, _sigint_handler)
-
-            def _sigterm_handler(signum, frame):
-                try:
-                    self.request_exit()
-                finally:
-                    try:
-                        loop = asyncio.get_running_loop()
-                        loop.call_soon_threadsafe(
-                            lambda: asyncio.create_task(
-                                self.ui.cancel() if self.ui else asyncio.sleep(0)
-                            )
-                        )
-                    except RuntimeError:
-                        try:
-                            asyncio.create_task(
-                                self.ui.cancel() if self.ui else asyncio.sleep(0)
-                            )
-                        except Exception:
-                            pass
-
-            try:
-                SIGUSR2 = signal.SIGUSR2  # type: ignore[attr-defined]
-
-                def _sigusr2_handler(signum, frame):
-                    # External trigger for diagnostics even if UI is stuck.
-                    try:
-                        loop = asyncio.get_running_loop()
-                    except RuntimeError:
-                        loop = None
-                    diagnostics.dump_all(loop=loop)
-
-                signal.signal(SIGUSR2, _sigusr2_handler)
-            except Exception:
-                pass
-            # signal.signal(signal.SIGTERM, _sigterm_handler)
-        except Exception:
-            old_sigint = None
-            old_sigterm = None
-            old_sigusr2 = None
+        self._setup_signal_handlers()
 
         # Commands
         ctx = CommandContext(
@@ -683,7 +697,7 @@ class TerminalApp:
             rpc=self.rpc,
         )
 
-        consumer_task = asyncio.create_task(self.event_consumer())
+        self.consumer_task = asyncio.create_task(self.event_consumer())
 
         # 3) Start project after UI is initialized.
         await out("Starting project...")
@@ -785,6 +799,7 @@ class TerminalApp:
                         self.pending_req_env = None
                         await self._update_toolbar_ticker()
                         continue
+
                 # No pending input and not a command: show contextual hints.
                 if self.ui.is_active():
                     await out(
@@ -799,17 +814,7 @@ class TerminalApp:
             pass
         finally:
             with contextlib.suppress(Exception):
-                signal.signal(signal.SIGINT, old_sigint)
-            with contextlib.suppress(Exception):
-                signal.signal(signal.SIGTERM, old_sigterm)
-            await self._stop_toolbar_ticker()
-            if self.ui.is_active():
-                await self.ui.stop()
-            consumer_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await consumer_task
-            with contextlib.suppress(Exception):
-                await self.project.shutdown()
+                await self._cleanup()
 
 
 async def run_terminal(project: Project) -> None:

@@ -266,8 +266,8 @@ class ApplyPatchExecutor(Executor):
                     for f in targets_for_fix:
                         lines.append(f"* {f}")
                     lines.append(
-                        "If there were other files that were not mentioned in"
-                        "this response and not successfully applied, regenerate chunks for them as well."
+                        "If there were other files that were not mentioned in "
+                        "this response, regenerate chunks for them as well."
                     )
 
                 # Append detailed error list with filename/line/hint

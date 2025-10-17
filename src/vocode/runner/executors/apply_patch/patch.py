@@ -39,12 +39,13 @@ Deletes: put entire current file in SEARCH; leave REPLACE empty.
 5. Use existing libs/patterns; keep imports/types/names consistent.
 6. SEARCH/REPLACE will only change first occurence.
 7. Keep changes small. Break larger changes into series of SEARCH/REPLACE blocks.
-8. You are allowed to emit multiple blocks per file, but blocks should not overlap.
+8. You are allowed to emit multiple blocks per file, but blocks should not overlap. Each block must have it's own fence.
 
 ## Self-check before emitting
 1. All planned changes covered?
 2. SEARCH sections exact? Imports/types/tests correct? Unrelated edits avoided?
 3. Are changes minimal? Whole files or whole functions are not included?
+4. Is there exactly one SEARCH/REPLACE per fenced block?
 """
 
 
