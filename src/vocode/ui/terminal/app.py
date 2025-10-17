@@ -192,6 +192,34 @@ class TerminalApp:
         except asyncio.CancelledError:
             pass
 
+    def _create_key_bindings(self) -> KeyBindings:
+        kb = KeyBindings()
+
+        @kb.add("c-c", eager=True)
+        def _kb_stop(event):
+            asyncio.create_task(self.stop_toggle())
+
+        @kb.add("c-g", eager=True)
+        def _kb_reset(event):
+            event.app.current_buffer.reset()
+
+        @kb.add("c-p", eager=True)
+        def _kb_dump(event):
+            # Run diagnostics in the terminal context to avoid corrupting the UI.
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            def _dump():
+                diagnostics.dump_all(loop=loop)
+
+            try:
+                run_in_terminal(_dump)
+            except Exception:
+                _dump()
+        return kb
+
     def _unhandled_exception_handler(
         self, loop: asyncio.AbstractEventLoop, context: dict
     ) -> None:
@@ -532,11 +560,8 @@ class TerminalApp:
                 ("class:banner.l2", banner_lines[1] + "\n"),
                 ("class:banner.l3", banner_lines[2] + "\n"),
                 ("", "\n"),
-                ("", "Type /help for commands.\n"),
             ]
             print_formatted_text(to_formatted_text(fragments), style=pt_style)
-        else:
-            await out("Type /help for commands.")
 
         # 2) Initialize UI
         self.ui = UIState(self.project)
@@ -581,35 +606,8 @@ class TerminalApp:
             pass  # History is optional
 
         self.session = PromptSession(**kwargs)
-        self.kb = KeyBindings()
+        self.kb = self._create_key_bindings()
         self.should_exit = False
-        # Key bindings
-        kb = self.kb
-
-        @kb.add("c-c", eager=True)
-        def _kb_stop(event):
-            asyncio.create_task(self.stop_toggle())
-
-        @kb.add("c-g", eager=True)
-        def _kb_reset(event):
-            event.app.current_buffer.reset()
-
-        @kb.add("c-p", eager=True)
-        def _kb_dump(event):
-            # Run diagnostics in the terminal context to avoid corrupting the UI.
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            def _dump():
-                diagnostics.dump_all(loop=loop)
-
-            try:
-                run_in_terminal(_dump)
-            except Exception:
-                _dump()
-
         # Signal handlers
         old_sigint = None
         old_sigterm = None
@@ -694,6 +692,8 @@ class TerminalApp:
 
         end_time = time.monotonic()
         await out(f"Project started in {end_time - start_time:.2f}s.")
+
+        await out("Type /help for commands.")
 
         try:
             while True:
