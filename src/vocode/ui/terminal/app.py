@@ -45,7 +45,6 @@ from vocode.ui.proto import (
     PACKET_CUSTOM_COMMANDS,
     PACKET_COMMAND_RESULT,
     PACKET_RUN_COMMAND,
-    UIPacketUIReload,
     PACKET_PROJECT_OP_START,
     PACKET_PROJECT_OP_PROGRESS,
     PACKET_PROJECT_OP_FINISH,
@@ -485,19 +484,22 @@ class TerminalApp:
                     await self.handle_custom_commands_packet(msg)
                     continue
                 if msg.kind == PACKET_PROJECT_OP_START:
-                    self._op_message = getattr(msg, "message", "")
+                    # await out(f"Starting: {msg.message}...")
+                    self._op_message = msg.message
                     self._op_progress = 0
                     self._op_total = None
                     if self.session:
                         self.session.app.invalidate()
                     continue
                 if msg.kind == PACKET_PROJECT_OP_PROGRESS:
-                    self._op_progress = getattr(msg, "progress", None)
-                    self._op_total = getattr(msg, "total", None)
+                    self._op_progress = msg.progress
+                    self._op_total = msg.total
                     if self.session:
                         self.session.app.invalidate()
                     continue
                 if msg.kind == PACKET_PROJECT_OP_FINISH:
+                    # await out(f"Completed: {self._op_message}.")
+
                     self._op_message = None
                     self._op_progress = None
                     self._op_total = None
@@ -512,13 +514,33 @@ class TerminalApp:
     async def run(self) -> None:
         loop = asyncio.get_running_loop()
         loop.set_exception_handler(self._unhandled_exception_handler)
-        await self.project.start()
+        # 1) Print banner first (no dependency on UI/session)
+        ui_cfg = self.project.settings.ui if self.project.settings else None
+        pt_style = styles.get_pt_style()
+        show_banner = True if ui_cfg is None else ui_cfg.show_banner
+        if show_banner:
+            banner_lines = [
+                r" _      ____  __   _____  ___   ___   ___   ___   __       __    ___   ___   ____ ",
+                r"\ \  / | |_  / /`   | |  / / \ | |_) / / \ | |_) ( (`     / /`  / / \ | | \ | |_  ",
+                r" \_\/  |_|__ \_\_,  |_|  \_\_/ |_| \ \_\_/ |_|   _)_)     \_\_, \_\_/ |_|_/ |_|__ ",
+            ]
+            fragments = [
+                ("class:banner.l1", banner_lines[0] + "\n"),
+                ("class:banner.l2", banner_lines[1] + "\n"),
+                ("class:banner.l3", banner_lines[2] + "\n"),
+                ("", "\n"),
+                ("", "Type /help for commands.\n"),
+            ]
+            print_formatted_text(to_formatted_text(fragments), style=pt_style)
+        else:
+            await out("Type /help for commands.")
+
+        # 2) Initialize UI
         self.ui = UIState(self.project)
         self.rpc = RpcHelper(
             self.ui.send, "TerminalApp", id_generator=self.ui.next_client_msg_id
         )
         ac_factory = lambda name: make_canned_provider(self.rpc, name)
-        ui_cfg = self.project.settings.ui if self.project.settings else None
         multiline = True if ui_cfg is None else bool(ui_cfg.multiline)
         editing_mode = None
         if ui_cfg and ui_cfg.edit_mode:
@@ -531,36 +553,13 @@ class TerminalApp:
             Commands(), self.ui, ac_factory=ac_factory
         )
 
-        # Add '/reload' here to access the PromptSession for confirmation
-        @self.commands.register("/reload", "Reload config and restart project state")
-        async def _reload_cmd(ctx: CommandContext, args: list[str]) -> None:
-            # Prompt for confirmation. Require 'yes' or 'y'.
-            try:
-                assert self.session is not None
-                ans = await self.session.prompt_async(
-                    "Reload configuration and restart project? Type 'yes' to confirm: "
-                )
-            except Exception:
-                ans = ""
-            if ans.strip().lower() not in ("yes", "y"):
-                await out("Reload cancelled.")
-                return
-            try:
-                # Flush any active streaming before reload
-                await self._flush_and_clear_stream()
-                assert self.rpc is not None
-                await self.rpc.call(UIPacketUIReload(), timeout=None)
-                await out("Reloaded project.")
-            except Exception as e:
-                await out(f"Reload failed: {e}")
-
         completer = TerminalCompleter(
             self.ui,
             self.commands,
             general_provider=make_general_filelist_provider(self.rpc),
         )
-
-        pt_style = styles.get_pt_style()
+        # pt_style already computed above and reused for the session
+        # (kept in variable pt_style)
         kwargs = {
             "multiline": multiline,
             "completer": completer,
@@ -683,32 +682,18 @@ class TerminalApp:
             rpc=self.rpc,
         )
 
-        # Banner
-        show_banner = True if ui_cfg is None else ui_cfg.show_banner
-        if show_banner:
-            banner_lines = [
-                r" _      ____  __   _____  ___   ___   ___   ___   __       __    ___   ___   ____ ",
-                r"\ \  / | |_  / /`   | |  / / \ | |_) / / \ | |_) ( (`     / /`  / / \ | | \ | |_  ",
-                r" \_\/  |_|__ \_\_,  |_|  \_\_/ |_| \ \_\_/ |_|   _)_)     \_\_, \_\_/ |_|_/ |_|__ ",
-            ]
-            fragments = [
-                ("class:banner.l1", banner_lines[0] + "\n"),
-                ("class:banner.l2", banner_lines[1] + "\n"),
-                ("class:banner.l3", banner_lines[2] + "\n"),
-                ("", "\n"),
-                ("", "Type /help for commands.\n"),
-            ]
-            print_formatted_text(to_formatted_text(fragments), style=pt_style)
-        else:
-            await out("Type /help for commands.")
-
         consumer_task = asyncio.create_task(self.event_consumer())
+
+        # 3) Start project after UI is initialized.
+        await self.project.start()
+
         try:
             while True:
                 # Pre-bind renderers; they compute the current pending payload at render time.
                 render_prompt = lambda: build_prompt(
                     self.ui, self._pending_run_event_payload()
                 )
+
                 def _render_toolbar():
                     base = build_toolbar(self.ui, self._pending_run_event_payload())
                     fr = list(to_formatted_text(base))
@@ -727,6 +712,7 @@ class TerminalApp:
                             ("class:system.text", f"{bar} {p}/{t} ({pct}%)"),
                         ]
                     return fr
+
                 render_toolbar = _render_toolbar
                 line = await self.session.prompt_async(
                     render_prompt,

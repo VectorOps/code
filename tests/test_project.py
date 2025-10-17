@@ -6,6 +6,7 @@ from typing import Any, Dict, Union, TYPE_CHECKING, Optional
 from vocode.project import init_project
 from vocode.tools import BaseTool, register_tool
 from .fakes import FakeMCPClient, make_fake_mcp_client_creator
+from vocode import project
 
 if TYPE_CHECKING:
     from vocode.project import Project
@@ -17,6 +18,22 @@ def _write_config(base: Path, content: str) -> Path:
     cfg_path = cfg_dir / "config.yaml"
     cfg_path.write_text(content, encoding="utf-8")
     return cfg_path
+
+class DummyKnow:
+    def start(self, *_args, **_kwargs):
+        return None
+
+    async def shutdown(self):
+        return None
+
+    async def refresh(self, repo=None, **_kwargs):
+        return None
+
+@pytest.fixture(autouse=True)
+def patch_know(monkeypatch):
+    # Prevent KnowProject from doing heavy initialization in tests.
+    monkeypatch.setattr(project, "KnowProject", lambda *args, **kwargs: DummyKnow())
+    yield
 
 
 def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeypatch):

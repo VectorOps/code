@@ -14,7 +14,9 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.completion import Completion
 from vocode.state import RunnerStatus
 from vocode.ui.rpc import RpcHelper
-from vocode.ui.proto import UIPacketCompletionRequest, PACKET_COMPLETION_RESULT
+from vocode.ui.proto import (
+    UIPacketCompletionRequest, PACKET_COMPLETION_RESULT, UIPacketUIReload
+)
 
 if TYPE_CHECKING:
     from vocode.ui.base import UIState
@@ -179,6 +181,21 @@ async def _continue(ctx: CommandContext, args: List[str]) -> None:
     except Exception as e:
         ctx.out(f"Failed to continue: {e}")
 
+async def _reload(ctx: CommandContext, args: List[str]) -> None:
+    """
+    Reload project configuration and restart UI/project state.
+    To avoid accidental reloads, require an explicit confirmation argument.
+    """
+    confirm = (args[0].strip().lower() if args else "")
+    if confirm not in ("confirm", "yes", "y"):
+        ctx.out("This will reload the project. Run '/reload confirm' to proceed.")
+        return
+    try:
+        await ctx.rpc.call(UIPacketUIReload(), timeout=None)
+        ctx.out("Reloaded project.")
+    except Exception as e:
+        ctx.out(f"Reload failed: {e}")
+
 
 def register_default_commands(
     commands: Commands,
@@ -206,6 +223,11 @@ def register_default_commands(
     commands.register("/continue", "Continue execution if the runner is stopped")(
         _continue
     )
+    commands.register(
+        "/reload",
+        "Reload config and restart project state",
+        "[confirm]",
+    )(_reload)
 
     commands.register(
         "/run",

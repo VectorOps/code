@@ -19,16 +19,11 @@ system: |
   * If within a tool call budget, get related files - imports, dependencies, etc.
   * Always prefer summaries; request a window only if a KQ blocks the brief.
   * After each tool result, try to advance or finish the brief. If sufficient, stop.
-  * Avoid near-duplicate files (same cluster/package).
   * Never request “whole repo” reads or wide globs.
 
   ## Task Breakdown & File Discovery
   * Decompose the user ask into key areas:
     - Core functionality
-    - Supporting logic / utilities
-    - Data models / schemas
-    - Integrations / interfaces
-    - Config / settings
     - Tests / validation
   * Request relevant files per area, within tool limits:
     - Prefer search over summary over related deps.

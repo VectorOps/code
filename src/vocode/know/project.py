@@ -1,4 +1,5 @@
-from typing import Optional
+import asyncio
+from typing import Any, Callable, Optional
 
 from know import init_project as know_init_project
 from know.models import Repo
@@ -6,6 +7,12 @@ from know.project import ProjectManager as KnowProjectManager
 from know.settings import ProjectSettings as KnowProjectSettings
 
 from ..lib.threads import RpcThread
+from ..proto import (
+    Packet,
+    PacketProjectOpFinish,
+    PacketProjectOpProgress,
+    PacketProjectOpStart,
+)
 
 
 know_thread = RpcThread(name="know-project")
@@ -18,7 +25,8 @@ class KnowProject:
 
     def _init(self, settings: KnowProjectSettings) -> None:
         """This runs on the RpcThread and initializes the ProjectManager."""
-        self.pm = know_init_project(settings)
+        # Initialize without triggering an automatic refresh; refresh is handled by Project.start()
+        self.pm = know_init_project(settings, refresh=False)
 
     def start(self, settings: KnowProjectSettings) -> None:
         """
@@ -42,14 +50,60 @@ class KnowProject:
         """Direct, thread-safe access to the data repository."""
         return self.pm.data
 
-    async def refresh(self, repo: Optional[Repo] = None) -> None:
-        """Asynchronously refresh a repository."""
-        await know_thread.async_proxy()(self.pm.refresh)(repo)
+    async def _report_op(
+        self,
+        op_func: Callable,
+        op_name: str,
+        progress_sender: Optional[Callable[[Packet], Any]] = None,
+        progress_supported: bool = False,
+        **kwargs,
+    ):
+        """Generic wrapper to report operation start, progress, and finish."""
+        if progress_sender:
+            await progress_sender(PacketProjectOpStart(message=op_name))
+            if progress_supported:
+                loop = asyncio.get_running_loop()
 
-    async def refresh_all(self) -> None:
+                def progress_callback(progress):
+                    packet = PacketProjectOpProgress(
+                        progress=progress.processed_files, total=progress.total_files
+                    )
+                    asyncio.run_coroutine_threadsafe(progress_sender(packet), loop)
+
+                kwargs["progress_callback"] = progress_callback
+
+        try:
+            await know_thread.async_proxy()(op_func)(**kwargs)
+        finally:
+            if progress_sender:
+                await progress_sender(PacketProjectOpFinish())
+
+    async def refresh(
+        self,
+        repo: Optional[Repo] = None,
+        progress_sender: Optional[Callable[[Packet], Any]] = None,
+    ) -> None:
+        """Asynchronously refresh a repository with optional progress reporting."""
+        await self._report_op(
+            self.pm.refresh,
+            "Refreshing project",
+            progress_sender,
+            progress_supported=True,
+            repo=repo,
+        )
+
+    async def refresh_all(
+        self, progress_sender: Optional[Callable[[Packet], Any]] = None
+    ) -> None:
         """Asynchronously refresh all repositories."""
-        await know_thread.async_proxy()(self.pm.refresh_all)()
+        await self._report_op(
+            self.pm.refresh_all, "Refreshing all projects", progress_sender
+        )
 
-    async def maybe_refresh(self) -> None:
+    async def maybe_refresh(
+        self, progress_sender: Optional[Callable[[Packet], Any]] = None
+    ) -> None:
         """Asynchronously refresh if cooldown has passed."""
-        await know_thread.async_proxy()(self.pm.maybe_refresh)()
+        await self._report_op(
+            self.pm.maybe_refresh, "Checking for project refresh", progress_sender
+        )

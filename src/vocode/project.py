@@ -123,12 +123,7 @@ class Project:
         Note: The 'files' parameter is currently ignored since the 'know' backend
         does not support partial refresh yet.
         """
-        # Emit start/finish operation packets so UIs can show progress indicators.
-        await self.send_message(PacketProjectOpStart(message="Refreshing project"))
-        try:
-            await self.know.refresh(repo)
-        finally:
-            await self.send_message(PacketProjectOpFinish())
+        await self.know.refresh(repo, progress_sender=self.send_message)
 
     # Messaging protocol
     async def message_generator(self):
@@ -203,6 +198,8 @@ class Project:
                 default_cwd=self.base_path,
                 env_policy=env_policy,
             )
+        # Perform an initial refresh of the 'know' project on start
+        await self.refresh()
 
 
 def _find_project_root_with_config(start: Path, rel_config: Path) -> Optional[Path]:
