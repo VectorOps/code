@@ -1,6 +1,7 @@
 #+title: Code TODO
 * [ ] Cleanup and optimizations
 ** [X] Autocompleters needs consts at model level
+* [ ] Documentation
 * [ ] Preprocessors
 ** [X] Add user prompt preprocessor (instead of just system prompt) through configuration
 ** [X] Add prefix variant of preprocessor to enable caching.
@@ -11,7 +12,7 @@
 ** [ ] Add a way to restrict number of loops when cycling
 ** [X] Stopping executor with ctrl+c during input and then starting it with /use does not stop at input, but retries last input node - verify
 * [ ] Configuration
-** [ ] Add human-readable names to nodes
+** [X] Add human-readable names to nodes
 ** [ ] Update templates and parametrize them via variables
 ** [ ] Figure out why confirmation override for discovery did not work
 ** [ ] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
@@ -30,30 +31,17 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [X] UI protocol
 ** [ ] Add syntax name hint to apply formatting
 * [ ] Terminal UI
-** [ ] Node transitions are printed out of order:
-*** Running apply
-**** Running test
-Applied patch successfully.
-Fully updated files:
-**** src/vocode/runner/executors/fileread.py
-** [ ] Fix await
---- Unhandled exception in event loop ---
-Unclosed client session
-
-/Users/serge/work/code/src/vocode/ui/terminal/helpers.py:32: RuntimeWarning: coroutine 'run_in_terminal.<locals>.run' was never awaited
-
---- Unhandled exception in event loop ---
-Unclosed connector
-
+** [X] Node transitions are printed out of order:
+** [X] Fix await
 ** [X] Always show prompt. Add commands to stop/continue workflows
 ** [X] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
 ** [X] Streaming printing is broken with permanent toolbar visibility
-** [ ] When prompt is requested, sometimes toolbar status is not updated
+** [X] When prompt is requested, sometimes toolbar status is not updated
 ** [ ] Disable know warnings, they mess up UI output
 ** [ ] Animation does not always start after providing feedback message back to Node
 ** [X] When LLM is waiting for response, need to show visual feedback to user
 ** [X] Summarize tool calls for known tools. Create templates for tool calling that map parameters
-** [ ] Ability to snoop into tool call details if needed, collapsed by default
+** [X] Ability to snoop into tool call details if needed, collapsed by default
 ** [ ] Better multi-line inputs, don't require esc+enter to send
 ** [ ] Show how long individual steps took, in seconds
 ** [X] Continue after stopping shows prompt second time
@@ -93,8 +81,8 @@ Unclosed connector
 **** [X] Add support for multiple patch blocks or provide better instructions
 **** [X] Better error instructions when blocks overlap
 **** [X] Allow same file to be mentioned multiple times?
-*** [ ] Patch format
-**** [ ] Fix error reporting when block can not be found
+*** [X] Patch format
+**** [X] Fix error reporting when block can not be found
 *** [ ] Unified Diff format
 * [ ] Nodes
 ** [ ] Add a node that injects files in context. Add file manager.
@@ -113,6 +101,11 @@ Unclosed connector
 *** [ ] Add stats for the number of tokens in the context and context window limits
 *** [ ] Figure out why pricing estimates are all zeroes
 *** [X] Add a way to append text to default system prompt
+*** [ ] Fix hallucinated tool calls and immediately return an error:
+| vectorops_read_-files(...)
+{
+  "path": "src/vocode/ui/proto.py"
+}
 ** [ ] Create RepoMap node - call into Know with provided prompt
 ** [X] Create documentation node - read AGENT.md files for all paths that are mentioned in previous messages.
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool

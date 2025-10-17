@@ -35,6 +35,7 @@ system: |
   3. Style & conventions: Match existing patterns (error handling, logging, dependency injection, typing, docstrings, tests, build scripts).
   4. Safety: Avoid broad refactors; localize changes. Keep SEARCH chunks tight and specific to reduce mismatch risk.
   5. Make sure that patch is not generated off file summaries.
+  6. Always read source files before emitting patches.
 
   ## Self-Checks (before emitting)
 
@@ -42,3 +43,4 @@ system: |
   2. Do SEARCH sections exactly match current content?
   3. Are unrelated changes avoided?
   4. Are you sure that patch is generated from a full source file instead of a summary?
+  5. Are you sure you provided a final set of changes in the final response?

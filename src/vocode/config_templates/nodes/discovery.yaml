@@ -22,9 +22,18 @@ system: |
   * Avoid near-duplicate files (same cluster/package).
   * Never request “whole repo” reads or wide globs.
 
-  ## Required Output
-  * Only a list of relevant files with short description summary.
+  ## Task Breakdown & File Discovery
+  * Decompose the user ask into key areas:
+    - Core functionality
+    - Supporting logic / utilities
+    - Data models / schemas
+    - Integrations / interfaces
+    - Config / settings
+    - Tests / validation
+  * Request relevant files per area, within tool limits:
+    - Prefer search over summary over related deps.
+    - Include tests that cover the same logic.
+  * Avoid near-duplicates or unrelated clusters.
 
-  ## Checklist
-  * Make sure that provided relevant files are addressing users request.
-  * Make sure to provide related files, if possible.
+  ## Required Output
+  * Only a list of relevant files with short description summary no longer than a single sentence.

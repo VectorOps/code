@@ -15,6 +15,9 @@ PACKET_ACK = "ack"
 PACKET_COMPLETION_REQUEST = "completion_request"
 PACKET_COMPLETION_RESULT = "completion_result"
 PACKET_UI_RELOAD = "ui_reload"
+PACKET_PROJECT_OP_START = "project_op_start"
+PACKET_PROJECT_OP_PROGRESS = "project_op_progress"
+PACKET_PROJECT_OP_FINISH = "project_op_finish"
 
 
 class UIPacketRunEvent(BaseModel):
@@ -88,6 +91,18 @@ class UIPacketAck(BaseModel):
 class UIPacketUIReload(BaseModel):
     kind: Literal["ui_reload"] = PACKET_UI_RELOAD
 
+class UIPacketProjectOpStart(BaseModel):
+    kind: Literal["project_op_start"] = PACKET_PROJECT_OP_START
+    message: str
+
+class UIPacketProjectOpProgress(BaseModel):
+    kind: Literal["project_op_progress"] = PACKET_PROJECT_OP_PROGRESS
+    progress: int
+    total: int
+
+class UIPacketProjectOpFinish(BaseModel):
+    kind: Literal["project_op_finish"] = PACKET_PROJECT_OP_FINISH
+
 
 UIPacket = Annotated[
     Union[
@@ -102,6 +117,9 @@ UIPacket = Annotated[
         UIPacketCommandResult,
         UIPacketAck,
         UIPacketUIReload,
+        UIPacketProjectOpStart,
+        UIPacketProjectOpProgress,
+        UIPacketProjectOpFinish,
     ],
     Field(discriminator="kind"),
 ]

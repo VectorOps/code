@@ -36,6 +36,12 @@ from .proto import (
     PACKET_COMPLETION_REQUEST,
     PACKET_COMPLETION_RESULT,
     PACKET_UI_RELOAD,
+    PACKET_PROJECT_OP_START,
+    PACKET_PROJECT_OP_PROGRESS,
+    PACKET_PROJECT_OP_FINISH,
+    UIPacketProjectOpStart,
+    UIPacketProjectOpProgress,
+    UIPacketProjectOpFinish,
 )
 from .rpc import RpcHelper
 
@@ -87,6 +93,8 @@ class UIState:
         # Start background tasks for command deltas and incoming packet routing
         self._cmd_events_task = asyncio.create_task(self._forward_command_events())
         self._incoming_router_task = asyncio.create_task(self._route_incoming_packets())
+        # Subscribe to project messages and forward to UI
+        self._project_messages_task = asyncio.create_task(self._forward_project_messages())
 
     def _next_msg_id(self) -> int:
         self._msg_counter += 1
@@ -550,6 +558,40 @@ class UIState:
         except Exception as e:
             logger.exception("UIState: incoming packet router failed: %s", e)
 
+    async def _forward_project_messages(self) -> None:
+        try:
+            async for p in self.project.message_generator():
+                try:
+                    if p.kind == PACKET_PROJECT_OP_START:
+                        await self._outgoing.put(
+                            UIPacketEnvelope(
+                                msg_id=self._next_msg_id(),
+                                payload=UIPacketProjectOpStart(message=p.message),
+                            )
+                        )
+                    elif p.kind == PACKET_PROJECT_OP_PROGRESS:
+                        await self._outgoing.put(
+                            UIPacketEnvelope(
+                                msg_id=self._next_msg_id(),
+                                payload=UIPacketProjectOpProgress(
+                                    progress=p.progress,
+                                    total=p.total,
+                                ),
+                            )
+                        )
+                    elif p.kind == PACKET_PROJECT_OP_FINISH:
+                        await self._outgoing.put(
+                            UIPacketEnvelope(
+                                msg_id=self._next_msg_id(),
+                                payload=UIPacketProjectOpFinish(),
+                            )
+                        )
+                except AttributeError:
+                    logger.warning("UIState: ignoring malformed project message: %r", p)
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.exception("UIState: project message forwarder failed: %s", e)
     async def _handle_run_command(self, envelope: UIPacketEnvelope) -> None:
         from vocode.commands import CommandContext as ExecCommandContext
 

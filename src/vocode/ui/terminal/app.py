@@ -46,6 +46,9 @@ from vocode.ui.proto import (
     PACKET_COMMAND_RESULT,
     PACKET_RUN_COMMAND,
     UIPacketUIReload,
+    PACKET_PROJECT_OP_START,
+    PACKET_PROJECT_OP_PROGRESS,
+    PACKET_PROJECT_OP_FINISH,
 )
 from vocode.ui.rpc import RpcHelper
 from vocode.runner.models import (
@@ -132,6 +135,10 @@ class TerminalApp:
         self.stream_throttler: Optional[StreamThrottler] = None
         self.last_streamed_text: Optional[str] = None
         self._toolbar_ticker_task: Optional[asyncio.Task] = None
+        # Project op progress state for toolbar
+        self._op_message = None
+        self._op_progress = None
+        self._op_total = None
 
     def _toolbar_should_animate(self) -> bool:
         """
@@ -477,6 +484,26 @@ class TerminalApp:
                 if msg.kind == PACKET_CUSTOM_COMMANDS:
                     await self.handle_custom_commands_packet(msg)
                     continue
+                if msg.kind == PACKET_PROJECT_OP_START:
+                    self._op_message = getattr(msg, "message", "")
+                    self._op_progress = 0
+                    self._op_total = None
+                    if self.session:
+                        self.session.app.invalidate()
+                    continue
+                if msg.kind == PACKET_PROJECT_OP_PROGRESS:
+                    self._op_progress = getattr(msg, "progress", None)
+                    self._op_total = getattr(msg, "total", None)
+                    if self.session:
+                        self.session.app.invalidate()
+                    continue
+                if msg.kind == PACKET_PROJECT_OP_FINISH:
+                    self._op_message = None
+                    self._op_progress = None
+                    self._op_total = None
+                    if self.session:
+                        self.session.app.invalidate()
+                    continue
             except Exception:
                 import traceback
 
@@ -682,9 +709,25 @@ class TerminalApp:
                 render_prompt = lambda: build_prompt(
                     self.ui, self._pending_run_event_payload()
                 )
-                render_toolbar = lambda: build_toolbar(
-                    self.ui, self._pending_run_event_payload()
-                )
+                def _render_toolbar():
+                    base = build_toolbar(self.ui, self._pending_run_event_payload())
+                    fr = list(to_formatted_text(base))
+                    if self._op_message is not None:
+                        # Compose a simple progress display in the toolbar
+                        p = int(self._op_progress or 0)
+                        t = int(self._op_total or 0)
+                        pct = int((p * 100 / t)) if t else 0
+                        bar_width = 20
+                        filled = int(bar_width * (p / t)) if t else 0
+                        filled = max(0, min(bar_width, filled))
+                        bar = "[" + "#" * filled + "-" * (bar_width - filled) + "]"
+                        fr += [
+                            ("", "  |  "),
+                            ("class:system.text", f"{self._op_message} "),
+                            ("class:system.text", f"{bar} {p}/{t} ({pct}%)"),
+                        ]
+                    return fr
+                render_toolbar = _render_toolbar
                 line = await self.session.prompt_async(
                     render_prompt,
                     key_bindings=self.kb,

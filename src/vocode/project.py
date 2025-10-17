@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional, Union, Dict, Any, TYPE_CHECKING, List
 from enum import Enum
 from pydantic import BaseModel
+from asyncio import Queue
 
 if TYPE_CHECKING:
     from .tools import BaseTool
@@ -18,6 +19,7 @@ from vocode.commands import CommandManager
 from .mcp.manager import MCPManager
 from .proc.manager import ProcessManager
 from .proc.base import EnvPolicy
+from .proto import Packet, PacketProjectOpStart, PacketProjectOpFinish
 
 
 class ProjectState:
@@ -77,6 +79,8 @@ class Project:
         self.llm_usage: TokenUsageTotals = TokenUsageTotals()
         # Process manager
         self.processes: Optional[ProcessManager] = None
+        # Message queue
+        self._queue = Queue()
 
     @property
     def config_path(self) -> Path:
@@ -119,7 +123,21 @@ class Project:
         Note: The 'files' parameter is currently ignored since the 'know' backend
         does not support partial refresh yet.
         """
-        await self.know.refresh(repo)
+        # Emit start/finish operation packets so UIs can show progress indicators.
+        await self.send_message(PacketProjectOpStart(message="Refreshing project"))
+        try:
+            await self.know.refresh(repo)
+        finally:
+            await self.send_message(PacketProjectOpFinish())
+
+    # Messaging protocol
+    async def message_generator(self):
+        while True:
+            packet = await self._queue.get()
+            yield packet
+
+    async def send_message(self, pack: Packet):
+        await self._queue.put(pack)
 
     # ---------------
     # LLM usage totals
