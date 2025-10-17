@@ -132,7 +132,7 @@ workflows:
       - apply.fail -> coder:keep_state
       - test.success -> prompt
       - test.fail -> architect:keep_state
-  # Aider-like explicit coder loop
+  # Ask
   ask:
     nodes:
       - name: prompt
@@ -168,13 +168,19 @@ workflows:
         type: debug
         outcomes:
           - name: done
+      - name: pause2
+        type: noop
+        sleep_seconds: 5
+        outcomes:
+          - name: done
       - name: done
         type: noop
         confirmation: auto
     edges:
       - prompt.done -> pause
       - pause.done -> debug
-      - debug.done -> done
+      - debug.done -> pause2
+      - pause2.done -> done
   patcher:
     nodes:
       - name: prompt

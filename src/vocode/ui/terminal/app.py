@@ -806,7 +806,7 @@ class TerminalApp:
                     await self.ui.replace_user_input(
                         RespMessage(message=Message(role="user", text=text))
                     )
-                    # await self.ui.restart()
+                    await self.ui.restart()
                     continue
 
                 # Show contextual hints otherwise.
