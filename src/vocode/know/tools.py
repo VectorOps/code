@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Optional, TYPE_CHECKING, Union
 from pydantic import BaseModel
 
@@ -33,7 +34,7 @@ class _KnowToolWrapper(BaseTool):
             return await know_thread.async_proxy()(do_execute)()
         except Exception as e:
             # Return a structured error instead of propagating.
-            return {"error": f"Know tool '{self.name}' failed: {e}"}
+            return json.dumps({"error": f"Know tool '{self.name}' failed: {e}"})
 
 
 _know_tools_registered = False

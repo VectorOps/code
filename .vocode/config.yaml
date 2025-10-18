@@ -235,6 +235,10 @@ workflows:
         type: llm
         model: ${LLM_ARCHITECT_MODEL}
         reset_policy: keep_state
+        tools:
+          - vectorops_summarize_files
+          - vectorops_read_files
+          - vectorops_search
         outcomes:
           - name: done
     edges:

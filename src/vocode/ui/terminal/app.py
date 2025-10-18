@@ -846,11 +846,6 @@ async def run_terminal(project: Project) -> None:
     "project_path", type=click.Path(exists=True, file_okay=False, path_type=str)
 )
 def main(project_path: str) -> None:
-    project = Project.from_base_path(project_path)
-    asyncio.run(run_terminal(project))
-
-
-if __name__ == "__main__":
     import faulthandler, signal, sys, warnings, logging
 
     faulthandler.enable(sys.stderr)  # or just faulthandler.enable()
@@ -867,4 +862,10 @@ if __name__ == "__main__":
     warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince20)
     warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 
+    # Start project
+    project = Project.from_base_path(project_path)
+    asyncio.run(run_terminal(project))
+
+
+if __name__ == "__main__":
     main()

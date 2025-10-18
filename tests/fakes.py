@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Callable, Awaitable
 
@@ -11,9 +12,7 @@ class FakeMCPClient:
     def __init__(
         self,
         tools: Optional[List[Dict[str, Any]]] = None,
-        call_handler: Optional[
-            Callable[[str, Dict[str, Any]], Awaitable[Any]]
-        ] = None,
+        call_handler: Optional[Callable[[str, Dict[str, Any]], Awaitable[Any]]] = None,
     ):
         self._tools_data = tools or []
         self._call_handler = call_handler or self._default_call_handler
@@ -34,11 +33,11 @@ class FakeMCPClient:
         result_data = await self._call_handler(name, arguments)
         return SimpleNamespace(data=result_data)
 
-    async def _default_call_handler(self, name: str, arguments: Dict[str, Any]) -> Any:
+    async def _default_call_handler(self, name: str, arguments: Dict[str, Any]) -> str:
         # A simple default behavior for echo-like tools
         if "echo" in name:
             return arguments.get("text", "")
-        return {"error": "unhandled in fake"}
+        return json.dumps({"error": "unhandled in fake"})
 
 
 def make_fake_mcp_client_creator(client_instance: FakeMCPClient) -> callable:

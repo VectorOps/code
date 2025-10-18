@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import json
 from pathlib import Path
 from vocode.testing import ProjectSandbox
 from vocode.models import Graph, Node, Edge, OutcomeSlot, Workflow
@@ -55,7 +56,12 @@ async def asend_wrap(it, payload):
 async def test_skip_node_bypass_single_outcome(tmp_path: Path):
     # Graph: Skip(S, skip=True) -> A
     nodes = [
-        {"name": "S", "type": "skip_type", "outcomes": [OutcomeSlot(name="toA")], "skip": True},
+        {
+            "name": "S",
+            "type": "skip_type",
+            "outcomes": [OutcomeSlot(name="toA")],
+            "skip": True,
+        },
         {"name": "A", "type": "a", "outcomes": []},
     ]
     edges = [Edge(source_node="S", source_outcome="toA", target_node="A")]
@@ -64,12 +70,14 @@ async def test_skip_node_bypass_single_outcome(tmp_path: Path):
 
     class SkipExec(Executor):
         type = "skip_type"
+
         # Should never run
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "SHOULD_NOT_RUN")), None)
 
     class AExec(Executor):
         type = "a"
+
         async def run(self, inp):
             # Initial message should pass through unchanged
             assert [m.text for m in inp.messages] == ["hello"]
@@ -102,6 +110,7 @@ async def test_skip_node_only_finishes_immediately(tmp_path: Path):
 
     class SkipOnlyExec(Executor):
         type = "skip_only"
+
         async def run(self, inp):
             yield (ReqFinalMessage(message=msg("agent", "SHOULD_NOT_RUN")), None)
 
@@ -1051,6 +1060,7 @@ async def test_rewind_within_step_and_resume(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_tool_call_approved_and_rejected(tmp_path: Path):
     import json
+
     nodes = [{"name": "Tool", "type": "tool", "outcomes": []}]
     g = Graph(nodes=nodes, edges=[])
     workflow = Workflow(name="workflow", graph=g)
@@ -1942,7 +1952,7 @@ async def test_mcp_tool_invocation_and_cleanup(tmp_path: Path, monkeypatch):
     async def custom_call_handler(name: str, arguments: Dict[str, Any]):
         if name == "mcp_echo":
             return f"echo:{arguments.get('text','')}"
-        return {"error": "unknown"}
+        return json.dumps({"error": "unknown"})
 
     fake_client = FakeMCPClient(
         tools=[
@@ -2031,6 +2041,7 @@ tools:
 
 class StopExecutor(Executor):
     type = "stop_test"
+
     async def run(self, inp):
         # Request stop immediately
         yield (ReqStop(reason="executor requested stop"), None)

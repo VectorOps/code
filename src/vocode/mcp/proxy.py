@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from ..tools import BaseTool
@@ -32,7 +33,7 @@ class MCPToolProxy(BaseTool):
             or {"type": "object", "properties": {}},
         }
 
-    async def run(self, project: "Project", args: Any) -> Any:
+    async def run(self, project: "Project", args: Any) -> str:
         """
         Accept parsed arguments (typically a dict) and forward to MCP manager.
         Falls back to empty dict for unsupported types/None.
@@ -44,4 +45,4 @@ class MCPToolProxy(BaseTool):
             return result.data
         except Exception as e:
             # Return a structured error instead of propagating.
-            return {"error": f"MCP tool '{self.name}' failed: {e}"}
+            return json.dumps({"error": f"MCP tool '{self.name}' failed: {e}"})
