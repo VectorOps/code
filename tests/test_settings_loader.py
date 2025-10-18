@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 from pydantic import ValidationError
 
-from vocode.settings import load_settings
+from vocode.settings_loader import load_settings
 from vocode.runner.executors.llm import LLMNode
 
 
@@ -415,8 +415,6 @@ $include: ../outside.yml
     )
     with pytest.raises(ValueError, match=r"may not contain '\.\.'"):
         _ = load_settings(str(root))
-
-
 
 
 def test_edge_alternative_string_syntax(tmp_path: Path):

@@ -12,7 +12,8 @@ from .know import KnowProject
 from .scm.git import GitSCM
 from .know.tools import register_know_tools
 from .tools import get_all_tools
-from .settings import KnowProjectSettings, Settings, load_settings
+from .settings import KnowProjectSettings, Settings
+from .settings_loader import load_settings
 from .templates import write_default_config
 from vocode.runner.models import TokenUsageTotals
 from vocode.commands import CommandManager

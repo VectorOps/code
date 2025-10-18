@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .project import Project
-from .settings import Settings, KnowProjectSettings, load_settings
+from .settings import Settings, KnowProjectSettings
+from .settings_loader import load_settings
 from .know import KnowProject
 from .know.tools import register_know_tools
 from .tools import get_all_tools

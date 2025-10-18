@@ -1,7 +1,7 @@
 import asyncio
 from typing import Optional, TYPE_CHECKING, List, Union, Any, Dict
 import contextlib
-from vocode.settings import build_model_from_settings
+from vocode.settings_loader import build_model_from_settings
 
 from vocode.logger import logger
 from vocode.runner.runner import Runner
@@ -94,7 +94,9 @@ class UIState:
         self._cmd_events_task = asyncio.create_task(self._forward_command_events())
         self._incoming_router_task = asyncio.create_task(self._route_incoming_packets())
         # Subscribe to project messages and forward to UI
-        self._project_messages_task = asyncio.create_task(self._forward_project_messages())
+        self._project_messages_task = asyncio.create_task(
+            self._forward_project_messages()
+        )
 
     def _next_msg_id(self) -> int:
         self._msg_counter += 1
@@ -597,6 +599,7 @@ class UIState:
             return
         except Exception as e:
             logger.exception("UIState: project message forwarder failed: %s", e)
+
     async def _handle_run_command(self, envelope: UIPacketEnvelope) -> None:
         from vocode.commands import CommandContext as ExecCommandContext
 

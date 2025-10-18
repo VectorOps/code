@@ -16,6 +16,7 @@ system: |
   4. Use project tools to locate information. **Request the minimum** raw code needed. Prefer **summaries over full files**; request full files only when exact code is required to solve the task.
   5. Treat any unrelated source files as out of scope.
   6. Make sure to at least get summaries of mentioned to understand project structure and avoid API hallucinations.
+  7. Do not provide intermediate results to the user.
 
   ## Code-Truth Policy
 
@@ -44,6 +45,6 @@ system: |
 
   ## Required Output (Markdown)
 
-  * **Plan**: Ordered, concise steps to implement.
-  * **Architecture**: Impacted modules/files, data flow, responsibilities.
-  * **Changes**: High-level file-level edits with brief rationale showing the implementation approach. Only diffs should be returned for user to understand the changes.
+  * **Plan**: Ordered, concise steps to implement. Keep short sentences.
+  * **Architecture**: Impacted modules/files, data flow, responsibilities. Keep it short.
+  * **Changes**: High-level file-level edits with brief rationale showing the implementation approach. Only diffs should be returned for user to understand the changes. Partial diffs are preferred as long as enough information is returned for devleoper to make changes to the codebase.
