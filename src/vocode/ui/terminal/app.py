@@ -827,6 +827,8 @@ class TerminalApp:
 
 
 async def run_terminal(project: Project) -> None:
+    import logging
+
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
     asyncio.get_event_loop().set_debug(True)
     asyncio.get_event_loop().slow_callback_duration = 0.05

@@ -162,27 +162,6 @@ class LLMExecutor(Executor):
             )
         return "Choose the appropriate outcome."
 
-    def _estimate_text_tokens(self, text: str, model: str) -> int:
-        try:
-            import tiktoken  # type: ignore
-
-            try:
-                enc = tiktoken.encoding_for_model(model)
-            except Exception:
-                enc = tiktoken.get_encoding("cl100k_base")
-            return len(enc.encode(text or ""))
-        except Exception:
-            # Fallback heuristic: ~4 chars per token
-            return max(1, int(len(text or "") / 4))
-
-    def _estimate_messages_tokens(self, msgs: List[Dict[str, Any]], model: str) -> int:
-        total = 0
-        for m in msgs:
-            content = m.get("content")
-            if isinstance(content, str):
-                total += self._estimate_text_tokens(content, model)
-        return total
-
     def _get_input_cost_per_1k(self, cfg: LLMNode) -> float:
         extra = cfg.extra or {}
         return float(
@@ -505,13 +484,6 @@ class LLMExecutor(Executor):
                     completion_tokens = stream.usage.completion_tokens or 0
             except Exception:
                 pass  # Fallback logic below will handle it
-
-            # Fallback to estimation if litellm data is missing
-            if prompt_tokens == 0 and completion_tokens == 0:
-                prompt_tokens = self._estimate_messages_tokens(conv, cfg.model)
-                completion_tokens = self._estimate_text_tokens(
-                    assistant_text, cfg.model
-                )
 
             round_cost = self._get_round_cost(
                 stream, cfg.model, cfg, prompt_tokens, completion_tokens
