@@ -524,3 +524,433 @@
 :ARCHIVE_CATEGORY: todo
 :ARCHIVE_TODO: [X]
 :END:
+
+* [X] Add user prompt preprocessor (instead of just system prompt) through configuration
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:09
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Preprocessors
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add prefix variant of preprocessor to enable caching.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:09
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Preprocessors
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Stopping executor with ctrl+c during input and then starting it with /use does not stop at input, but retries last input node - verify
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:09
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add human-readable names to nodes
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:09
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Configuration
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Update templates and parametrize them via variables
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:09
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Configuration
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add human-readable names to nodes
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:09
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Configuration
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Node transitions are printed out of order:
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:09
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Fix await
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:09
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Always show prompt. Add commands to stop/continue workflows
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Streaming printing is broken with permanent toolbar visibility
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] When prompt is requested, sometimes toolbar status is not updated
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] When LLM is waiting for response, need to show visual feedback to user
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Summarize tool calls for known tools. Create templates for tool calling that map parameters
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Ability to snoop into tool call details if needed, collapsed by default
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Continue after stopping shows prompt second time
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] When ctrl+c is pressed while waiting for user input and runner is stopped, need to cancel waiter.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add command to reload config without restart
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add shortcuts to cancel current input easily
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add three spaces to animation to prevent closing ] from animating
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI/Simple styling/Simple animations
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Ticker is not restarted after stopping for some reason or not always restarted
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI/Simple styling/Simple animations
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Remove Agent: prefix
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI/Simple styling
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Color usage
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI/Simple styling
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Print node transitions
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] JSON formatter and highlighter
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI/Format tool calls
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Group related tool calls
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI/Format tool calls
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Assume markdown as default formatter
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Wrapped lines don't move caret down correctly - next line overwrites it.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Disable input and drop buffered input between prompts
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] ctrl+c when runner is active does nothing - should stop the runner (verify, might not be the case)
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add file context management once corresponding node is created
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add file and symbol auto-completes for a last word. Call into Know to do lookup and return most likely candidates. Maybe get complete file and symbol list from Know and create in-memory trigram index for quick lookups.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Highlighting does not work if ``` opener is not in the beginning of the line
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Terminal UI
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Fix stats reporting - only report if file was fully patched in patched section
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Block parsers/Diff parsers
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] GPT V4A diff format
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Block parsers/Diff parsers
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+** [X] Better error reporting and verify apply patch cycle
+** [X] When multiple chunks match, but we can't match any of the chunks - return all possible lines
+** [X] Add support for multi-blocks where multiple things are getting deleted and added.
+** [X] Add support for multiple patch blocks or provide better instructions
+** [X] Better error instructions when blocks overlap
+** [X] Allow same file to be mentioned multiple times?
+
+* [X] Patch format
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Block parsers/Diff parsers
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+** [X] Fix error reporting when block can not be found
+
+* [X] Needs file auto-complete UI support
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/Add a node that injects files in context. Add file manager.
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Show files added and removed, as well as current list of files for /fadd and /fdel
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/Add a node that injects files in context. Add file manager.
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Figure out a way to inject files into patch without apply_patch having access to readfile
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/Add a node that injects files in context. Add file manager.
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add a way to manage context and inject files to context while looping in LLM node
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/Add a node that injects files in context. Add file manager.
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Verify that injectors add to system prompt only once. Ensure that user prompt also only added once.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Auto-retry on timeout
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Auto-retry when throttled
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add a way to append text to default system prompt
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Fix hallucinated tool calls and immediately return an error:
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes/LLM node
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Create documentation node - read AGENT.md files for all paths that are mentioned in previous messages.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Nodes
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Add progress report
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:10
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Tools/Integrate Know
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
+
+* [X] Emit event to UI when runner state changes: starts, stops, moves to next node, etc.
+:PROPERTIES:
+:ARCHIVE_TIME: 2025-10-17 Fri 23:11
+:ARCHIVE_FILE: ~/work/code/todo.org
+:ARCHIVE_OLPATH: Runner
+:ARCHIVE_CATEGORY: todo
+:ARCHIVE_TODO: [X]
+:END:
