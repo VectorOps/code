@@ -2,6 +2,13 @@
 * [ ] Cleanup and optimizations
 ** [X] Autocompleters needs consts at model level
 * [ ] Documentation
+** [ ] Architecture
+** [ ] Configuration
+** [ ] Nodes
+** [ ] Tools
+** [ ] Know
+** [ ] Preprocessors
+** [X] Hacking
 * [ ] Preprocessors
 ** [X] Add user prompt preprocessor (instead of just system prompt) through configuration
 ** [X] Add prefix variant of preprocessor to enable caching.
@@ -105,6 +112,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [X] Add a way to append text to default system prompt
 *** [X] Fix hallucinated tool calls and immediately return an error:
 ** [ ] Create RepoMap node - call into Know with provided prompt
+*** [ ] Also create preprocessor
 ** [X] Create documentation node - read AGENT.md files for all paths that are mentioned in previous messages.
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
@@ -115,6 +123,9 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Disable warnings
 ** [ ] Add pattern matching rules to auto-approve rule calls
 
+** [ ] Skill
+*** [ ] Skill parsers
+*** [ ] Generate tool stubs for skills
 ** [ ] Shell tool
 *** [ ] Need comprehensive tests
 *** [ ] Windows shell support
