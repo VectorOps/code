@@ -11,6 +11,7 @@ from typing import (
 )
 
 import asyncio
+import json
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
@@ -116,7 +117,6 @@ class Runner:
         }
         self._stop_requested: bool = False
         self._internal_cancel_requested: bool = False
-
 
     def _bypass_skipped_nodes(
         self,
@@ -421,10 +421,7 @@ class Runner:
             def _needs_approval(v: Any) -> bool:
                 return not (v is True)
 
-            return any(
-                _needs_approval(getattr(tc, "auto_approve", None))
-                for tc in req.tool_calls
-            )
+            return any(_needs_approval(tc.auto_approve) for tc in req.tool_calls)
         if req.kind == PACKET_FINAL_MESSAGE:
             return node_conf in (Confirmation.prompt, Confirmation.confirm)
         return False
@@ -443,14 +440,14 @@ class Runner:
         for tc in req.tool_calls:
             if not approved:
                 tc.status = ToolCallStatus.rejected
-                tc.result = {"error": "Tool call rejected by user"}
+                tc.result = json.dumps({"error": "Tool call rejected by user"})
                 updated_tool_calls.append(tc.model_copy(deep=True))
                 continue
 
             tool = self.project.tools.get(tc.name)
             if tool is None:
                 tc.status = ToolCallStatus.rejected
-                tc.result = {"error": f"Unknown tool '{tc.name}'"}
+                tc.result = json.dumps({"error": f"Unknown tool '{tc.name}'"})
                 updated_tool_calls.append(tc.model_copy(deep=True))
                 continue
 
@@ -461,7 +458,7 @@ class Runner:
                 tc.result = result
             except Exception as e:
                 tc.status = ToolCallStatus.rejected
-                tc.result = {"error": f"Tool '{tc.name}' failed: {str(e)}"}
+                tc.result = json.dumps({"error": f"Tool '{tc.name}' failed: {str(e)}"})
 
             updated_tool_calls.append(tc.model_copy(deep=True))
 

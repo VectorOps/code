@@ -74,7 +74,9 @@ class LLMExecutor(Executor):
 
         base_messages = list(history)
         if system_prompt:
-            base_messages.insert(0, Message(role="system", text=system_prompt, node=cfg.name))
+            base_messages.insert(
+                0, Message(role="system", text=system_prompt, node=cfg.name)
+            )
 
         if cfg.preprocessors:
             base_messages = apply_preprocessors(
@@ -298,7 +300,7 @@ class LLMExecutor(Executor):
             )
             for ts in settings_tools:
                 # ts is ToolSettings; may not include auto_approve when omitted
-                global_auto[ts.name] = getattr(ts, "auto_approve", None)
+                global_auto[ts.name] = ts.auto_approve
         except Exception:
             global_auto = {}
 
@@ -309,7 +311,7 @@ class LLMExecutor(Executor):
         tool_auto_approve: Dict[str, Optional[bool]] = {}
         for spec in cfg.tools or []:
             tool_name = spec.name
-            node_auto = getattr(spec, "auto_approve", None)
+            node_auto = spec.auto_approve
             eff_auto: Optional[bool] = global_auto.get(tool_name, None)
             if eff_auto is None:
                 eff_auto = node_auto if isinstance(node_auto, bool) else None

@@ -1,32 +1,8 @@
+
 [project]
-name = "vocode"
+name = "vocode-terminal"
 version = "0.1.0"
-description = "VectorOps Code"
-readme = "README.md"
 requires-python = ">=3.13"
-dependencies = [
-    "devtools>=0.12.2",
-    "litellm>=1.75.7",
-    "pydantic>=2.11.7",
-    "pytest>=8.4.1",
-    "pyyaml>=6.0.2",
-    "GitPython>=3.1.36",
-    "structlog>=25.4.0",
-    "json5>=0.9",
-    "know @ git+https://github.com/VectorOps/know.git",
-    "fastmcp>=2.12.4",
-    "jsonpath-ng>=1.7.0",
-]
 
-[tool.uv]
-package = true
-
-[tool.mypy]
-plugins = ['pydantic.mypy']
-
-[dependency-groups]
-dev = [
-    "mypy>=1.17.1",
-    "prompt-toolkit>=3.0.51",
-    "pytest-asyncio>=1.1.0",
-]
+[project.scripts]
+vocode = "vocode.ui.terminal.app:main"

@@ -13,7 +13,8 @@
 ** [X] Stopping executor with ctrl+c during input and then starting it with /use does not stop at input, but retries last input node - verify
 * [ ] Configuration
 ** [X] Add human-readable names to nodes
-** [ ] Update templates and parametrize them via variables
+** [X] Update templates and parametrize them via variables
+** [ ] Add a way to fully disable know
 ** [ ] Figure out why confirmation override for discovery did not work
 ** [ ] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
 ** [ ] Tweak prompt for discovery to only work with existing files

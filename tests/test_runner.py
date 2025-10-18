@@ -1050,6 +1050,7 @@ async def test_rewind_within_step_and_resume(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_tool_call_approved_and_rejected(tmp_path: Path):
+    import json
     nodes = [{"name": "Tool", "type": "tool", "outcomes": []}]
     g = Graph(nodes=nodes, edges=[])
     workflow = Workflow(name="workflow", graph=g)
@@ -1087,7 +1088,7 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
         ev2 = await asend_wrap(it, RunInput(response=RespApproval(approved=True)))
         # After approval the first req object should be updated
         assert ev1.event.tool_calls[0].status == ToolCallStatus.rejected
-        err = ev1.event.tool_calls[0].result
+        err = json.loads(ev1.event.tool_calls[0].result)
         assert isinstance(err, dict)
         assert "Unknown tool" in (err.get("error") or "")
 
@@ -1095,7 +1096,7 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
         assert ev2.event.kind == "tool_call"
         ev3 = await asend_wrap(it, RunInput(response=RespApproval(approved=False)))
         assert ev2.event.tool_calls[0].status == ToolCallStatus.rejected
-        err2 = ev2.event.tool_calls[0].result
+        err2 = json.loads(ev2.event.tool_calls[0].result)
         assert isinstance(err2, dict)
         assert "rejected by user" in (err2.get("error") or "")
 
