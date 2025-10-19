@@ -28,6 +28,8 @@ INCLUDE_KEY: Final[str] = "$include"
 
 class Workflow(BaseModel):
     name: Optional[str] = None
+    # Human-readable purpose/summary for this workflow; used in tool descriptions.
+    description: Optional[str] = None
     config: Dict[str, Any] = Field(default_factory=dict)
     nodes: List[Node] = Field(default_factory=list)
     edges: List[Edge] = Field(default_factory=list)

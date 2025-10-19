@@ -33,6 +33,13 @@ class MCPToolProxy(BaseTool):
             "parameters": self._parameters_schema
             or {"type": "object", "properties": {}},
         }
+    def openapi_spec(self, project: "Project", spec: ToolSpec) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": "",
+            "parameters": self._parameters_schema
+            or {"type": "object", "properties": {}},
+        }
 
     async def run(self, project: "Project", spec: ToolSpec, args: Any) -> ToolTextResponse:
         """

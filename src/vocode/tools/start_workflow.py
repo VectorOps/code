@@ -32,14 +32,36 @@ class StartWorkflowTool(BaseTool):
 
         return ToolStartWorkflowResponse(workflow=workflow, initial_text=initial_text)
 
-    def openapi_spec(self) -> Dict[str, Any]:
+    def openapi_spec(self, project, spec: ToolSpec) -> Dict[str, Any]:
+        workflow_name = (spec.config or {}).get("workflow")
+        wf_desc: Optional[str] = None
+        try:
+            if project and getattr(project, "settings", None) and workflow_name:
+                wf = project.settings.workflows.get(workflow_name)
+                wf_desc = getattr(wf, "description", None) if wf else None
+        except Exception:
+            wf_desc = None
+
+        if workflow_name:
+            if wf_desc:
+                desc = (
+                    f"Start the '{workflow_name}' workflow. {wf_desc} "
+                    "Optionally pass 'text' to send as the user's first message in the child workflow."
+                )
+            else:
+                desc = (
+                    f"Start the '{workflow_name}' workflow. "
+                    "Optionally pass 'text' to send as the user's first message in the child workflow."
+                )
+        else:
+            desc = (
+                "Start a child workflow. "
+                "Optionally pass 'text' to send as the user's first message in the child workflow."
+            )
+
         return {
             "name": self.name,
-            "description": (
-                "Start a child workflow specified by tool configuration. "
-                "The workflow name must be provided in ToolSpec.config['workflow']. "
-                "Optionally pass 'text' to seed the child with a user message."
-            ),
+            "description": desc,
             "parameters": {
                 "type": "object",
                 "properties": {

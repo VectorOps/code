@@ -119,7 +119,7 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self):
+            def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "Get weather",
@@ -296,7 +296,7 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self):
+            def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "",
@@ -402,7 +402,7 @@ async def test_llm_executor_tool_call_auto_approve_passthrough(monkeypatch, tmp_
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self):
+            def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "Get weather",
@@ -442,7 +442,7 @@ async def test_llm_executor_tool_call_auto_approve_global_overrides_node(
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self):
+            def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "",
@@ -484,7 +484,7 @@ async def test_llm_executor_tool_call_auto_approve_node_used_when_global_missing
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self):
+            def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "",
@@ -523,7 +523,7 @@ async def test_llm_executor_tool_call_auto_approve_none_when_unset(
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self):
+            def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "",

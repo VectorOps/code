@@ -238,9 +238,9 @@ class LLMExecutor(Executor):
             global_specs = {}
 
         effective: Dict[str, ToolSpec] = {}
-        for node_spec in (cfg.tools or []):
+        for node_spec in cfg.tools or []:
             gspec = global_specs.get(node_spec.name)
-            enabled = (gspec.enabled if gspec is not None else node_spec.enabled)
+            enabled = gspec.enabled if gspec is not None else node_spec.enabled
             auto = (
                 gspec.auto_approve
                 if (gspec is not None and gspec.auto_approve is not None)
@@ -318,7 +318,12 @@ class LLMExecutor(Executor):
             tool = self.project.tools.get(tool_name)
             if tool:
                 external_tools.append(
-                    {"type": "function", "function": tool.openapi_spec()}
+                    {
+                        "type": "function",
+                        "function": tool.openapi_spec(
+                            self.project, eff_specs[tool_name]
+                        ),
+                    }
                 )
 
         tools: Optional[List[Dict[str, Any]]] = None

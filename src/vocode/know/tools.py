@@ -24,10 +24,12 @@ class _KnowToolWrapper(BaseTool):
         # Propagate input/output model types from the Know tool
         self.input_model = self._know_tool.tool_input
 
-    def openapi_spec(self) -> dict[str, Any]:
+    def openapi_spec(self, project: "Project", spec: ToolSpec) -> dict[str, Any]:
         return self._know_tool.get_openai_schema()
 
-    async def run(self, project: "Project", spec: ToolSpec, args: Any) -> ToolTextResponse:
+    async def run(
+        self, project: "Project", spec: ToolSpec, args: Any
+    ) -> ToolTextResponse:
         def do_execute():
             return self._know_tool.execute(project.know.pm, args)
 

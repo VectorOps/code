@@ -62,6 +62,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Fix estimated cost calculation
 * [ ] Block parsers
 ** [ ] Diff parsers
+*** [ ] Patch format
+**** [ ] Fix scenario when multiple similar blocks are being updated one after another
 *** [ ] Better error reporting for unmatched blocks. Currently it's too verbose.
 *** [ ] Unified Diff format
 * [ ] Nodes

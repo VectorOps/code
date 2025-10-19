@@ -47,7 +47,7 @@ def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeyp
         async def run(self, project: "Project", spec, args: BaseModel):
             pass
 
-        def openapi_spec(self) -> Dict[str, Any]:
+        def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
             return {}
 
     class NeedsTool(BaseTool):
@@ -56,7 +56,7 @@ def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeyp
         async def run(self, project: "Project", spec, args: BaseModel):
             pass
 
-        def openapi_spec(self) -> Dict[str, Any]:
+        def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
             return {}
 
     class DisabledTool(BaseTool):
@@ -65,7 +65,7 @@ def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeyp
         async def run(self, project: "Project", spec, args: BaseModel):
             pass
 
-        def openapi_spec(self) -> Dict[str, Any]:
+        def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
             return {}
 
     register_tool("echo", EchoTool())
