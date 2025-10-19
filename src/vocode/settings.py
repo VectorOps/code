@@ -46,12 +46,39 @@ class Workflow(BaseModel):
                 Node.from_obj(n) if isinstance(n, dict) else n for n in nodes
             ]
         return data
-
-
-class ToolSettings(BaseModel):
+class ToolSpec(BaseModel):
+    """
+    Tool specification usable both globally (Settings.tools) and per-node (LLMNode.tools).
+    - name: required tool name
+    - enabled: global enable/disable (ignored for node-local specs)
+    - auto_approve: optional auto-approval flag for UI behavior
+    - config: free-form configuration for tool implementations
+    Accepts shorthand string form: "tool_name".
+    Extra fields are ignored.
+    """
     name: str
     enabled: bool = True
     auto_approve: Optional[bool] = None
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return {"name": v}
+        if isinstance(v, dict):
+            # Permit extra fields; validator ignores unknowns via Pydantic defaults
+            name = v.get("name")
+            if not isinstance(name, str) or not name:
+                raise ValueError("Tool spec must include non-empty 'name'")
+            out = {
+                "name": name,
+                "enabled": v.get("enabled", True),
+                "auto_approve": v.get("auto_approve", None),
+                "config": v.get("config", {}) or {},
+            }
+            return out
+        return v
 
 
 class ToolCallFormatter(BaseModel):
@@ -100,29 +127,6 @@ class MCPSettings(BaseModel):
     servers: Dict[str, MCPServerSettings] = Field(default_factory=dict)
     tools_whitelist: Optional[List[str]] = None
 
-    @model_validator(mode="after")
-    def _backcompat_legacy_fields(self) -> "MCPSettings":
-        # Support legacy schemas by mapping into a default 'mcp' server
-        # Accept legacy keys if present in raw input (model already validated)
-        data = self.model_dump(mode="python")
-        # Legacy at root: url, command (list), env
-        legacy_url = data.get("url")
-        legacy_command = data.get("command")
-        legacy_env = data.get("env") or {}
-        if (legacy_url or legacy_command) and not self.servers:
-            server = MCPServerSettings()
-            if legacy_url:
-                server.url = legacy_url
-            if legacy_command:
-                # Legacy command was a list; split into command + args
-                if isinstance(legacy_command, list) and legacy_command:
-                    server.command = str(legacy_command[0])
-                    server.args = [str(a) for a in legacy_command[1:]]
-            if legacy_env:
-                server.env = dict(legacy_env)
-            self.servers = {"mcp": server}
-        return self
-
 
 class ProcessEnvSettings(BaseModel):
     inherit_parent: bool = True
@@ -150,7 +154,7 @@ class ProcessSettings(BaseModel):
 
 class Settings(BaseModel):
     workflows: Dict[str, Workflow] = Field(default_factory=dict)
-    tools: List[ToolSettings] = Field(default_factory=list)
+    tools: List[ToolSpec] = Field(default_factory=list)
     know: Optional[KnowProjectSettings] = Field(default=None)
     ui: Optional[UISettings] = Field(default=None)
     # Optional Model Context Protocol (MCP) configuration

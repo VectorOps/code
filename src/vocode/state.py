@@ -63,15 +63,13 @@ class ToolCall(BaseModel):
     arguments: Dict[str, Any] = Field(
         ..., description="Decoded JSON arguments passed to the function"
     )
-    auto_approve: Optional[bool] = Field(
-        default=None,
-        description=(
-            "When true, this tool call may be auto-approved without user input; None means not specified."
-        ),
-    )
     result: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = Field(
         default=None,
         description="Decoded JSON result of the function call; may be a dict or a list of dicts; None until completed",
+    )
+    tool_spec: Optional[Any] = Field(
+        default=None,
+        description="Effective tool spec for this call (vocode.settings.ToolSpec). Must be resolved by the executor; None is invalid at runtime.",
     )
 
 

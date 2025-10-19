@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from ..tools import BaseTool, ToolTextResponse
+from ..settings import ToolSpec
 
 if TYPE_CHECKING:
     from ..project import Project
@@ -33,7 +34,7 @@ class MCPToolProxy(BaseTool):
             or {"type": "object", "properties": {}},
         }
 
-    async def run(self, project: "Project", args: Any) -> ToolTextResponse:
+    async def run(self, project: "Project", spec: ToolSpec, args: Any) -> ToolTextResponse:
         """
         Accept parsed arguments (typically a dict) and forward to MCP manager.
         Falls back to empty dict for unsupported types/None.
@@ -41,7 +42,7 @@ class MCPToolProxy(BaseTool):
         """
         payload: Dict[str, Any] = args if isinstance(args, dict) else {}
         try:
-            result = await self._manager.call_tool(self.name, payload)
+            result = await self._manager.call_tool(self.name, payload, spec)
             # Normalize various client return shapes to plain text
             if hasattr(result, "data"):
                 text = getattr(result, "data")
@@ -53,5 +54,5 @@ class MCPToolProxy(BaseTool):
         except Exception as e:
             # Return a structured error instead of propagating.
             return ToolTextResponse(
-                text=json.dumps({"error": f"MCP tool '{self.name}' failed: {e}"})
+                text=f"Tool '{self.name}' failed: {e}"
             )

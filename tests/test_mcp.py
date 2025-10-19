@@ -5,6 +5,7 @@ import sys
 import os
 
 from vocode.project import init_project
+from vocode.settings import ToolSpec
 from .fakes import FakeMCPClient, make_fake_mcp_client_creator
 
 
@@ -86,7 +87,7 @@ tools:
         assert "mcp_echo" in project.tools
         tool = project.tools["mcp_echo"]
         # Run the tool with empty args (tools accept Any; dict preferred)
-        res = await tool.run(project, {})
+        res = await tool.run(project, ToolSpec(name="mcp_echo"), {})
         # Support both legacy str and new ToolTextResponse
         res_text = res.text if hasattr(res, "text") else res
         assert res_text == ""
@@ -156,7 +157,7 @@ tools:
             assert alive, "Spawned server process not alive"
 
         # Invoke the MCP tool through the proxy
-        res = await project.tools["mcp_echo"].run(project, {"text": "hello"})
+        res = await project.tools["mcp_echo"].run(project, ToolSpec(name="mcp_echo"), {"text": "hello"})
         # Support both legacy str and new ToolTextResponse
         res_text = res.text if hasattr(res, "text") else res
         assert res_text == "hello"

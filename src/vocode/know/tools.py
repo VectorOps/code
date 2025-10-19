@@ -6,7 +6,8 @@ from pydantic import BaseModel
 
 from know.tools.base import BaseTool as KnowBaseTool, ToolRegistry as KnowToolRegistry
 from ..tools import BaseTool, register_tool, ToolTextResponse
- 
+from ..settings import ToolSpec
+
 from .project import know_thread
 
 if TYPE_CHECKING:
@@ -26,7 +27,7 @@ class _KnowToolWrapper(BaseTool):
     def openapi_spec(self) -> dict[str, Any]:
         return self._know_tool.get_openai_schema()
 
-    async def run(self, project: "Project", args: Any) -> ToolTextResponse:
+    async def run(self, project: "Project", spec: ToolSpec, args: Any) -> ToolTextResponse:
         def do_execute():
             return self._know_tool.execute(project.know.pm, args)
 

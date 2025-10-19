@@ -10,7 +10,6 @@ from vocode.runner.executors.llm import (
     LLMExecutor,
     CHOOSE_OUTCOME_TOOL_NAME,
     LLMNode,
-    LLMToolSpec,
 )
 from vocode.models import OutcomeStrategy, OutcomeSlot
 from vocode.state import Message, ToolCall
@@ -21,7 +20,7 @@ from vocode.runner.models import (
     RespToolCall,
     ExecRunInput,
 )
-from vocode.settings import ToolSettings
+from vocode.settings import ToolSpec
 
 
 def chunk_content(text: str):
@@ -389,7 +388,7 @@ async def test_llm_executor_tool_call_auto_approve_passthrough(monkeypatch, tmp_
         model="gpt-x",
         outcomes=[OutcomeSlot(name="done")],
         outcome_strategy=OutcomeStrategy.function_call,
-        tools=[LLMToolSpec(name="weather", auto_approve=True)],
+        tools=[ToolSpec(name="weather", auto_approve=True)],
     )
 
     # Stream emits a single external tool call
@@ -420,7 +419,8 @@ async def test_llm_executor_tool_call_auto_approve_passthrough(monkeypatch, tmp_
         _, pkt, _ = await drain_until_non_interim(agen)
         assert pkt.kind == "tool_call"
         assert len(pkt.tool_calls) == 1
-        assert pkt.tool_calls[0].auto_approve is True
+        assert pkt.tool_calls[0].tool_spec is not None
+        assert pkt.tool_calls[0].tool_spec.auto_approve is True
 
 
 @pytest.mark.asyncio
@@ -433,7 +433,7 @@ async def test_llm_executor_tool_call_auto_approve_global_overrides_node(
         model="gpt-x",
         outcomes=[OutcomeSlot(name="done")],
         outcome_strategy=OutcomeStrategy.function_call,
-        tools=[LLMToolSpec(name="weather", auto_approve=False)],
+        tools=[ToolSpec(name="weather", auto_approve=False)],
     )
     seq = [chunk_tool_call(0, "call_1", "weather", '{"city":"NYC"}')]
     stub = ACompletionStub([seq])
@@ -452,7 +452,7 @@ async def test_llm_executor_tool_call_auto_approve_global_overrides_node(
         project.tools["weather"] = _DummyWeatherTool()
         # Set global auto_approve=True
         project.settings.tools = [
-            ToolSettings(name="weather", enabled=True, auto_approve=True)
+            ToolSpec(name="weather", enabled=True, auto_approve=True)
         ]
 
         agen = LLMExecutor(cfg, project).run(
@@ -461,7 +461,8 @@ async def test_llm_executor_tool_call_auto_approve_global_overrides_node(
         _, pkt, _ = await drain_until_non_interim(agen)
         assert pkt.kind == "tool_call"
         assert pkt.tool_calls[0].name == "weather"
-        assert pkt.tool_calls[0].auto_approve is True
+        assert pkt.tool_calls[0].tool_spec is not None
+        assert pkt.tool_calls[0].tool_spec.auto_approve is True
 
 
 @pytest.mark.asyncio
@@ -474,7 +475,7 @@ async def test_llm_executor_tool_call_auto_approve_node_used_when_global_missing
         model="gpt-x",
         outcomes=[OutcomeSlot(name="done")],
         outcome_strategy=OutcomeStrategy.function_call,
-        tools=[LLMToolSpec(name="weather", auto_approve=True)],
+        tools=[ToolSpec(name="weather", auto_approve=True)],
     )
     seq = [chunk_tool_call(0, "call_1", "weather", '{"city":"NYC"}')]
     stub = ACompletionStub([seq])
@@ -499,7 +500,8 @@ async def test_llm_executor_tool_call_auto_approve_node_used_when_global_missing
         )
         _, pkt, _ = await drain_until_non_interim(agen)
         assert pkt.kind == "tool_call"
-        assert pkt.tool_calls[0].auto_approve is True
+        assert pkt.tool_calls[0].tool_spec is not None
+        assert pkt.tool_calls[0].tool_spec.auto_approve is True
 
 
 @pytest.mark.asyncio
@@ -512,7 +514,7 @@ async def test_llm_executor_tool_call_auto_approve_none_when_unset(
         model="gpt-x",
         outcomes=[OutcomeSlot(name="done")],
         outcome_strategy=OutcomeStrategy.function_call,
-        tools=[LLMToolSpec(name="weather")],  # auto_approve omitted => None
+        tools=[ToolSpec(name="weather")],  # auto_approve omitted => None
     )
     seq = [chunk_tool_call(0, "call_1", "weather", '{"city":"NYC"}')]
     stub = ACompletionStub([seq])
@@ -537,7 +539,8 @@ async def test_llm_executor_tool_call_auto_approve_none_when_unset(
         )
         _, pkt, _ = await drain_until_non_interim(agen)
         assert pkt.kind == "tool_call"
-        assert pkt.tool_calls[0].auto_approve is None
+        assert pkt.tool_calls[0].tool_spec is not None
+        assert pkt.tool_calls[0].tool_spec.auto_approve is None
 
 
 class FlakyACompletionStub:

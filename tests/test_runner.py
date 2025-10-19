@@ -137,7 +137,12 @@ async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
 
         async def run(self, inp):
             if inp.response is None:
-                tc = ToolCall(name="nonexistent", arguments={}, auto_approve=True)
+                from vocode.settings import ToolSpec
+                tc = ToolCall(
+                    name="nonexistent",
+                    arguments={},
+                    tool_spec=ToolSpec(name="nonexistent", enabled=True, auto_approve=True),
+                )
                 yield (ReqToolCall(tool_calls=[tc]), None)
                 return
             # After tool response, finish
@@ -1070,7 +1075,12 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
         async def run(self, inp):
             # First cycle: emit tool call "one"
             if inp.response is None:
-                tc1 = ToolCall(name="one", arguments={})
+                from vocode.settings import ToolSpec
+                tc1 = ToolCall(
+                    name="one",
+                    arguments={},
+                    tool_spec=ToolSpec(name="one", enabled=True, auto_approve=None),
+                )
                 yield (ReqToolCall(tool_calls=[tc1]), None)
                 return
             # Second cycle: after "one" response, emit tool call "two"
@@ -1079,7 +1089,12 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
                 and inp.response.tool_calls
                 and inp.response.tool_calls[0].name == "one"
             ):
-                tc2 = ToolCall(name="two", arguments={})
+                from vocode.settings import ToolSpec
+                tc2 = ToolCall(
+                    name="two",
+                    arguments={},
+                    tool_spec=ToolSpec(name="two", enabled=True, auto_approve=None),
+                )
                 yield (ReqToolCall(tool_calls=[tc2]), None)
                 return
             # Third cycle: after "two" response, finish
@@ -1097,17 +1112,17 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
         ev2 = await asend_wrap(it, RunInput(response=RespApproval(approved=True)))
         # After approval the first req object should be updated
         assert ev1.event.tool_calls[0].status == ToolCallStatus.rejected
-        err = json.loads(ev1.event.tool_calls[0].result)
-        assert isinstance(err, dict)
-        assert "Unknown tool" in (err.get("error") or "")
+        err = ev1.event.tool_calls[0].result
+        assert isinstance(err, str)
+        assert "Tool 'one'" in err
 
         # Second tool call (reject)
         assert ev2.event.kind == "tool_call"
         ev3 = await asend_wrap(it, RunInput(response=RespApproval(approved=False)))
         assert ev2.event.tool_calls[0].status == ToolCallStatus.rejected
-        err2 = json.loads(ev2.event.tool_calls[0].result)
-        assert isinstance(err2, dict)
-        assert "rejected by user" in (err2.get("error") or "")
+        err2 = ev2.event.tool_calls[0].result
+        assert isinstance(err2, str)
+        assert "rejected by user" in err2
 
         # Finalize (returned by the previous asend)
         assert ev3.event.kind == "final_message"
@@ -2007,7 +2022,12 @@ tools:
 
         async def run(self, inp):
             if inp.response is None:
-                tc = ToolCall(name="mcp_echo", arguments={"text": "hi"})
+                from vocode.settings import ToolSpec
+                tc = ToolCall(
+                    name="mcp_echo",
+                    arguments={"text": "hi"},
+                    tool_spec=ToolSpec(name="mcp_echo", enabled=True, auto_approve=True),
+                )
                 yield (ReqToolCall(tool_calls=[tc]), None)
                 return
             # After tool call completes, return final

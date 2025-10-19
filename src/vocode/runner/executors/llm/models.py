@@ -8,7 +8,7 @@ from vocode.runner.executors.llm.preprocessors.base import apply_preprocessors
 from litellm import acompletion, completion_cost
 import litellm
 from enum import Enum
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from vocode.runner.runner import Executor
 from vocode.models import Node, PreprocessorSpec, OutcomeStrategy, Mode
 from vocode.state import Message, ToolCall, LogLevel
@@ -24,35 +24,7 @@ from vocode.runner.models import (
     ReqLogMessage,
 )
 
-from vocode.settings import ToolSettings  # type: ignore
-
-
-# Node configuration
-class LLMToolSpec(BaseModel):
-    name: str
-    auto_approve: Optional[bool] = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce(cls, v: Any) -> Any:
-        # Accept either:
-        # - "tool_name"
-        # - {"name": "tool_name", "auto_approve": bool|None}
-        if isinstance(v, str):
-            return {"name": v, "auto_approve": None}
-        if isinstance(v, dict):
-            name = v.get("name")
-            if not isinstance(name, str) or not name:
-                raise ValueError("Tool spec must include non-empty 'name'")
-            auto = v.get("auto_approve", None)
-            if auto is not None and not isinstance(auto, bool):
-                raise TypeError(
-                    "LLMToolSpec.auto_approve must be a boolean if provided"
-                )
-            return {"name": name, "auto_approve": auto}
-        raise TypeError(
-            "Tool spec must be a string or mapping with 'name' and optional 'auto_approve'"
-        )
+from vocode.settings import ToolSpec
 
 
 class LLMNode(Node):
@@ -67,7 +39,7 @@ class LLMNode(Node):
     max_tokens: Optional[int] = None
     outcome_strategy: OutcomeStrategy = Field(default=OutcomeStrategy.tag)
     # Structured tool specs with short-hand coercion from strings
-    tools: List[LLMToolSpec] = Field(
+    tools: List[ToolSpec] = Field(
         default_factory=list,
         description="Enabled tools (supports string or object spec)",
     )

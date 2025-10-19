@@ -26,9 +26,6 @@ system: |
   * Decompose the user ask into key areas:
     - Core functionality
     - Tests / validation
-  * Request relevant files per area, within tool limits:
-    - Prefer search over summary over related deps.
-    - Include tests that cover the same logic.
   * Avoid near-duplicates or unrelated clusters.
 
   ## Required Output

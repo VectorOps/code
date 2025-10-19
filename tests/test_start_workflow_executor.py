@@ -113,7 +113,7 @@ async def test_tool_start_workflow_initiates_child_and_returns_result():
     class StartChildTool(BaseTool):
         name = "start_child_tool"
 
-        async def run(self, project, args):
+        async def run(self, project, spec, args):
             # Forward initial text from args, if present
             initial_text = args.get("text") if isinstance(args, dict) else None
             return ToolStartWorkflowResponse(
@@ -136,7 +136,14 @@ async def test_tool_start_workflow_initiates_child_and_returns_result():
 
         async def run(self, inp):
             if inp.response is None:
-                tc = ToolCall(name="start_child_tool", arguments={"text": "seed"})
+                from vocode.settings import ToolSpec
+                tc = ToolCall(
+                    name="start_child_tool",
+                    arguments={"text": "seed"},
+                    tool_spec=ToolSpec(
+                        name="start_child_tool", enabled=True, auto_approve=True
+                    ),
+                )
                 yield (ReqToolCall(tool_calls=[tc]), None)
                 return
             # After tool call completes, echo the result as the final agent message

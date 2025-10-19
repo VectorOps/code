@@ -9,7 +9,7 @@ try:
 except Exception:
     FastMCPClient = None  # type: ignore[assignment]
 
-from ..settings import MCPSettings, MCPServerSettings
+from ..settings import MCPSettings, MCPServerSettings, ToolSpec
 from ..tools import register_tool, unregister_tool
 from .proxy import MCPToolProxy
 
@@ -81,7 +81,7 @@ class MCPManager:
         self._started = False
         self._project = None
 
-    async def call_tool(self, name: str, args: Dict[str, Any]) -> Any:
+    async def call_tool(self, name: str, args: Dict[str, Any], spec: ToolSpec) -> Any:
         if not self._client:
             raise RuntimeError("MCPManager is not started")
         return await self._client.call_tool(name=name, arguments=args)

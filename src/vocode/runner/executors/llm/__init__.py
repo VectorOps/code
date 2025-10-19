@@ -24,8 +24,8 @@ from vocode.runner.models import (
     ReqLogMessage,
 )
 
-from vocode.settings import ToolSettings  # type: ignore
-from .models import LLMToolSpec, LLMNode, LLMExpect, LLMState
+from vocode.settings import ToolSpec  # type: ignore
+from .models import LLMNode, LLMExpect, LLMState
 
 
 CHOOSE_OUTCOME_TOOL_NAME: Final[str] = "__choose_outcome__"
@@ -218,6 +218,47 @@ class LLMExecutor(Executor):
                 ) * out_per_1k
         return round_cost
 
+    def _build_effective_tool_specs(self, cfg: "LLMNode") -> Dict[str, ToolSpec]:
+        """
+        Merge node-level ToolSpec with project-level (global) ToolSpec by name.
+        Precedence: global overrides node. Config is merged: node.config, then global.config.
+        Only returns specs for tools listed on this node.
+        """
+        # Global specs by name
+        global_specs: Dict[str, ToolSpec] = {}
+        try:
+            settings_tools = (
+                (self.project.settings.tools or [])
+                if self.project and self.project.settings
+                else []
+            )
+            for ts in settings_tools:
+                global_specs[ts.name] = ts
+        except Exception:
+            global_specs = {}
+
+        effective: Dict[str, ToolSpec] = {}
+        for node_spec in (cfg.tools or []):
+            gspec = global_specs.get(node_spec.name)
+            enabled = (gspec.enabled if gspec is not None else node_spec.enabled)
+            auto = (
+                gspec.auto_approve
+                if (gspec is not None and gspec.auto_approve is not None)
+                else node_spec.auto_approve
+            )
+            merged_cfg: Dict[str, Any] = {}
+            # Node-level first, overridden by global-level keys when present
+            merged_cfg.update(node_spec.config or {})
+            if gspec is not None and gspec.config:
+                merged_cfg.update(gspec.config)
+            effective[node_spec.name] = ToolSpec(
+                name=node_spec.name,
+                enabled=enabled,
+                auto_approve=auto,
+                config=merged_cfg,
+            )
+        return effective
+
     async def run(
         self, inp: ExecRunInput
     ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
@@ -269,32 +310,11 @@ class LLMExecutor(Executor):
         )
         outcome_strategy: OutcomeStrategy = cfg.outcome_strategy
         outcome_name: Optional[str] = state.pending_outcome_name or None
-        # Build global tool auto-approve map (name -> Optional[bool])
-        global_auto: Dict[str, Optional[bool]] = {}
-        try:
-            settings_tools = (
-                (self.project.settings.tools or [])
-                if self.project and self.project.settings
-                else []
-            )
-            for ts in settings_tools:
-                # ts is ToolSettings; may not include auto_approve when omitted
-                global_auto[ts.name] = ts.auto_approve
-        except Exception:
-            global_auto = {}
-
-        # Get tool specs from node config and compute effective auto-approve per tool:
-        # precedence: global setting (if provided) -> node-level -> None
+        # Compute effective tool specs (node merged with global settings)
+        eff_specs: Dict[str, ToolSpec] = self._build_effective_tool_specs(cfg)
         external_tools: List[Dict[str, Any]] = []
-        # Map tool name -> Optional[bool]
-        tool_auto_approve: Dict[str, Optional[bool]] = {}
         for spec in cfg.tools or []:
             tool_name = spec.name
-            node_auto = spec.auto_approve
-            eff_auto: Optional[bool] = global_auto.get(tool_name, None)
-            if eff_auto is None:
-                eff_auto = node_auto if isinstance(node_auto, bool) else None
-            tool_auto_approve[tool_name] = eff_auto
             tool = self.project.tools.get(tool_name)
             if tool:
                 external_tools.append(
@@ -551,13 +571,15 @@ class LLMExecutor(Executor):
                     )
                 except Exception:
                     args_obj = {}
+
+                eff = eff_specs.get(name)
                 external_calls.append(
                     ToolCall(
                         id=call_id,
                         name=name,
                         arguments=args_obj,
                         type="function",
-                        auto_approve=tool_auto_approve.get(name, None),
+                        tool_spec=eff,
                     )
                 )
 
