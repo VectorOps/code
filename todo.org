@@ -24,13 +24,10 @@ Concrete example: files that were read and already in context.
 * [ ] UI protocol
 ** [ ] Add syntax name hint to apply formatting
 * [ ] [#A] Nested workflows support
-** [ ] Create API to start a new workflow
-- Should start a new runner with new state
-- Wait for runner to finish
-- Pass all messages through to UI, plumb via parent runner
-- UIState should be smart enough to understand it's stacked execution. Need explicit messages to UIState on runner states, such as starting workflow execution, state changes, etc.
+** [X] Create API to start a new workflow
 ** [ ] Create a tool that allows LLMs to call into new workflows
 ** [ ] Create node that starts a workflow with an input
+** [ ] Extend UI support to show stacking
 * [ ] Error handling
 ** [ ] Add exception handlers
 *** [ ] Runner
@@ -41,6 +38,8 @@ Concrete example: files that were read and already in context.
 Unclosed client session
 client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Terminal UI
+** [ ] Figure out a way to avoid showing nested output for workflow (tool calls, etc)
+*** [ ] Add a hotkey to show collapsed output
 ** [ ] Better visual separation of prompts vs responses
 ** [ ] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
 ** [ ] Disable know warnings, they mess up UI output
