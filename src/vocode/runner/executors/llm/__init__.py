@@ -258,6 +258,80 @@ class LLMExecutor(Executor):
                 config=merged_cfg,
             )
         return effective
+    def _extract_usage_tokens(
+        self, stream: Any, last_chunk_usage: Optional[Dict[str, Any]]
+    ) -> tuple[int, int]:
+        """
+        Extract token usage from:
+        1) last streamed chunk 'usage' (when include_usage=True),
+        2) stream.usage,
+        3) stream.response.usage or awaitable accessor get_response(),
+        returning (prompt_tokens, completion_tokens). Returns (0,0) if unavailable.
+        """
+        prompt_tokens = 0
+        completion_tokens = 0
+        # 1) usage from last chunk
+        try:
+            if last_chunk_usage:
+                pt = last_chunk_usage.get("prompt_tokens")
+                ct = last_chunk_usage.get("completion_tokens")
+                if isinstance(pt, int):
+                    prompt_tokens = pt
+                if isinstance(ct, int):
+                    completion_tokens = ct
+        except Exception:
+            pass
+        # 2) stream.usage
+        if prompt_tokens == 0 and completion_tokens == 0:
+            try:
+                usage_obj = getattr(stream, "usage", None)
+                if usage_obj:
+                    if isinstance(usage_obj, dict):
+                        prompt_tokens = int(usage_obj.get("prompt_tokens") or 0)
+                        completion_tokens = int(usage_obj.get("completion_tokens") or 0)
+                    else:
+                        prompt_tokens = int(getattr(usage_obj, "prompt_tokens", 0) or 0)
+                        completion_tokens = int(
+                            getattr(usage_obj, "completion_tokens", 0) or 0
+                        )
+            except Exception:
+                pass
+        # 3) stream.response.usage (dict or object)
+        if prompt_tokens == 0 and completion_tokens == 0:
+            try:
+                resp = getattr(stream, "response", None)
+                if resp is not None:
+                    if isinstance(resp, dict):
+                        usage_obj = resp.get("usage")
+                    else:
+                        usage_obj = getattr(resp, "usage", None)
+                    if usage_obj:
+                        if isinstance(usage_obj, dict):
+                            prompt_tokens = int(usage_obj.get("prompt_tokens") or 0)
+                            completion_tokens = int(
+                                usage_obj.get("completion_tokens") or 0
+                            )
+                        else:
+                            prompt_tokens = int(
+                                getattr(usage_obj, "prompt_tokens", 0) or 0
+                            )
+                            completion_tokens = int(
+                                getattr(usage_obj, "completion_tokens", 0) or 0
+                            )
+            except Exception:
+                pass
+        # 4) async accessor get_response()
+        if prompt_tokens == 0 and completion_tokens == 0:
+            try:
+                get_resp = getattr(stream, "get_response", None)
+                if callable(get_resp):
+                    # Note: caller must await this helper's return if we add await here.
+                    # We intentionally avoid awaiting to keep this helper sync in the normal path.
+                    # If needed in future, promote this helper to async and await here.
+                    pass
+            except Exception:
+                pass
+        return prompt_tokens, completion_tokens
 
     async def run(
         self, inp: ExecRunInput
@@ -404,15 +478,21 @@ class LLMExecutor(Executor):
                     task_name = f"llm.acompletion:{cfg.name}"
                     stream_task = asyncio.create_task(completion_coro, name=task_name)
                     stream = await stream_task
-
                     # Collect streamed content and tool_calls; emit interim messages for content chunks
+                    last_usage: Optional[Dict[str, Any]] = None
                     async for chunk in stream:
                         try:
                             ch = (chunk.get("choices") or [])[0]
                             delta = ch.get("delta") or {}
                         except Exception:
                             delta = {}
-
+                        # Capture usage if provider includes it per chunk (include_usage=True)
+                        try:
+                            usage_obj = chunk.get("usage")
+                            if isinstance(usage_obj, dict):
+                                last_usage = usage_obj
+                        except Exception:
+                            pass
                         # Stream content
                         content_piece = delta.get("content")
                         if content_piece:
@@ -498,17 +578,16 @@ class LLMExecutor(Executor):
                     return
 
             assistant_text = "".join(assistant_text_parts)
-
-            # Get token usage from response, with fallback to estimation
-            prompt_tokens = 0
-            completion_tokens = 0
-            try:
-                # After stream is exhausted, litellm provides usage.
-                if hasattr(stream, "usage") and stream.usage:
-                    prompt_tokens = stream.usage.prompt_tokens or 0
-                    completion_tokens = stream.usage.completion_tokens or 0
-            except Exception:
-                pass  # Fallback logic below will handle it
+            # Get token usage from stream and last chunk (robust across litellm/provider changes)
+            prompt_tokens, completion_tokens = self._extract_usage_tokens(stream, last_usage)
+            if prompt_tokens == 0 and completion_tokens == 0:
+                _ = yield (
+                    ReqLogMessage(
+                        level=LogLevel.debug,
+                        text="LLM usage tokens not provided by provider/stream; falling back to cost-only accounting",
+                    ),
+                    None,
+                )
 
             round_cost = self._get_round_cost(
                 stream, cfg.model, cfg, prompt_tokens, completion_tokens

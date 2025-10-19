@@ -108,6 +108,10 @@ class Node(BaseModel):
         default=False,
         description="If true, runner will skip executing this node and suppress notifications; executor instance may still be created.",
     )
+    max_runs: Optional[int] = Field(
+        default=None,
+        description="Maximum number of times this node may execute within a single runner session. None = unlimited; 0 = equivalent to skip=True.",
+    )
     message_mode: MessageMode = Field(
         default=MessageMode.final_response,
         description=(

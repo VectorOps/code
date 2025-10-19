@@ -30,6 +30,7 @@ workflows:
           - name: done
       - $include:
           template: nodes/discovery.yaml
+          max_runs: 1
         function_tokens_pct: 25
         confirmation: auto
       - $include:

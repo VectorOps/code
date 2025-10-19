@@ -203,3 +203,10 @@ class RunEvent(BaseModel):
 
 class RunInput(BaseModel):
     response: Optional[RespPacket] = Field(None, description="Optional response packet")
+
+class RunStats(BaseModel):
+    """
+    Per-node runtime statistics for a single Runner instance.
+    Currently tracks the number of completed executions for the node.
+    """
+    run_count: int = 0

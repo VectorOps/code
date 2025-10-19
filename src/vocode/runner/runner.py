@@ -43,6 +43,7 @@ from vocode.runner.models import (
     RespApproval,
     ExecRunInput,
     RunnerState,
+    RunStats,
     INTERIM_PACKETS,
     PACKETS_FOR_HISTORY,
     PACKET_MESSAGE_REQUEST,
@@ -126,6 +127,10 @@ class Runner:
             n.name: Executor.create_for_node(n, project=self.project)
             for n in self.workflow.graph.nodes
         }
+        # Per-node execution statistics (not persisted; not exposed to executors)
+        self._run_stats: Dict[str, RunStats] = {
+            n.name: RunStats() for n in self.workflow.graph.nodes
+        }
         self._stop_requested: bool = False
         self._internal_cancel_requested: bool = False
 
@@ -135,7 +140,7 @@ class Runner:
         pending_input_messages: List[Message],
     ):
         """
-        Traverse forward while nodes are marked skip=True.
+        Traverse forward while nodes are considered skippable (skip=True or exceeded max_runs).
         Returns (first_non_skipped_runtime_node | None, pending_input_messages, edge_reset_policy | None).
         - If a skipped node has zero outcomes: traversal stops (returns None) => finish.
         - If a skipped node has multiple outcomes: raise error (ambiguous).
@@ -143,7 +148,7 @@ class Runner:
         """
         current = start_runtime_node
         last_edge_policy = None
-        while current is not None and current.model.skip:
+        while current is not None and self._should_skip_node(current.model):
             node_model = current.model
             if not node_model.outcomes:
                 return None, pending_input_messages, None
@@ -183,7 +188,7 @@ class Runner:
         )
         if next_runtime_node is None:
             return None, None, None
-        if next_runtime_node.model.skip:
+        if self._should_skip_node(next_runtime_node.model):
             bypass_node, next_input_messages, bypass_policy = (
                 self._bypass_skipped_nodes(next_runtime_node, next_input_messages)
             )
@@ -193,6 +198,21 @@ class Runner:
             # Prefer policy from the last hop into the final non-skipped node
             next_edge_policy = bypass_policy or next_edge_policy
         return next_runtime_node, next_input_messages, next_edge_policy
+
+    def _should_skip_node(self, node_model: Node) -> bool:
+        """
+        Returns True if the node should be skipped either because:
+        - node.skip is True, or
+        - node.max_runs is set and the node has already executed max_runs times (>=).
+        """
+        if node_model.skip:
+            return True
+        max_runs = getattr(node_model, "max_runs", None)
+        if max_runs is None:
+            return False
+        stats = self._run_stats.get(node_model.name)
+        run_count = stats.run_count if stats is not None else 0
+        return run_count >= max_runs
 
     def cancel(self) -> None:
         """Cancel the currently running executor step, if any."""
@@ -749,20 +769,19 @@ class Runner:
 
         # Main loop
         while True:
-            # If current node (or a chain) is marked skip=True, bypass before creating a step.
-            if current_runtime_node is not None and current_runtime_node.model.skip:
-                next_node, pending_input_messages, skip_edge_policy = (
-                    self._bypass_skipped_nodes(
-                        current_runtime_node, pending_input_messages
-                    )
+            # If current node (or a chain) is skippable (skip=True or max_runs limit), bypass before creating a step.
+            if current_runtime_node is not None:
+                next_node, pending_input_messages, skip_edge_policy = self._bypass_skipped_nodes(
+                    current_runtime_node, pending_input_messages
                 )
                 if next_node is None:
                     self.status = RunnerStatus.finished
                     task.status = RunStatus.finished
                     return
-                current_runtime_node = next_node
+                # Assign possibly updated node and policy
                 if skip_edge_policy is not None:
                     incoming_policy_override = skip_edge_policy
+                current_runtime_node = next_node
 
             # Create new step for new executions
             if step is None:
@@ -888,7 +907,6 @@ class Runner:
                 # If nothing returned, mark step finished and transition
                 if req is None:
                     step.status = RunStatus.finished
-
                     # Find last complete executor activity for transition (may be from previous cycles)
                     last_exec_activity = next(
                         (
@@ -915,6 +933,10 @@ class Runner:
                             )
                         last_exec_activity = last_interim.clone(is_complete=True)
                         step.executions.append(last_exec_activity)
+
+                    # Increment run count for this node execution
+                    stats = self._run_stats.setdefault(node_name, RunStats())
+                    stats.run_count += 1
 
                     # Compute next node/inputs
                     next_runtime_node, next_input_messages, next_edge_policy = (
@@ -1065,6 +1087,9 @@ class Runner:
 
                     # Final accepted: finish step and transition
                     step.status = RunStatus.finished
+                    # Increment run count for this node execution
+                    stats = self._run_stats.setdefault(node_name, RunStats())
+                    stats.run_count += 1
 
                     next_runtime_node, next_input_messages, next_edge_policy = (
                         self._transition_and_bypass(
