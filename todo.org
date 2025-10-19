@@ -8,7 +8,8 @@
 ** [ ] Tools
 ** [ ] Know
 ** [ ] Preprocessors
-** [ ] Hacking
+** [ ] Changing
+** [ ] Contribution rules
 * [ ] Preprocessors
 ** [ ] Figure out a way to print warnings or logs
 * [ ] Runner
@@ -27,8 +28,10 @@ Concrete example: files that were read and already in context.
 * [ ] [#A] Nested workflows support
 ** [X] Create API to start a new workflow
 ** [ ] Create a tool that allows LLMs to call into new workflows
-** [ ] Create node that starts a workflow with an input
-** [ ] Extend UI support to show stacking
+*** [X] Add a way for tools to request workflow executions
+*** [ ] Create configuration for nested workflows that are registered as tools
+** [X] Create node that starts a workflow with an input
+** [ ] Extend UI support to show workflow stacking
 * [ ] Error handling
 ** [ ] Add exception handlers
 *** [ ] Runner
