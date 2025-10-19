@@ -627,6 +627,7 @@ class LLMExecutor(Executor):
                 ),
                 state,
             )
+
             # Finalize: prepare final message and persist state. Allow post-final user reply on next cycle.
             final_msg = Message(role="agent", text=assistant_text, node=cfg.name)
             selected_outcome = outcome_name

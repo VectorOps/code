@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING, List, Union, Any, Dict
 import contextlib
 from vocode.settings_loader import build_model_from_settings
@@ -8,14 +9,24 @@ from vocode.runner.runner import Runner
 from vocode.runner.models import (
     RunEvent,
     RunInput,
+    ReqLogMessage,
     RespPacket,
     RespMessage,
     RespApproval,
     PACKET_TOKEN_USAGE,
     PACKET_FINAL_MESSAGE,
     PACKET_STATUS_CHANGE,
+    PACKET_START_WORKFLOW,
 )
-from vocode.state import Assignment, Message, RunnerStatus, RunStatus
+from vocode.state import (
+    Assignment,
+    Message,
+    RunnerStatus,
+    RunStatus,
+    Activity,
+    ActivityType,
+    LogLevel,
+)
 from vocode.models import Graph, Workflow
 from .proto import (
     UIPacket,
@@ -53,6 +64,16 @@ from .autocomplete import AutoCompletionManager
 from . import autocomplete_providers as acp
 
 
+@dataclass
+class RunnerFrame:
+    runner: Runner
+    workflow: Workflow
+    assignment: Assignment
+    agen: Any  # Async generator: AsyncIterator[RunEvent]
+    to_send: Optional[RunInput] = None
+    last_final: Optional[Message] = None
+
+
 class UIState:
     """
     Holds UI-related state and provides a high-level API around Runner.
@@ -64,6 +85,7 @@ class UIState:
         self.runner: Optional[Runner] = None
         self.workflow: Optional[Workflow] = None
         self.assignment: Optional[Assignment] = None
+        self.runner_stack: List[RunnerFrame] = []
         self._initial_message: Optional[Message] = None
 
         self._outgoing: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
@@ -96,6 +118,30 @@ class UIState:
         # Subscribe to project messages and forward to UI
         self._project_messages_task = asyncio.create_task(
             self._forward_project_messages()
+        )
+
+    def _top_frame(self) -> Optional[RunnerFrame]:
+        return self.runner_stack[-1] if self.runner_stack else None
+
+    def _create_runner_frame(
+        self,
+        workflow: Workflow,
+        *,
+        initial_message: Optional[Message] = None,
+        assignment: Optional[Assignment] = None,
+    ) -> RunnerFrame:
+        assign = assignment or Assignment()
+        runner = Runner(
+            workflow=workflow, project=self.project, initial_message=initial_message
+        )
+        agen = runner.run(assign)
+        return RunnerFrame(
+            runner=runner,
+            workflow=workflow,
+            assignment=assign,
+            agen=agen,
+            to_send=None,
+            last_final=None,
         )
 
     def _next_msg_id(self) -> int:
@@ -142,7 +188,6 @@ class UIState:
     async def start(
         self,
         workflow: Workflow,
-        *,
         initial_message: Optional[Message] = None,
         assignment: Optional[Assignment] = None,
     ) -> None:
@@ -158,14 +203,16 @@ class UIState:
                 self._selected_workflow_name = workflow.name
 
             if assignment and assignment.status == RunStatus.finished:
-                self.assignment = Assignment()
-            else:
-                self.assignment = assignment or Assignment()
+                assignment = Assignment()
 
             self._initial_message = initial_message
-            self.runner = Runner(
-                workflow=workflow, project=self.project, initial_message=initial_message
+            top_frame = self._create_runner_frame(
+                workflow, initial_message=initial_message, assignment=assignment
             )
+            self.runner_stack = [top_frame]
+            self.runner = top_frame.runner
+            self.workflow = top_frame.workflow
+            self.assignment = top_frame.assignment
             self._msg_counter = 0
             self._last_status = None
             self._stop_signal.clear()
@@ -174,29 +221,49 @@ class UIState:
             self._drive_task = asyncio.create_task(self._drive_runner())
             self._stop_watcher_task = asyncio.create_task(self._watch_stop_signal())
 
-    async def stop(self, *, wait: bool = True) -> None:
+    async def stop(self, wait: bool = True) -> None:
         """
-        Politely stop the runner (allowing it to be resumed later).
+        Politely stop the top-level runner (allowing it to be resumed later).
         """
         async with self._lock:
-            drive_task = self._drive_task
-            if self.runner is None or drive_task is None:
+            top = self._top_frame()
+            if top is None:
                 return
-            self._stop_signal.set()
-            self.runner.stop()
-            if wait:
+            # Request runner to stop (sets status and cancels any in-flight executor work)
+            top.runner.stop()
+            # Proactively break the driver out of any waits (e.g., pending UI RPC)
+            if self._drive_task and not self._drive_task.done():
+                # Inform watcher (if any) and directly cancel to ensure prompt exit
+                self._stop_signal.set()
+                self._drive_task.cancel()
+            if wait and self._drive_task is not None:
                 with contextlib.suppress(asyncio.CancelledError):
-                    await drive_task
+                    await self._drive_task
+            # Ensure the async generator is not reused after being closed by the driver
+            # so a later restart() will create a fresh generator tied to the current runner/assignment.
+            if top.agen is not None:
+                top.agen = None
 
     async def cancel(self) -> None:
         """
-        Cancel the current in-flight executor work (non-resumable).
+        Cancel all in-flight executor work (non-resumable).
         """
         async with self._lock:
-            if self.runner is None:
+            if not self.runner_stack:
                 return
-            self._stop_signal.set()
-            self.runner.cancel()
+            for f in self.runner_stack:
+                with contextlib.suppress(Exception):
+                    f.runner.cancel()
+            if self._drive_task and not self._drive_task.done():
+                self._drive_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._drive_task
+            self.runner_stack.clear()
+            self.runner = None
+            self.workflow = None
+            self.assignment = None
+            self._current_node_name = None
+            self._last_status = None
 
     async def restart(self) -> None:
         """
@@ -204,24 +271,30 @@ class UIState:
         If it has finished or been canceled, a fresh Runner is created with the last workflow.
         """
         async with self._lock:
-            prev_status = self.status
-            if self.workflow is None:
+            # Restart only the top-of-stack runner
+            top = self._top_frame()
+            if top is None:
                 raise RuntimeError("No workflow available to restart")
 
             # If there's no runner, or it finished/canceled, create a new one
-            if self.runner is None or self.runner.status in (
-                RunnerStatus.finished,
-                RunnerStatus.canceled,
-            ):
-                self.runner = Runner(
-                    workflow=self.workflow,
-                    project=self.project,
-                    initial_message=self._initial_message,
+            if top.runner.status in (RunnerStatus.finished, RunnerStatus.canceled):
+                replacement = self._create_runner_frame(
+                    top.workflow, initial_message=self._initial_message
                 )
+                # Preserve/refresh assignment if needed
+                if (
+                    top.assignment is None
+                    or top.assignment.status == RunStatus.finished
+                ):
+                    top.assignment = replacement.assignment
+                top.runner = replacement.runner
+                top.agen = replacement.agen
 
-            # Re-drive the same assignment (resume if stopped)
-            if self.assignment is None or self.assignment.status == RunStatus.finished:
-                self.assignment = Assignment()
+            if top.assignment is None or top.assignment.status == RunStatus.finished:
+                top.assignment = Assignment()
+            self.assignment = top.assignment
+            self.runner = top.runner
+            self.workflow = top.workflow
 
             # Prevent multiple drivers
             if self._drive_task and not self._drive_task.done():
@@ -244,7 +317,7 @@ class UIState:
         return list(self.project.settings.workflows.keys())
 
     async def start_by_name(
-        self, name: str, *, initial_message: Optional[Message] = None
+        self, name: str, initial_message: Optional[Message] = None
     ) -> None:
         # Clear project-level state when switching to a different workflow
         if (
@@ -315,6 +388,7 @@ class UIState:
 
     def is_active(self) -> bool:
         if self.status in (
+            RunnerStatus.idle,
             RunnerStatus.finished,
             RunnerStatus.stopped,
             RunnerStatus.canceled,
@@ -324,7 +398,8 @@ class UIState:
 
     @property
     def status(self) -> RunnerStatus:
-        return self.runner.status if self.runner else RunnerStatus.idle
+        top = self._top_frame()
+        return top.runner.status if top else RunnerStatus.idle
 
     @property
     def current_node_name(self) -> Optional[str]:
@@ -351,13 +426,14 @@ class UIState:
         Rewind the last n steps. Allowed only when the runner is not running or waiting for input.
         """
         async with self._lock:
-            if self.runner is None or self.assignment is None:
+            top = self._top_frame()
+            if top is None:
                 raise RuntimeError("No runner/assignment to rewind")
-            if self.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
+            if top.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
                 raise RuntimeError(
                     "Cannot rewind while runner is running or waiting for input"
                 )
-            await self.runner.rewind(self.assignment, n)
+            await top.runner.rewind(top.assignment, n)
 
     async def replace_user_input(
         self, resp: Union[RespMessage, RespApproval], n: Optional[int] = 1
@@ -367,13 +443,14 @@ class UIState:
         By default, it targets the last user input. A specific step can be targeted with step_index.
         """
         async with self._lock:
-            if self.runner is None or self.assignment is None:
+            top = self._top_frame()
+            if top is None:
                 raise RuntimeError("No runner/assignment available")
-            if self.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
+            if top.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
                 raise RuntimeError(
                     "Cannot replace input while runner is running or waiting for input"
                 )
-            self.runner.replace_user_input(self.assignment, resp, n=n)
+            top.runner.replace_user_input(top.assignment, resp, n=n)
 
     # ------------------------
     # Internal driver
@@ -386,10 +463,8 @@ class UIState:
             )
         )
 
-    async def _emit_status_if_changed(self) -> None:
-        if self.runner is None:
-            return
-        curr = self.runner.status
+    async def _emit_status(self, runner):
+        curr = runner.status
         if curr != self._last_status:
             await self._outgoing.put(
                 UIPacketEnvelope(
@@ -398,29 +473,53 @@ class UIState:
                 )
             )
             self._last_status = curr
-        # (Ticker logic removed: UIState emits status changes only.)
+
+    async def _emit_status_if_changed(self) -> None:
+        top = self._top_frame()
+        if top is None:
+            return
+
+        await self._emit_status(top.runner)
 
     async def _drive_runner(self) -> None:
         """
         Drive the Runner async generator, forwarding events to the UI and
         returning responses back to the Runner.
         """
-        if self.runner is None or self.assignment is None:
+        if not self.runner_stack:
             return
 
-        agen = self.runner.run(self.assignment)
-        to_send: Optional[RunInput] = None
+        # Ensure top frame agen is initialized
+        top = self._top_frame()
+        if top and top.agen is None:
+            top.agen = top.runner.run(top.assignment)
 
         try:
-            while True:
-                try:
-                    # Start/continue the runner
-                    req: RunEvent = await agen.asend(to_send)
-                    to_send = None
-                except StopAsyncIteration:
-                    # Final status notification
-                    await self._emit_status_if_changed()
+            while self.runner_stack:
+                frame = self._top_frame()
+                if frame is None:
                     break
+                runner = frame.runner
+                workflow = frame.workflow
+                agen = frame.agen
+                to_send = frame.to_send
+                frame.to_send = None
+                try:
+                    req: RunEvent = await agen.asend(to_send)
+                except StopAsyncIteration:
+                    # Done: bubble final message to previous frame (if any)
+                    finished = self.runner_stack.pop()
+                    parent = self._top_frame()
+                    if parent is not None and finished.last_final is not None:
+                        parent.to_send = RunInput(
+                            response=RespMessage(message=finished.last_final)
+                        )
+                        # Continue loop to drive parent
+                        continue
+                    else:
+                        # No parent or no final to bubble; emit final status and stop
+                        await self._emit_status(finished.runner)
+                        break
 
                 # Notify status transition, if any
                 await self._emit_status_if_changed()
@@ -429,8 +528,8 @@ class UIState:
                 if req.event.kind == PACKET_STATUS_CHANGE:
                     sc = req.event
                     node_description = None
-                    if sc.new_node and self.workflow:
-                        node = self.workflow.graph.node_by_name.get(sc.new_node)
+                    if sc.new_node and workflow:
+                        node = workflow.graph.node_by_name.get(sc.new_node)
                         if node:
                             node_description = node.description
 
@@ -451,18 +550,70 @@ class UIState:
                     to_send = None
                     continue
 
-                # Token usage packets are emitted but Project totals are updated by LLMExecutor directly.
-
                 # Decide if this event should be forwarded to the UI client.
                 # Suppress node finals when hide_final_output is True and no input is requested.
                 suppress_event = False
                 if req.event.kind == PACKET_FINAL_MESSAGE and not req.input_requested:
-                    if self.runner is not None:
-                        rn = self.runner.runtime_graph.get_runtime_node_by_name(
-                            req.node
+                    rn = runner.runtime_graph.get_runtime_node_by_name(req.node)
+                    if rn is not None and rn.model.hide_final_output:
+                        suppress_event = True
+
+                # Intercept start_workflow: push a child frame and continue
+                if req.event.kind == PACKET_START_WORKFLOW:
+                    sw = req.event
+                    try:
+                        if not self.project.settings or sw.workflow not in (
+                            self.project.settings.workflows or {}
+                        ):
+                            raise KeyError(f"Unknown workflow: {sw.workflow}")
+                        wf_cfg = self.project.settings.workflows[sw.workflow]
+                        child_graph = Graph(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
+                        child_wf = Workflow(name=sw.workflow, graph=child_graph)
+                        child_frame = self._create_runner_frame(
+                            child_wf, initial_message=sw.initial_message
                         )
-                        if rn is not None and rn.model.hide_final_output:
-                            suppress_event = True
+                        self.runner_stack.append(child_frame)
+                        # Update convenience refs to child
+                        self.runner = child_frame.runner
+                        self.workflow = child_frame.workflow
+                        self.assignment = child_frame.assignment
+                        # Continue to drive the child
+                        continue
+                    except Exception as e:
+                        # Child could not be started (e.g., unknown workflow or executor).
+                        # Emit a log event to the UI with the reason so the user sees details.
+                        error_text = (
+                            f"Failed to start workflow '{sw.workflow}': "
+                            f"{e.__class__.__name__}: {e}"
+                        )
+                        log_event = RunEvent(
+                            node=req.node,
+                            execution=(
+                                req.execution
+                                if req.execution is not None
+                                else Activity(type=ActivityType.executor)
+                            ),
+                            event=ReqLogMessage(text=error_text, level=LogLevel.error),
+                            input_requested=False,
+                        )
+                        await self._outgoing.put(
+                            UIPacketEnvelope(
+                                msg_id=self._next_msg_id(),
+                                payload=UIPacketRunEvent(event=log_event),
+                            )
+                        )
+
+                        # Resume parent with a generic error response so the workflow can continue/finalize.
+                        if frame is not None:
+                            frame.to_send = RunInput(
+                                response=RespMessage(
+                                    message=Message(
+                                        role="agent",
+                                        text="[error: child workflow failed to start]",
+                                    )
+                                )
+                            )
+                        continue
 
                 # Await UI response only if required
                 if req.input_requested and not suppress_event:
@@ -473,16 +624,15 @@ class UIState:
                     )
 
                     if response_payload and response_payload.kind == PACKET_RUN_INPUT:
-                        to_send = response_payload.input
+                        frame.to_send = response_payload.input
                     else:
                         if response_payload:
                             logger.warning(
                                 "UIState: Ignored mismatched RPC response",
                                 response=response_payload,
                             )
-                        to_send = None
+                        frame.to_send = None
                 else:
-                    to_send = None
                     if not suppress_event:
                         # Forward the run event to the UI client with a correlation id
                         self._current_node_name = req.node
@@ -493,11 +643,23 @@ class UIState:
                             )
                         )
 
+                # Record frame final messages for bubbling when generator exits
+                if req.event.kind == PACKET_FINAL_MESSAGE and not req.input_requested:
+                    frame.last_final = req.event.message
+                    if runner is not None:
+                        rn = runner.runtime_graph.get_runtime_node_by_name(req.node)
+                        if rn is not None and rn.model.hide_final_output:
+                            suppress_event = True
+
         except asyncio.CancelledError:
             # Runner was cancelled/stopped while waiting (e.g., for UI input).
-            # Close the generator and emit final status, then exit cleanly.
-            with contextlib.suppress(Exception):
-                await agen.aclose()
+            # Close the top generator if available, then emit final status.
+            top = self._top_frame()
+            if top and top.agen:
+                with contextlib.suppress(Exception):
+                    await top.agen.aclose()
+                # Mark agen as cleared so a future restart can recreate it
+                top.agen = None
             await self._emit_status_if_changed()
         except Exception as e:
             logger.exception("UIState: runner driver failed: %s", e)

@@ -84,6 +84,7 @@ Exception: Unable to convert openai tool calls={'role': 'assistant', 'content': 
 *** [ ] Skill parsers
 *** [ ] Generate tool stubs for skills
 ** [ ] Shell tool
+*** [ ] Add timeout
 *** [ ] Need comprehensive tests
 *** [ ] Windows shell support
 *** [ ] Non-POSIX shell support

@@ -93,7 +93,9 @@ class FakeRunner:
         node_hide_map = getattr(workflow, "node_hide_map", {})
         self.runtime_graph = SimpleNamespace(
             get_runtime_node_by_name=lambda name: SimpleNamespace(
-                model=SimpleNamespace(hide_final_output=bool(node_hide_map.get(name, False)))
+                model=SimpleNamespace(
+                    hide_final_output=bool(node_hide_map.get(name, False))
+                )
             )
         )
 
@@ -343,15 +345,16 @@ def test_project_state_reset_clears(monkeypatch):
 
         # Reset should clear project-level state
         await ui.reset()
-        assert ps.get("k2") is None
 
-        # Cleanup: cancel the restarted driver to avoid leaks
-        await ui.cancel()
-        # After reset, a UIReset packet is emitted. We need to consume it
-        # before we can receive the final status packet from cancellation.
+        assert ps.get("k2") is None
+        # After reset, UIState sends a UIReset (and may emit status for the restarted run). Drain them.
         s_end_reset_env = await _recv_skip_node_status(ui)
         assert isinstance(s_end_reset_env.payload, UIPacketUIReset)
-        s_end_env = await _recv_skip_node_status(ui)
-        assert isinstance(s_end_env.payload, UIPacketStatus)
+        s_post_reset_env = await _recv_skip_node_status(ui)
+        assert isinstance(s_post_reset_env.payload, UIPacketStatus)
+
+        # Cleanup: cancel the restarted driver to avoid leaks.
+        # Note: cancel() does not guarantee any additional UI messages.
+        await ui.cancel()
 
     asyncio.run(scenario())

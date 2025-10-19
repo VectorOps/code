@@ -13,6 +13,7 @@ PACKET_APPROVAL = "approval"
 PACKET_TOKEN_USAGE = "token_usage"
 PACKET_STATUS_CHANGE = "status_change"
 PACKET_STOP = "stop"
+PACKET_START_WORKFLOW = "start_workflow"
 
 # Packet kinds that are considered "interim" (do not end an executor cycle)
 INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_LOG, PACKET_TOKEN_USAGE)
@@ -96,6 +97,15 @@ class ReqLogMessage(BaseModel):
     text: str
     level: Optional[LogLevel] = None
 
+class ReqStartWorkflow(BaseModel):
+    """
+    Runner-level request to start another workflow and return its final message
+    back to the requesting executor as a RespMessage. Handled internally by UIState.
+    """
+    kind: Literal["start_workflow"] = PACKET_START_WORKFLOW
+    workflow: str
+    initial_message: Optional[Message] = None
+
 class ReqStatusChange(BaseModel):
     """
     Runner-emitted packet indicating a transition between nodes (and optional status change).
@@ -124,6 +134,7 @@ ReqPacket = Annotated[
         ReqLogMessage,
         ReqStatusChange,
         ReqStop,
+        ReqStartWorkflow,
     ],
     Field(discriminator="kind"),
 ]

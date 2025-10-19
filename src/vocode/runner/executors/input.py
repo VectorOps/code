@@ -32,6 +32,7 @@ class InputExecutor(Executor):
         self, inp: ExecRunInput
     ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: InputNode = self.config  # type: ignore[assignment]
+
         # If runner already provided a user message, finalize immediately.
         if (
             inp.response is not None
@@ -42,5 +43,6 @@ class InputExecutor(Executor):
             final_msg = Message(role="user", text=user_text)
             yield ReqFinalMessage(message=final_msg), inp.state
             return
+
         # Otherwise, prompt and request a user message (optionally with display text).
         yield ReqMessageRequest(message=cfg.message), inp.state

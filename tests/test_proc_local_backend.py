@@ -58,7 +58,6 @@ def test_local_backend_env_policy_denylist(monkeypatch, tmp_path: Path):
             SpawnOptions(command="printf '%s\\n' \"$ZREM\"", cwd=tmp_path)
         )
         out = await _read_all_stdout(handle)
-        print(out)
         rc = await handle.wait()
         assert rc == 0
         assert out == "\n"

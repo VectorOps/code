@@ -521,7 +521,6 @@ async def test_replace_input_for_pending_request_with_approval_is_ignored(
         runs = 0
 
         async def run(self, inp):
-            print("RUN")
             type(self).runs += 1
             # Should not receive approval; if it does, it will be ignored by logic
             assert not (inp.response and inp.response.kind == "approval")

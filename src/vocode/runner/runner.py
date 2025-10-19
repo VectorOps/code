@@ -52,6 +52,8 @@ from vocode.runner.models import (
     PACKET_STATUS_CHANGE,
     ReqStatusChange,
     PACKET_STOP,
+    PACKET_START_WORKFLOW,
+    ReqStartWorkflow,
 )
 
 
@@ -196,6 +198,7 @@ class Runner:
         if self._current_exec_task and not self._current_exec_task.done():
             self._internal_cancel_requested = True
             self._current_exec_task.cancel()
+        # hygiene: no debug prints
 
     def _compute_node_transition(
         self, current_runtime_node, exec_activity: Activity, step: Step
@@ -416,6 +419,9 @@ class Runner:
     def _is_input_requested(self, req: ReqPacket, node_conf: Confirmation) -> bool:
         if req.kind == PACKET_MESSAGE_REQUEST:
             return True
+        if req.kind == PACKET_START_WORKFLOW:
+            # UIState will produce a message (child final) to resume the executor
+            return True
         if req.kind == PACKET_TOOL_CALL:
             # Request input if any tool call is not explicitly auto-approved (None or False)
             def _needs_approval(v: Any) -> bool:
@@ -533,7 +539,6 @@ class Runner:
         activities_to_skip = n
 
         for activity_info in self._iter_retriable_activities_backward(task):
-            print(activity_info)
             activities_to_skip -= 1
             if activities_to_skip == 0:
                 target_activity_info = activity_info
@@ -1055,8 +1060,11 @@ class Runner:
                     resp = await self._run_tools(req, resp_packet)
                     continue
 
-                # PACKET_MESSAGE_REQUEST: ask for user message then re-run executor with it
-                if req.kind == PACKET_MESSAGE_REQUEST:
+                # PACKET_MESSAGE_REQUEST / PACKET_START_WORKFLOW: ask for message then re-run executor with it
+                if (
+                    req.kind == PACKET_MESSAGE_REQUEST
+                    or req.kind == PACKET_START_WORKFLOW
+                ):
                     # Require a message; keep prompting until we get one
                     user_msg_packet: Optional[RespMessage] = None
                     while True:
