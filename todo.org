@@ -13,6 +13,7 @@
 ** [ ] Figure out a way to print warnings or logs
 * [ ] Runner
 ** [ ] [#A] Add a way to restrict number of loops when cycling
+** [ ] Add a way to tell how many times node can be executed and skip if more times have passed
 ** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
 * [ ] Configuration
 ** [ ] Add a way to fully disable know
@@ -73,6 +74,10 @@ Exception: Unable to convert openai tool calls={'role': 'assistant', 'content': 
 *** [ ] Also create preprocessor
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
+** [ ] Exec node
+*** [ ] Add timeout
+*** [ ] Need comprehensive tests
+*** [ ] Use containerization / sandboxing framework when available
 * [ ] Tools
 ** [ ] Integrate Know
 *** [ ] Figure out how to express 3rd party dependencies and give access
@@ -83,13 +88,11 @@ Exception: Unable to convert openai tool calls={'role': 'assistant', 'content': 
 *** [ ] Skill parsers
 *** [ ] Generate tool stubs for skills
 ** [ ] Shell tool
-*** [ ] Add timeout
-*** [ ] Need comprehensive tests
 *** [ ] Windows shell support
 *** [ ] Non-POSIX shell support
 *** [ ] PTY support
-*** [ ] Containerization
-*** [ ] Sandboxing
+*** [ ] Containerization / sandboxing
+*** [ ] Add timeout
 ** [ ] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Ensure that cwd is passed correctly

@@ -1,8 +1,37 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, TYPE_CHECKING, Optional
+from typing import Any, Dict, TYPE_CHECKING, Optional, Annotated, Union
+from enum import Enum
+from pydantic import BaseModel, Field
+from vocode.state import Message
 
 if TYPE_CHECKING:
     from .project import Project
+
+
+# Models
+class ToolResponseType(str, Enum):
+    text = "text"
+    start_workflow = "start_workflow"
+
+
+class ToolTextResponse(BaseModel):
+    type: ToolResponseType = Field(default=ToolResponseType.text)
+    text: Optional[str] = None
+
+
+class ToolStartWorkflowResponse(BaseModel):
+    type: ToolResponseType = Field(default=ToolResponseType.start_workflow)
+    workflow: str
+    # Optional initial text to seed the nested workflow (wrapped as a user Message).
+    initial_text: Optional[str] = None
+    # Optional advanced form; if provided, initial_text is ignored.
+    initial_message: Optional[Message] = None
+
+
+ToolResponse = Annotated[
+    Union[ToolTextResponse, ToolStartWorkflowResponse],
+    Field(discriminator="type"),
+]
 
 
 # Global registry of tool name -> tool instance
@@ -40,12 +69,14 @@ class BaseTool(ABC):
         pass
 
     @abstractmethod
-    async def run(self, project: "Project", args: Any) -> Optional[str]:
+    async def run(self, project: "Project", args: Any) -> Optional[ToolResponse]:
         """
         Execute this tool within the context of the given Project.
         Args:
             project: The active project context.
             args: Parsed arguments structure (e.g., dict or Pydantic model). Not a JSON string.
+        Returns:
+            ToolResponse describing either final text, or a request to start a nested workflow.
         """
         pass
 

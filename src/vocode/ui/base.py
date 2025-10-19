@@ -644,7 +644,7 @@ class UIState:
                         )
 
                 # Record frame final messages for bubbling when generator exits
-                if req.event.kind == PACKET_FINAL_MESSAGE and not req.input_requested:
+                if req.event.kind == PACKET_FINAL_MESSAGE:
                     frame.last_final = req.event.message
                     if runner is not None:
                         rn = runner.runtime_graph.get_runtime_node_by_name(req.node)

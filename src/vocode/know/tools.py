@@ -5,8 +5,8 @@ from typing import Any, Optional, TYPE_CHECKING, Union
 from pydantic import BaseModel
 
 from know.tools.base import BaseTool as KnowBaseTool, ToolRegistry as KnowToolRegistry
-
-from ..tools import BaseTool, register_tool
+from ..tools import BaseTool, register_tool, ToolTextResponse
+ 
 from .project import know_thread
 
 if TYPE_CHECKING:
@@ -26,15 +26,18 @@ class _KnowToolWrapper(BaseTool):
     def openapi_spec(self) -> dict[str, Any]:
         return self._know_tool.get_openai_schema()
 
-    async def run(self, project: "Project", args: Any) -> Optional[str]:
+    async def run(self, project: "Project", args: Any) -> ToolTextResponse:
         def do_execute():
             return self._know_tool.execute(project.know.pm, args)
 
         try:
-            return await know_thread.async_proxy()(do_execute)()
+            result = await know_thread.async_proxy()(do_execute)()
+            return ToolTextResponse(text=result if result is not None else None)
         except Exception as e:
             # Return a structured error instead of propagating.
-            return json.dumps({"error": f"Know tool '{self.name}' failed: {e}"})
+            return ToolTextResponse(
+                text=json.dumps({"error": f"Know tool '{self.name}' failed: {e}"})
+            )
 
 
 _know_tools_registered = False

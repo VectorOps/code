@@ -87,7 +87,9 @@ tools:
         tool = project.tools["mcp_echo"]
         # Run the tool with empty args (tools accept Any; dict preferred)
         res = await tool.run(project, {})
-        assert res == ""
+        # Support both legacy str and new ToolTextResponse
+        res_text = res.text if hasattr(res, "text") else res
+        assert res_text == ""
 
     # Post-exit, the tool should be unregistered from the global registry
     from vocode.tools import get_all_tools
@@ -155,7 +157,9 @@ tools:
 
         # Invoke the MCP tool through the proxy
         res = await project.tools["mcp_echo"].run(project, {"text": "hello"})
-        assert res == "hello"
+        # Support both legacy str and new ToolTextResponse
+        res_text = res.text if hasattr(res, "text") else res
+        assert res_text == "hello"
 
     # 4) After sandbox exit, project.shutdown() should have stopped MCPManager and terminated the server.
     #    The server script removes the pidfile on exit, so its absence implies process shutdown.

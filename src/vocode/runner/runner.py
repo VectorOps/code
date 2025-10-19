@@ -13,6 +13,7 @@ from typing import (
 import asyncio
 import json
 from dataclasses import dataclass
+from enum import Enum
 
 if TYPE_CHECKING:
     from vocode.project import Project
@@ -56,6 +57,14 @@ from vocode.runner.models import (
     ReqStartWorkflow,
 )
 
+from vocode.tools import ToolResponse, ToolResponseType
+
+
+# Yield kind for tool processing results
+class ToolResultType(str, Enum):
+    final = "final"
+    start_workflow = "start_workflow"
+
 
 class Executor:
     # Subclasses must set 'type' to the Node.type they handle
@@ -71,7 +80,6 @@ class Executor:
 
     def __init__(self, config: Node, project: "Project"):
         """Initialize an executor instance with its corresponding Node config and Project."""
-        # Configuration object of the corresponding Node (may be a Node subclass)
         self.config = config
         self.project = project
 
@@ -436,39 +444,61 @@ class Runner:
         self,
         req: ReqToolCall,
         resp_packet: Optional[RespPacket],
-    ) -> RespToolCall:
+    ) -> AsyncIterator[tuple[ToolResultType, int, Any]]:
         # Default approval unless provided explicitly
         approved = True
         if resp_packet is not None and resp_packet.kind == PACKET_APPROVAL:
             approved = resp_packet.approved
 
-        updated_tool_calls = []
-        for tc in req.tool_calls:
+        for idx, tc in enumerate(req.tool_calls):
             if not approved:
                 tc.status = ToolCallStatus.rejected
                 tc.result = json.dumps({"error": "Tool call rejected by user"})
-                updated_tool_calls.append(tc.model_copy(deep=True))
+                yield (ToolResultType.final, idx, tc.model_copy(deep=True))
                 continue
 
             tool = self.project.tools.get(tc.name)
             if tool is None:
                 tc.status = ToolCallStatus.rejected
                 tc.result = json.dumps({"error": f"Unknown tool '{tc.name}'"})
-                updated_tool_calls.append(tc.model_copy(deep=True))
+                yield (ToolResultType.final, idx, tc.model_copy(deep=True))
                 continue
 
             try:
-                # Pass parsed arguments as-is to the tool
-                result = await tool.run(self.project, tc.arguments)
-                tc.status = ToolCallStatus.completed
-                tc.result = result
+                # Execute tool; it returns a ToolResponse
+                result: Optional[ToolResponse] = await tool.run(
+                    self.project, tc.arguments
+                )
+                # Route by enum discriminator
+                if result is None or result.type == ToolResponseType.text:
+                    text = None if result is None else result.text  # type: ignore[union-attr]
+                    tc.status = ToolCallStatus.completed
+                    tc.result = text
+                    yield (ToolResultType.final, idx, tc.model_copy(deep=True))
+                elif result.type == ToolResponseType.start_workflow:
+                    # Request a nested workflow via UI
+                    init_msg = result.initial_message
+                    if init_msg is None and result.initial_text:
+                        init_msg = Message(role="user", text=result.initial_text)  # type: ignore[attr-defined]
+                    req_sw = ReqStartWorkflow(
+                        workflow=result.workflow,  # type: ignore[union-attr]
+                        initial_message=init_msg,
+                    )
+                    # Emit start_workflow to caller with a template to finalize later
+                    yield (
+                        ToolResultType.start_workflow,
+                        idx,
+                        (req_sw, tc.model_copy(deep=True)),
+                    )
+                else:
+                    # Unknown response shape; treat as error
+                    tc.status = ToolCallStatus.rejected
+                    tc.result = json.dumps({"error": "Unsupported tool response"})
+                    yield (ToolResultType.final, idx, tc.model_copy(deep=True))
             except Exception as e:
                 tc.status = ToolCallStatus.rejected
                 tc.result = json.dumps({"error": f"Tool '{tc.name}' failed: {str(e)}"})
-
-            updated_tool_calls.append(tc.model_copy(deep=True))
-
-        return RespToolCall(tool_calls=updated_tool_calls)
+                yield (ToolResultType.final, idx, tc.model_copy(deep=True))
 
     def _iter_retriable_activities_backward(
         self, task: Assignment, start_step_index: Optional[int] = None
@@ -1057,7 +1087,62 @@ class Runner:
 
                 # PACKET_TOOL_CALL: execute tools and re-run executor with results
                 if req.kind == PACKET_TOOL_CALL:
-                    resp = await self._run_tools(req, resp_packet)
+                    # Accumulate results per index and drive any nested workflows via UI
+                    results_by_index: Dict[int, Any] = {}
+                    async for kind, idx, payload in self._run_tools(req, resp_packet):
+                        if kind == ToolResultType.final:
+                            results_by_index[idx] = payload
+                            continue
+                        if kind == ToolResultType.start_workflow:
+                            req_sw, tc_template = payload
+                            # Emit start_workflow and wait for bubbled final message
+                            user_msg_packet: Optional[RespMessage] = None
+                            while True:
+                                run_event = RunEvent(
+                                    node=current_runtime_node.name,
+                                    execution=resp_activity,
+                                    event=req_sw,
+                                    input_requested=True,
+                                )
+                                run_input = yield run_event
+                                resp_packet = (
+                                    run_input.response
+                                    if run_input is not None
+                                    else None
+                                )
+                                if (
+                                    resp_packet is not None
+                                    and resp_packet.kind == PACKET_MESSAGE
+                                ):
+                                    user_msg_packet = resp_packet
+                                    break
+                                # Otherwise, continue waiting for UI to bubble final
+
+                            # Finalize the pending tool call with the child's final text
+                            final_text = (
+                                user_msg_packet.message.text
+                                if user_msg_packet and user_msg_packet.message
+                                else None
+                            )
+                            tc_template.status = ToolCallStatus.completed
+                            tc_template.result = final_text
+                            results_by_index[idx] = tc_template.model_copy(deep=True)
+                            continue
+
+                    # Build final tool_calls in original order
+                    ordered = []
+                    for i, _ in enumerate(req.tool_calls):
+                        upd = results_by_index.get(i)
+                        if upd is None:
+                            # Safeguard: reject missing
+                            tc = req.tool_calls[i].model_copy(deep=True)
+                            tc.status = ToolCallStatus.rejected
+                            tc.result = json.dumps(
+                                {"error": "Tool call did not produce a result"}
+                            )
+                            upd = tc
+                        ordered.append(upd)
+                    resp = RespToolCall(tool_calls=ordered)
                     continue
 
                 # PACKET_MESSAGE_REQUEST / PACKET_START_WORKFLOW: ask for message then re-run executor with it
