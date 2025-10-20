@@ -2089,3 +2089,56 @@ async def test_executor_can_request_stop(tmp_path: Path):
         with pytest.raises(StopAsyncIteration):
             await asend_wrap(it, None)
         assert runner.status == RunnerStatus.stopped
+
+
+@pytest.mark.asyncio
+async def test_wait_for_executor_after_final(tmp_path: Path):
+    # Graph: A(wait) -> B(basic). A emits final then a post-final log; runner must not transition
+    # to B until A finishes (post-final log drained).
+    nodes = [
+        {"name": "A", "type": "wait_type", "outcomes": [OutcomeSlot(name="toB")]},
+        {"name": "B", "type": "b_type", "outcomes": []},
+    ]
+    edges = [Edge(source_node="A", source_outcome="toB", target_node="B")]
+    g = Graph(nodes=nodes, edges=edges)
+    workflow = Workflow(name="workflow", graph=g)
+
+    class WaitExec(Executor):
+        type = "wait_type"
+
+        async def run(self, inp):
+            # Emit final to go to B, then a post-final log before finishing
+            yield (ReqFinalMessage(message=msg("agent", "A done"), outcome_name="toB"), None)
+            # Simulate cleanup/log after final
+            yield (ReqLogMessage(text="post-final log"), None)
+
+    class BExec(Executor):
+        type = "b_type"
+
+        async def run(self, inp):
+            yield (ReqFinalMessage(message=msg("agent", "B done")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        # First: A final
+        ev_a_final = await next_event_wrap(it)
+        assert ev_a_final.node == "A" and ev_a_final.event.kind == "final_message"
+
+        # Accept and expect the post-final log from A next (no transition yet)
+        ev_a_log = await asend_wrap(it, None)
+        assert ev_a_log.node == "A" and ev_a_log.event.kind == "log"
+        assert ev_a_log.input_requested is False
+
+        # Next event should be B's final (after A finished)
+        ev_b_final = await next_event_wrap(it)
+        assert ev_b_final.node == "B" and ev_b_final.event.kind == "final_message"
+
+        with pytest.raises(StopAsyncIteration):
+            await asend_wrap(it, None)
+
+        assert runner.status == RunnerStatus.finished
+        assert task.status == RunStatus.finished
+        assert [s.node for s in task.steps] == ["A", "B"]

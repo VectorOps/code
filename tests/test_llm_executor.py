@@ -655,3 +655,36 @@ async def test_llm_executor_system_append_included_in_messages(monkeypatch, tmp_
         sent_msgs = stub.calls[0]["messages"]
         assert sent_msgs[0]["role"] == "system"
         assert sent_msgs[0]["content"] == "Base EXT"
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_emits_post_final_token_pct_log(monkeypatch, tmp_path):
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        outcomes=[OutcomeSlot(name="done")],
+        outcome_strategy=OutcomeStrategy.function_call,
+    )
+    seq = [chunk_content("ok")]
+    stub = ACompletionStub([seq])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        # Configure project-level token limit
+        project.llm_usage.token_limit = 1000
+
+        execu = LLMExecutor(cfg, project)
+        agen = execu.run(
+            ExecRunInput(messages=[Message(role="user", text="hello")], state=None)
+        )
+
+        # Drain until final message
+        _, pkt_final, _ = await drain_until_non_interim(agen)
+        assert pkt_final.kind == "final_message"
+        assert pkt_final.message is not None and pkt_final.message.text == "ok"
+
+        # Next packet must be the post-final info log
+        pkt_log, _ = await anext(agen)
+        assert pkt_log.kind == "log"
+        # With no provider usage in stub, current session tokens remain 0 -> 0%
+        assert "Token usage: 0% of limit (0 / 1000)" in pkt_log.text

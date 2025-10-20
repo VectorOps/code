@@ -14,15 +14,15 @@
 ** [ ] Figure out a way to print warnings or logs
 * [ ] Runner
 ** [ ] [#A] Add a way to restrict number of loops when cycling
-** [ ] Add a way to tell how many times node can be executed and skip if more times have passed
+** [X] Add a way to tell how many times node can be executed and skip if more times have passed
 ** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
 * [ ] Configuration
-** [ ] Add a way to fully disable know
+** [ ] Add a way to fully disable know integration
 ** [ ] Figure out why confirmation override for discovery did not work
 ** [ ] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
 ** [ ] [#A] Tweak prompt for discovery to only work with existing files
-** [ ] Rewrite system prompt for analyst node
 Concrete example: files that were read and already in context.
+** [ ] Rewrite system prompt for analyst node
 * [ ] UI protocol
 ** [ ] Add syntax name hint to apply formatting
 * [ ] [#A] Nested workflows support
@@ -42,8 +42,15 @@ Concrete example: files that were read and already in context.
 Unclosed client session
 client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Terminal UI
-** [ ] Debug
 ** [ ] Figure out a way to avoid showing nested output for workflow (tool calls, etc)
+*** [ ] Ideas
+- Group messages to current workflow by name
+- Workflow can have display mode
+- Have a way to accumulate messages without printing
+- If input is requested for one of the messages and output is hidden for workflow - need to show output
+  and ask for user input
+- If workflow is visible - print immediately
+- Create helper that takes in formatted text and accumulates / prints it
 *** [ ] Add a hotkey to show collapsed output
 ** [ ] Better visual separation of prompts vs responses
 ** [ ] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
@@ -57,8 +64,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Format tool calls
 *** [ ] Add a way (tab?) to expand/collapse JSON
 *** [ ] Require all tool calls from LLM to have description (Key Objective)
-** [?] We might have deadlock somewhere that does not break with ctrl+c
-- Added debugging stacktraces for now
+** [X] We might have deadlock somewhere that does not break with ctrl+c
 ** [ ] Fix estimated cost calculation
 * [ ] Block parsers
 ** [ ] Diff parsers
@@ -69,8 +75,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Nodes
 ** [ ] Add a node that injects files in context. Add file manager.
 ** [ ] LLM node
-*** [ ] If call does not have correct payload that's not JSON - should respond back with an error immediately
-Exception: Unable to convert openai tool calls={'role': 'assistant', 'content': "Of course. This is a classic state management and architectural problem. Let's analyze the three proposed approaches to creating stackable Runners.\n\nTo make the analysis more concrete, I will first search for the definitions of `Runner` and `UIState` to understand their current roles in the system.\n\n", 'tool_calls': [{'id': 'call_79eebc90de2b4b61ba97cc51bc7a', 'type': 'function', 'function': {'name': 'vectorops_search', 'arguments': '{"query": "Runner class", "kind": "class", "limit": 1}{"kind": "class", "query": "UIState class", "limit": 1}'}}]} to gemini tool calls. Received error=Extra data: line 1 column 55 (char 54)
+*** [X] If call does not have correct payload that's not JSON - should respond back with an error immediately
 *** [ ] Report tool token usage
 *** [ ] Report % token usage
 *** [ ] Add tool calling budgets (number of calls, tokens, etc)
@@ -94,6 +99,7 @@ Exception: Unable to convert openai tool calls={'role': 'assistant', 'content': 
 ** [ ] Skills
 *** [ ] Skill parsers
 *** [ ] Generate tool stubs for skills
+** [ ] Web client tool
 ** [ ] Shell tool
 *** [ ] Windows shell support
 *** [ ] Non-POSIX shell support

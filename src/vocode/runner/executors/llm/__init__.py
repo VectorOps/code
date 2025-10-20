@@ -575,6 +575,23 @@ class LLMExecutor(Executor):
                         ),
                         state,
                     )
+                    # Post-final info log: current session token usage vs configured project limit
+                    try:
+                        token_limit = getattr(self.project.llm_usage, "token_limit", None)
+                        if isinstance(token_limit, int) and token_limit > 0:
+                            used_tokens = int(
+                                state.total_prompt_tokens + state.total_completion_tokens
+                            )
+                            pct = int(round((used_tokens / token_limit) * 100.0))
+                            _ = yield (
+                                ReqLogMessage(
+                                    level=LogLevel.info,
+                                    text=f"Token usage: {pct}% of limit ({used_tokens} / {token_limit})",
+                                ),
+                                state,
+                            )
+                    except Exception:
+                        pass
                     return
 
             assistant_text = "".join(assistant_text_parts)
@@ -743,4 +760,22 @@ class LLMExecutor(Executor):
                 ReqFinalMessage(message=final_msg, outcome_name=selected_outcome),
                 state,
             )
+            # Post-final info log: current session token usage vs configured project limit
+            try:
+                token_limit = getattr(self.project.llm_usage, "token_limit", None)
+                if isinstance(token_limit, int) and token_limit > 0:
+                    used_tokens = int(
+                        state.total_prompt_tokens + state.total_completion_tokens
+                    )
+                    pct = int(round((used_tokens / token_limit) * 100.0))
+                    _ = yield (
+                        ReqLogMessage(
+                            level=LogLevel.info,
+                            text=f"Token usage: {pct}% of limit ({used_tokens} / {token_limit})",
+                        ),
+                        state,
+                    )
+            except Exception:
+                # Do not fail run on logging issues
+                pass
             return

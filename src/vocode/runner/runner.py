@@ -769,6 +769,7 @@ class Runner:
 
         # Main loop
         while True:
+            current_agen = None  # track current executor generator for possible post-final drain
             # If current node (or a chain) is skippable (skip=True or max_runs limit), bypass before creating a step.
             if current_runtime_node is not None:
                 next_node, pending_input_messages, skip_edge_policy = self._bypass_skipped_nodes(
@@ -855,6 +856,7 @@ class Runner:
                             messages=msgs_for_cycle, state=current_state, response=resp
                         )
                     )
+                    current_agen = agen
 
                     # Stream interim messages; stop at first non-message packet
                     try:
@@ -903,6 +905,7 @@ class Runner:
                     except StopAsyncIteration:
                         # Executor ended without emitting a completion packet; treat as done for this cycle
                         req = None
+                        current_agen = None
 
                 # If nothing returned, mark step finished and transition
                 if req is None:
@@ -1090,6 +1093,52 @@ class Runner:
                     # Increment run count for this node execution
                     stats = self._run_stats.setdefault(node_name, RunStats())
                     stats.run_count += 1
+                    # After final acceptance, drain any remaining interim events from this executor
+                    # before transitioning to the next node. This allows executors to emit logs/usage
+                    # or perform cleanup prior to exit.
+                    if current_agen is not None:
+                        try:
+                            while True:
+                                try:
+                                    self._current_exec_task = asyncio.create_task(
+                                        anext(current_agen)
+                                    )
+                                    post_pkt, post_state = await self._current_exec_task
+                                finally:
+                                    self._current_exec_task = None
+
+                                if post_state is not None:
+                                    current_state = post_state
+
+                                if post_pkt.kind in INTERIM_PACKETS:
+                                    self.status = RunnerStatus.running
+                                    interim_act = Activity(
+                                        type=ActivityType.executor,
+                                        message=(
+                                            post_pkt.message
+                                            if post_pkt.kind == PACKET_MESSAGE
+                                            else None
+                                        ),
+                                        is_complete=False,
+                                        runner_state=RunnerState(
+                                            state=current_state, req=post_pkt, response=None
+                                        ),
+                                        ephemeral=True,
+                                    )
+                                    run_event = RunEvent(
+                                        node=current_runtime_node.name,
+                                        execution=interim_act,
+                                        event=post_pkt,
+                                        input_requested=False,
+                                    )
+                                    _ = yield run_event
+                                    continue
+                                # Ignore any non-interim packets emitted after final.
+                                continue
+                        except StopAsyncIteration:
+                            pass
+                        finally:
+                            current_agen = None
 
                     next_runtime_node, next_input_messages, next_edge_policy = (
                         self._transition_and_bypass(

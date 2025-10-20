@@ -455,6 +455,7 @@ class TerminalApp:
                 self.session.app.invalidate()
             await self._update_toolbar_ticker()
             return
+
         if ev.kind == PACKET_TOOL_CALL:
             self.last_streamed_text = None  # New stream context, clear old state
             # Render each tool call as a formatted function-call preview.
@@ -508,24 +509,13 @@ class TerminalApp:
                 self.session.app.invalidate()
             await self._update_toolbar_ticker()
             return
+
         if ev.kind == PACKET_FINAL_MESSAGE:
             streamed_text = self.last_streamed_text
             self.last_streamed_text = None  # Consume it
             if ev.message:
                 # If the final message is the same as what we just streamed, don't print it.
                 if streamed_text is None or ev.message.text != streamed_text:
-                    if streamed_text is not None and ev.message.text:
-                        # TODO: Remove
-                        diff = difflib.unified_diff(
-                            streamed_text.splitlines(keepends=True),
-                            ev.message.text.splitlines(keepends=True),
-                            fromfile="streamed",
-                            tofile="final",
-                        )
-                        await out("=" * 20 + " DEBUG DIFF " + "=" * 20)
-                        await out("".join(diff))
-                        await out("=" * 52)
-                    # Do not include any speaker/role prefix in final message output
                     text = ev.message.text or ""
                     await out_fmt(colors.render_markdown(text))
             self.pending_req_env = (
