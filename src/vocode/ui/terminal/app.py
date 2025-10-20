@@ -706,6 +706,9 @@ class TerminalApp:
 
         end_time = time.monotonic()
         await out(f"Project started in {end_time - start_time:.2f}s.")
+        # Start default workflow if configured
+        if self.project.settings and self.project.settings.default_workflow:
+            await self.ui.start_by_name(self.project.settings.default_workflow)
 
         await out("Type /help for commands.")
 

@@ -9,6 +9,7 @@ variables:
 #  LLM_ARCHITECT_MODEL: gemini/gemini-2.5-pro
 #  LLM_CODER_MODEL: gemini/gemini-2.5-flash
 #  LLM_DIFF_FORMAT: patch
+default_workflow: "architect"
 tools:
   - name: vectorops_read_files
     auto_approve: true

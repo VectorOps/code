@@ -26,7 +26,7 @@ VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 INCLUDE_KEY: Final[str] = "$include"
 
 
-class Workflow(BaseModel):
+class WorkflowConfig(BaseModel):
     name: Optional[str] = None
     # Human-readable purpose/summary for this workflow; used in tool descriptions.
     description: Optional[str] = None
@@ -158,7 +158,9 @@ class ProcessSettings(BaseModel):
 
 
 class Settings(BaseModel):
-    workflows: Dict[str, Workflow] = Field(default_factory=dict)
+    workflows: Dict[str, WorkflowConfig] = Field(default_factory=dict)
+    # Optional name of the workflow to auto-start in interactive UIs
+    default_workflow: Optional[str] = Field(default=None)
     tools: List[ToolSpec] = Field(default_factory=list)
     know: Optional[KnowProjectSettings] = Field(default=None)
     ui: Optional[UISettings] = Field(default=None)
