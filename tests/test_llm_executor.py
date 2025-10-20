@@ -26,6 +26,14 @@ from vocode.settings import ToolSpec
 def chunk_content(text: str):
     return {"choices": [{"delta": {"content": text}}]}
 
+class _DummyUsage:
+    def __init__(self, prompt_tokens: int, completion_tokens: int):
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+
+def chunk_usage(prompt_tokens: int, completion_tokens: int):
+    return {"choices": [{"delta": {}}], "usage": _DummyUsage(prompt_tokens, completion_tokens)}
+
 
 def chunk_tool_call(index: int, call_id: str, name: str, args_part: str):
     return {
@@ -664,14 +672,15 @@ async def test_llm_executor_emits_post_final_token_pct_log(monkeypatch, tmp_path
         model="gpt-x",
         outcomes=[OutcomeSlot(name="done")],
         outcome_strategy=OutcomeStrategy.function_call,
+        # Provide model context window for percentage-based logging
+        extra={"model_max_tokens": 1000},
     )
     seq = [chunk_content("ok")]
     stub = ACompletionStub([seq])
     monkeypatch.setattr(llm_mod, "acompletion", stub)
 
     async with ProjectSandbox.create(tmp_path) as project:
-        # Configure project-level token limit
-        project.llm_usage.token_limit = 1000
+        # Note: model context window is set on node.extra above.
 
         execu = LLMExecutor(cfg, project)
         agen = execu.run(
@@ -686,5 +695,30 @@ async def test_llm_executor_emits_post_final_token_pct_log(monkeypatch, tmp_path
         # Next packet must be the post-final info log
         pkt_log, _ = await anext(agen)
         assert pkt_log.kind == "log"
-        # With no provider usage in stub, current session tokens remain 0 -> 0%
-        assert "Token usage: 0% of limit (0 / 1000)" in pkt_log.text
+        # Provider usage is missing in the stub; executor estimates tokens via token_counter.
+        # Accept any percentage/tokens against the configured limit (1000).
+        assert pkt_log.text.startswith("Token usage: ")
+        assert pkt_log.text.endswith(" / 1000)")
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_reads_usage_object_prefer_over_estimate(monkeypatch, tmp_path):
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        outcomes=[OutcomeSlot(name="done")],
+        outcome_strategy=OutcomeStrategy.function_call,
+    )
+    # Include a litellm-like Usage object on the final chunk
+    seq = [chunk_content("ok"), chunk_usage(50, 10)]
+    stub = ACompletionStub([seq])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        execu = LLMExecutor(cfg, project)
+        agen = execu.run(
+            ExecRunInput(messages=[Message(role="user", text="hello")], state=None)
+        )
+        _, pkt_final, _ = await drain_until_non_interim(agen)
+        assert pkt_final.kind == "final_message"
+        assert project.llm_usage.prompt_tokens == 50 and project.llm_usage.completion_tokens == 10

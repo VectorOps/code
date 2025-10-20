@@ -4,8 +4,9 @@ from typing import AsyncIterator, List, Optional, Dict, Any, Final
 import json
 import re
 import asyncio
+import contextlib
 from vocode.runner.executors.llm.preprocessors.base import apply_preprocessors
-from litellm import acompletion, completion_cost
+from litellm import acompletion, completion_cost, token_counter
 import litellm
 from enum import Enum
 from pydantic import BaseModel, Field, model_validator
@@ -193,20 +194,7 @@ class LLMExecutor(Executor):
                 round_cost = float(cost)
         except Exception:
             pass  # Continue to fallbacks
-
-        if round_cost == 0.0:
-            # Fallback to hidden params for some models/older litellm versions
-            try:
-                if (
-                    hasattr(stream, "_hidden_params")
-                    and stream._hidden_params
-                    and "response_cost" in stream._hidden_params
-                ):
-                    cost = stream._hidden_params["response_cost"]
-                    if cost is not None:
-                        round_cost = float(cost)
-            except Exception:
-                pass
+        # Note: legacy hidden params fallbacks removed; rely on litellm.completion_cost or per-1k config.
 
         if round_cost == 0.0:
             # Final fallback: compute using per-1k pricing configured on the node.
@@ -258,23 +246,46 @@ class LLMExecutor(Executor):
                 config=merged_cfg,
             )
         return effective
+    def _resolve_model_token_limit(self, cfg: "LLMNode") -> Optional[int]:
+        """
+        Resolve the model context window (token limit) with fallbacks:
+        1) litellm.get_max_tokens(cfg.model)
+        2) cfg.extra['model_max_tokens']
+        Returns None if not available/valid. Does not consult project-level caps.
+        """
+        # 1) Provider/model-reported context window
+        with contextlib.suppress(Exception):
+            v = int(litellm.get_max_tokens(cfg.model) or 0)
+            if v > 0:
+                return v
+        # 2) Node config override
+        with contextlib.suppress(Exception):
+            v = int((cfg.extra or {}).get("model_max_tokens") or 0)
+            if v > 0:
+                return v
+        return None
+
     def _extract_usage_tokens(
-        self, stream: Any, last_chunk_usage: Optional[Dict[str, Any]]
+        self, stream: Any, last_chunk_usage: Optional[Any]
     ) -> tuple[int, int]:
         """
         Extract token usage from:
-        1) last streamed chunk 'usage' (when include_usage=True),
-        2) stream.usage,
-        3) stream.response.usage or awaitable accessor get_response(),
+        1) last streamed chunk 'usage' (when include_usage=True) - supports litellm Usage objects,
+        2) stream.usage (object or dict),
+        3) stream.response.usage (object or dict),
         returning (prompt_tokens, completion_tokens). Returns (0,0) if unavailable.
         """
         prompt_tokens = 0
         completion_tokens = 0
         # 1) usage from last chunk
         try:
-            if last_chunk_usage:
-                pt = last_chunk_usage.get("prompt_tokens")
-                ct = last_chunk_usage.get("completion_tokens")
+            if last_chunk_usage is not None:
+                if isinstance(last_chunk_usage, dict):
+                    pt = last_chunk_usage.get("prompt_tokens")
+                    ct = last_chunk_usage.get("completion_tokens")
+                else:
+                    pt = getattr(last_chunk_usage, "prompt_tokens", None)
+                    ct = getattr(last_chunk_usage, "completion_tokens", None)
                 if isinstance(pt, int):
                     prompt_tokens = pt
                 if isinstance(ct, int):
@@ -320,18 +331,36 @@ class LLMExecutor(Executor):
                             )
             except Exception:
                 pass
-        # 4) async accessor get_response()
-        if prompt_tokens == 0 and completion_tokens == 0:
+        # Note: async get_response probing removed to avoid older-version hacks.
+        return prompt_tokens, completion_tokens
+
+    def _estimate_usage_tokens(
+        self,
+        model: str,
+        prompt_messages: List[Dict[str, Any]],
+        assistant_text: Optional[str],
+    ) -> tuple[int, int]:
+        """
+        Fallback estimation via litellm.token_counter.
+        """
+        est_prompt = 0
+        est_completion = 0
+        try:
+            est_prompt = int(token_counter(model=model, messages=prompt_messages) or 0)
+        except Exception:
+            pass
+        if assistant_text:
             try:
-                get_resp = getattr(stream, "get_response", None)
-                if callable(get_resp):
-                    # Note: caller must await this helper's return if we add await here.
-                    # We intentionally avoid awaiting to keep this helper sync in the normal path.
-                    # If needed in future, promote this helper to async and await here.
-                    pass
+                est_completion = int(
+                    token_counter(
+                        model=model,
+                        messages=[{"role": "assistant", "content": assistant_text}],
+                    )
+                    or 0
+                )
             except Exception:
                 pass
-        return prompt_tokens, completion_tokens
+        return est_prompt, est_completion
 
     async def run(
         self, inp: ExecRunInput
@@ -441,10 +470,8 @@ class LLMExecutor(Executor):
             # Compute effective max_tokens
             effective_max_tokens = cfg.max_tokens
             if tools and cfg.function_tokens_pct is not None:
-                try:
-                    model_limit = int((cfg.extra or {}).get("model_max_tokens") or 0)
-                except Exception:
-                    model_limit = 0
+                # Use resolved model context window (get_max_tokens or node extra)
+                model_limit = int(self._resolve_model_token_limit(cfg) or 0)
                 if model_limit > 0:
                     pct = cfg.function_tokens_pct
                     effective_max_tokens = max(1, int(model_limit * pct / 100))
@@ -486,13 +513,16 @@ class LLMExecutor(Executor):
                             delta = ch.get("delta") or {}
                         except Exception:
                             delta = {}
+
                         # Capture usage if provider includes it per chunk (include_usage=True)
                         try:
-                            usage_obj = chunk.get("usage")
-                            if isinstance(usage_obj, dict):
+                            usage_obj = chunk.get("usage")  # may be litellm Usage object
+                            if usage_obj is not None:
+                                # Accept both dict and object; _extract_usage_tokens handles details
                                 last_usage = usage_obj
                         except Exception:
                             pass
+
                         # Stream content
                         content_piece = delta.get("content")
                         if content_piece:
@@ -575,40 +605,42 @@ class LLMExecutor(Executor):
                         ),
                         state,
                     )
-                    # Post-final info log: current session token usage vs configured project limit
+                    # Post-final token usage log against model context window (if known)
                     try:
-                        token_limit = getattr(self.project.llm_usage, "token_limit", None)
-                        if isinstance(token_limit, int) and token_limit > 0:
-                            used_tokens = int(
-                                state.total_prompt_tokens + state.total_completion_tokens
-                            )
-                            pct = int(round((used_tokens / token_limit) * 100.0))
-                            _ = yield (
-                                ReqLogMessage(
-                                    level=LogLevel.info,
-                                    text=f"Token usage: {pct}% of limit ({used_tokens} / {token_limit})",
-                                ),
-                                state,
-                            )
+                        token_limit = self._resolve_model_token_limit(cfg)
+                        used_tokens = state.total_prompt_tokens + state.total_completion_tokens
+                        if token_limit and token_limit > 0:
+                            pct = round((used_tokens / token_limit) * 100.0)
+                            text = f"Token usage: {int(pct)}% of limit ({used_tokens} / {token_limit})"
+                        else:
+                            text = f"Token usage: {used_tokens} tokens (model limit unknown)"
+                        _ = yield (
+                            ReqLogMessage(level=LogLevel.info, text=text),
+                            state,
+                        )
                     except Exception:
                         pass
                     return
 
             assistant_text = "".join(assistant_text_parts)
             # Get token usage from stream and last chunk (robust across litellm/provider changes)
-            prompt_tokens, completion_tokens = self._extract_usage_tokens(stream, last_usage)
+            prompt_tokens, completion_tokens = self._extract_usage_tokens(
+                stream, last_usage
+            )
             if prompt_tokens == 0 and completion_tokens == 0:
-                _ = yield (
-                    ReqLogMessage(
-                        level=LogLevel.debug,
-                        text="LLM usage tokens not provided by provider/stream; falling back to cost-only accounting",
-                    ),
-                    None,
+                est_prompt, est_completion = self._estimate_usage_tokens(
+                    cfg.model, conv, assistant_text
                 )
+                prompt_tokens = est_prompt
+                completion_tokens = est_completion
 
             round_cost = self._get_round_cost(
                 stream, cfg.model, cfg, prompt_tokens, completion_tokens
             )
+            # Per-cycle usage and model context window for reporting
+            current_prompt_tokens = prompt_tokens
+            current_completion_tokens = completion_tokens
+            model_token_limit = self._resolve_model_token_limit(cfg)
 
             self.project.add_llm_usage(
                 prompt_delta=prompt_tokens,
@@ -699,9 +731,9 @@ class LLMExecutor(Executor):
                         acc_prompt_tokens=self.project.llm_usage.prompt_tokens,
                         acc_completion_tokens=self.project.llm_usage.completion_tokens,
                         acc_cost_dollars=self.project.llm_usage.cost_dollars,
-                        current_prompt_tokens=state.total_prompt_tokens,
-                        current_completion_tokens=state.total_completion_tokens,
-                        token_limit=effective_max_tokens,
+                        current_prompt_tokens=current_prompt_tokens,
+                        current_completion_tokens=current_completion_tokens,
+                        token_limit=model_token_limit,
                         local=True,
                     ),
                     state,
@@ -743,9 +775,9 @@ class LLMExecutor(Executor):
                     acc_prompt_tokens=self.project.llm_usage.prompt_tokens,
                     acc_completion_tokens=self.project.llm_usage.completion_tokens,
                     acc_cost_dollars=self.project.llm_usage.cost_dollars,
-                    current_prompt_tokens=state.total_prompt_tokens,
-                    current_completion_tokens=state.total_completion_tokens,
-                    token_limit=effective_max_tokens,
+                    current_prompt_tokens=current_prompt_tokens,
+                    current_completion_tokens=current_completion_tokens,
+                    token_limit=model_token_limit,
                     local=True,
                 ),
                 state,
@@ -761,20 +793,19 @@ class LLMExecutor(Executor):
                 state,
             )
             # Post-final info log: current session token usage vs configured project limit
+            # Post-final token usage log against model context window (if known)
             try:
-                token_limit = getattr(self.project.llm_usage, "token_limit", None)
-                if isinstance(token_limit, int) and token_limit > 0:
-                    used_tokens = int(
-                        state.total_prompt_tokens + state.total_completion_tokens
-                    )
-                    pct = int(round((used_tokens / token_limit) * 100.0))
-                    _ = yield (
-                        ReqLogMessage(
-                            level=LogLevel.info,
-                            text=f"Token usage: {pct}% of limit ({used_tokens} / {token_limit})",
-                        ),
-                        state,
-                    )
+                token_limit = self._resolve_model_token_limit(cfg)
+                used_tokens = (current_prompt_tokens or 0) + (current_completion_tokens or 0)
+                if token_limit and token_limit > 0:
+                    pct = round((used_tokens / token_limit) * 100.0)
+                    text = f"Token usage: {int(pct)}% of limit ({used_tokens} / {token_limit})"
+                else:
+                    text = f"Token usage: {used_tokens} tokens (model limit unknown)"
+                _ = yield (
+                    ReqLogMessage(level=LogLevel.info, text=text),
+                    state,
+                )
             except Exception:
                 # Do not fail run on logging issues
                 pass

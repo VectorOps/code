@@ -106,6 +106,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] PTY support
 *** [ ] Containerization / sandboxing
 *** [ ] Add timeout
+*** [ ] Add streaming output support
 ** [ ] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Ensure that cwd is passed correctly
