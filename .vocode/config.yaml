@@ -20,6 +20,7 @@ tools:
     auto_approve: true
 workflows:
   architect:
+    description: "End-to-end development loop: discover requirements, design a plan, write code, apply patches, and run tests with retries."
     nodes:
       - name: prompt
         type: input
@@ -30,7 +31,7 @@ workflows:
           - name: done
       - $include:
           template: nodes/discovery.yaml
-          max_runs: 1
+        max_runs: 1
         function_tokens_pct: 25
         confirmation: auto
       - $include:
@@ -72,6 +73,7 @@ workflows:
       - test.success -> prompt
       - test.fail -> architect:keep_state
   diff:
+    description: "Create a high-level plan/diff for the request without applying changes."
     nodes:
       - name: prompt
         type: input
@@ -89,6 +91,7 @@ workflows:
       - architect.done -> finish
   # Aider-like explicit coder loop
   coder:
+    description: "Interactive coder loop that plans, edits files, applies patches, and runs tests, keeping state between iterations."
     nodes:
       - name: prompt
         type: input
@@ -135,6 +138,7 @@ workflows:
       - test.fail -> architect:keep_state
   # Ask
   ask:
+    description: "Q&A workflow for repository analysis and explanations using search and file tools."
     nodes:
       - name: prompt
         type: input
@@ -153,6 +157,7 @@ workflows:
       - prompt.done -> analyst
       - analyst.done -> prompt
   idler:
+    description: "Timing/debug workflow that sleeps and emits debug info for sanity checks."
     nodes:
       - name: prompt
         type: input
@@ -183,6 +188,7 @@ workflows:
       - debug.done -> pause2
       - pause2.done -> done
   patcher:
+    description: "Quick patch loop: generate a patch and apply it repeatedly without running tests."
     nodes:
       - name: prompt
         type: input
@@ -204,6 +210,7 @@ workflows:
       - apply.success -> prompt
       - apply.fail -> coder:keep_state
   apply:
+    description: "Apply a provided patch/diff directly without invoking an LLM."
     nodes:
       - name: prompt
         type: input
@@ -222,6 +229,7 @@ workflows:
       - apply.success -> prompt
       - apply.fail -> prompt
   chat:
+    description: "General chat assistant that can also browse and read repository files when needed."
     nodes:
       - name: prompt
         type: input

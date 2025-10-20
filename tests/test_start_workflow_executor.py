@@ -3,11 +3,11 @@ import pytest
 
 from vocode.ui.base import UIState
 from vocode.runner.models import RunInput, RespApproval
-from vocode.models import StartWorkflowNode
 from vocode.state import RunnerStatus
 from vocode.runner.executors.noop import NoopNode
 from vocode.runner.executors.start_workflow import (
     StartWorkflowExecutor,
+    StartWorkflowNode,
 )  # ensure import/registration
 from vocode.ui.proto import UIPacketEnvelope, UIPacketRunInput
 from vocode.runner.runner import Executor
@@ -137,6 +137,7 @@ async def test_tool_start_workflow_initiates_child_and_returns_result():
         async def run(self, inp):
             if inp.response is None:
                 from vocode.settings import ToolSpec
+
                 tc = ToolCall(
                     name="start_child_tool",
                     arguments={"text": "seed"},

@@ -48,6 +48,8 @@ class Workflow(BaseModel):
                 Node.from_obj(n) if isinstance(n, dict) else n for n in nodes
             ]
         return data
+
+
 class ToolSpec(BaseModel):
     """
     Tool specification usable both globally (Settings.tools) and per-node (LLMNode.tools).
@@ -58,6 +60,7 @@ class ToolSpec(BaseModel):
     Accepts shorthand string form: "tool_name".
     Extra fields are ignored.
     """
+
     name: str
     enabled: bool = True
     auto_approve: Optional[bool] = None

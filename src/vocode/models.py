@@ -369,14 +369,3 @@ class Graph(BaseModel):
 class Workflow(BaseModel):
     name: str
     graph: Graph
-
-# New node to start a stacked workflow
-class StartWorkflowNode(Node):
-    # Enforce node type for registry/dispatch
-    type: str = Field(default="start_workflow")
-    # Name of the child workflow to start
-    workflow: str = Field(..., description="Name of the workflow to start in a new runner frame")
-    # Optional initial text for the child workflow (sent as a user message)
-    initial_text: Optional[str] = Field(
-        default=None, description="Optional initial user message text for the child workflow"
-    )
