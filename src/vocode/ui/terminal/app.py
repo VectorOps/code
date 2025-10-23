@@ -591,6 +591,8 @@ class TerminalApp:
                 if msg.kind == PACKET_PROJECT_OP_PROGRESS:
                     self._op_progress = msg.progress
                     self._op_total = msg.total
+                    # TODO: Fix me
+                    out("Progress: {msg.progress} / {msg.total}")
                     if self.session:
                         self.session.app.invalidate()
                     continue
