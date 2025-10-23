@@ -36,4 +36,4 @@ dev = [
 ]
 
 [project.scripts]
-vopscode = "vocode.ui.terminal.app:main"
+vocode = "vocode.ui.terminal.app:main"
