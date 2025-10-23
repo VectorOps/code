@@ -592,7 +592,7 @@ class TerminalApp:
                     self._op_progress = msg.progress
                     self._op_total = msg.total
                     # TODO: Fix me
-                    out("Progress: {msg.progress} / {msg.total}")
+                    await out(f"Progress: {msg.progress} / {msg.total}...\r", end="")
                     if self.session:
                         self.session.app.invalidate()
                     continue
