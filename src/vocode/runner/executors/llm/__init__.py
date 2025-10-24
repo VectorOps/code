@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import AsyncIterator, List, Optional, Dict, Any, Final
+import logging
 import json
 import re
 import asyncio
@@ -12,7 +13,7 @@ from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 from vocode.runner.runner import Executor
 from vocode.models import Node, PreprocessorSpec, OutcomeStrategy, Mode
-from vocode.state import Message, ToolCall, LogLevel
+from vocode.state import Message, ToolCall
 from vocode.runner.models import (
     ReqPacket,
     ReqToolCall,
@@ -22,7 +23,6 @@ from vocode.runner.models import (
     RespToolCall,
     RespMessage,
     ExecRunInput,
-    ReqLogMessage,
 )
 
 from vocode.settings import ToolSpec  # type: ignore
@@ -476,14 +476,8 @@ class LLMExecutor(Executor):
                     pct = cfg.function_tokens_pct
                     effective_max_tokens = max(1, int(model_limit * pct / 100))
 
-            # Log the full prompt at debug level before sending
-            _ = yield (
-                ReqLogMessage(
-                    level=LogLevel.debug,
-                    text=f"LLM request:\n{json.dumps(conv, indent=2)}",
-                ),
-                None,
-            )
+            # Log the full prompt at debug level before sending (forwarded to UI via interceptor)
+            logging.getLogger(__name__).debug("LLM request:\n%s", json.dumps(conv, indent=2))
 
             # Start streaming with retries and error handling
             max_retries = 3
@@ -577,21 +571,15 @@ class LLMExecutor(Executor):
                             await asyncio.sleep(0.5 * (2 ** (attempt - 1)))
                         else:
                             await asyncio.sleep(0)
-                        _ = yield (
-                            ReqLogMessage(
-                                level=LogLevel.warning,
-                                text=f"LLM retry {attempt}/{max_retries} after error (status={status_code}): {str(e)}",
-                            ),
-                            None,
+                        logging.getLogger(__name__).warning(
+                            "LLM retry %s/%s after error (status=%s): %s",
+                            attempt, max_retries, status_code, str(e)
                         )
                         continue
 
-                    _ = yield (
-                        ReqLogMessage(
-                            level=LogLevel.error,
-                            text=f"LLM error (status={status_code}): {str(e)}",
-                        ),
-                        None,
+                    logging.getLogger(__name__).error(
+                        "LLM error (status=%s): %s",
+                        status_code, str(e)
                     )
                     selected_outcome = None
                     if len(outcomes) > 1:
@@ -614,10 +602,7 @@ class LLMExecutor(Executor):
                             text = f"Token usage: {int(pct)}% of limit ({used_tokens} / {token_limit})"
                         else:
                             text = f"Token usage: {used_tokens} tokens (model limit unknown)"
-                        _ = yield (
-                            ReqLogMessage(level=LogLevel.info, text=text),
-                            state,
-                        )
+                        logging.getLogger(__name__).info("%s", text)
                     except Exception:
                         pass
                     return
@@ -802,10 +787,7 @@ class LLMExecutor(Executor):
                     text = f"Token usage: {int(pct)}% of limit ({used_tokens} / {token_limit})"
                 else:
                     text = f"Token usage: {used_tokens} tokens (model limit unknown)"
-                _ = yield (
-                    ReqLogMessage(level=LogLevel.info, text=text),
-                    state,
-                )
+                logging.getLogger(__name__).info("%s", text)
             except Exception:
                 # Do not fail run on logging issues
                 pass

@@ -68,7 +68,6 @@ from vocode.runner.models import (
     PACKET_TOOL_CALL,
     PACKET_MESSAGE,
     PACKET_FINAL_MESSAGE,
-    PACKET_LOG,
     RunInput,
     RespPacket,
 )
@@ -410,18 +409,6 @@ class TerminalApp:
         req_payload = envelope.payload
         assert req_payload.kind == PACKET_RUN_EVENT
         ev = req_payload.event.event
-
-        if ev.kind == PACKET_LOG:
-            cfg_log_level = LogLevel.info
-            if self.ui.project.settings and self.ui.project.settings.ui:
-                cfg_log_level = self.ui.project.settings.ui.log_level
-            msg_level = ev.level or LogLevel.info
-            if LOG_LEVEL_ORDER[msg_level] < LOG_LEVEL_ORDER[cfg_log_level]:
-                return
-            if self.stream_throttler:
-                await self._flush_and_clear_stream()
-            await out(f"[{msg_level.value}] " + ev.text)
-            return
 
         if ev.kind == PACKET_MESSAGE and ev.message:
             speaker = ev.message.role or "assistant"

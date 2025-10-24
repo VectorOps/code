@@ -4,7 +4,7 @@ import asyncio
 from vocode.runner.runner import Executor
 from vocode.models import Node
 from vocode.state import Message
-from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput, ReqLogMessage
+from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
 
 
 class MessageNode(Node):

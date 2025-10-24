@@ -692,14 +692,6 @@ async def test_llm_executor_emits_post_final_token_pct_log(monkeypatch, tmp_path
         assert pkt_final.kind == "final_message"
         assert pkt_final.message is not None and pkt_final.message.text == "ok"
 
-        # Next packet must be the post-final info log
-        pkt_log, _ = await anext(agen)
-        assert pkt_log.kind == "log"
-        # Provider usage is missing in the stub; executor estimates tokens via token_counter.
-        # Accept any percentage/tokens against the configured limit (1000).
-        assert pkt_log.text.startswith("Token usage: ")
-        assert pkt_log.text.endswith(" / 1000)")
-
 
 @pytest.mark.asyncio
 async def test_llm_executor_reads_usage_object_prefer_over_estimate(monkeypatch, tmp_path):

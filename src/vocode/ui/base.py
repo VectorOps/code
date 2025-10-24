@@ -10,7 +10,6 @@ from vocode.runner.runner import Runner
 from vocode.runner.models import (
     RunEvent,
     RunInput,
-    ReqLogMessage,
     RespPacket,
     RespMessage,
     RespApproval,
@@ -591,27 +590,12 @@ class UIState:
                         # Continue to drive the child
                         continue
                     except Exception as e:
-                        # Child could not be started (e.g., unknown workflow or executor).
-                        # Emit a log event to the UI with the reason so the user sees details.
-                        error_text = (
-                            f"Failed to start workflow '{sw.workflow}': "
-                            f"{e.__class__.__name__}: {e}"
-                        )
-                        log_event = RunEvent(
-                            node=req.node,
-                            execution=(
-                                req.execution
-                                if req.execution is not None
-                                else Activity(type=ActivityType.executor)
-                            ),
-                            event=ReqLogMessage(text=error_text, level=LogLevel.error),
-                            input_requested=False,
-                        )
-                        await self._outgoing.put(
-                            UIPacketEnvelope(
-                                msg_id=self._next_msg_id(),
-                                payload=UIPacketRunEvent(event=log_event),
-                            )
+                        # Child could not be started; log via standard logger (forwarded to UI by interceptor).
+                        logger.error(
+                            "Failed to start workflow '%s': %s: %s",
+                            sw.workflow,
+                            e.__class__.__name__,
+                            e,
                         )
 
                         # Resume parent with a generic error response so the workflow can continue/finalize.

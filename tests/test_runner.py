@@ -9,7 +9,6 @@ from vocode.runner.models import (
     ReqMessageRequest,
     ReqToolCall,
     ReqInterimMessage,
-    ReqLogMessage,
     ReqFinalMessage,
     ReqStop,
     RespMessage,
@@ -1618,7 +1617,7 @@ async def test_log_stream_then_final(tmp_path: Path):
 
         async def run(self, inp):
             # Emit a log, then a final message in the same cycle
-            yield (ReqLogMessage(text="hello"), None)
+            yield (ReqInterimMessage(message=msg("agent", "hello")), None)
             yield (ReqFinalMessage(message=msg("agent", "done")), None)
 
     async with ProjectSandbox.create(tmp_path) as project:
@@ -1629,7 +1628,7 @@ async def test_log_stream_then_final(tmp_path: Path):
         # First event is a log; should not request input and should not finish the step
         ev1 = await next_event_wrap(it)
         assert ev1.node == "Log"
-        assert ev1.event.kind == "log"
+        assert ev1.event.kind == "message"
         assert ev1.input_requested is False
 
         # Next event is the final message for this node
@@ -2110,7 +2109,7 @@ async def test_wait_for_executor_after_final(tmp_path: Path):
             # Emit final to go to B, then a post-final log before finishing
             yield (ReqFinalMessage(message=msg("agent", "A done"), outcome_name="toB"), None)
             # Simulate cleanup/log after final
-            yield (ReqLogMessage(text="post-final log"), None)
+            yield (ReqInterimMessage(message=msg("agent", "post-final")), None)
 
     class BExec(Executor):
         type = "b_type"
@@ -2129,7 +2128,7 @@ async def test_wait_for_executor_after_final(tmp_path: Path):
 
         # Accept and expect the post-final log from A next (no transition yet)
         ev_a_log = await asend_wrap(it, None)
-        assert ev_a_log.node == "A" and ev_a_log.event.kind == "log"
+        assert ev_a_log.node == "A" and ev_a_log.event.kind == "message"
         assert ev_a_log.input_requested is False
 
         # Next event should be B's final (after A finished)

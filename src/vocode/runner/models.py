@@ -2,13 +2,12 @@ from typing import Annotated, Optional, Union, List, Literal, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 
-from vocode.state import Message, ToolCall, Activity, LogLevel, RunnerStatus
+from vocode.state import Message, ToolCall, Activity, RunnerStatus
 
 PACKET_MESSAGE_REQUEST = "message_request"
 PACKET_TOOL_CALL = "tool_call"
 PACKET_MESSAGE = "message"
 PACKET_FINAL_MESSAGE = "final_message"
-PACKET_LOG = "log"
 PACKET_APPROVAL = "approval"
 PACKET_TOKEN_USAGE = "token_usage"
 PACKET_STATUS_CHANGE = "status_change"
@@ -16,7 +15,7 @@ PACKET_STOP = "stop"
 PACKET_START_WORKFLOW = "start_workflow"
 
 # Packet kinds that are considered "interim" (do not end an executor cycle)
-INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_LOG, PACKET_TOKEN_USAGE)
+INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_TOKEN_USAGE)
 PACKETS_FOR_HISTORY = (PACKET_FINAL_MESSAGE, PACKET_MESSAGE_REQUEST)
 
 
@@ -86,17 +85,6 @@ class ReqTokenUsage(BaseModel):
     token_limit: Optional[int] = None
     # Indicates usage was generated in this process (hint for UIs)
     local: Optional[bool] = True
-
-
-class ReqLogMessage(BaseModel):
-    """
-    Debug/log message emitted by an executor. Never requests input.
-    """
-
-    kind: Literal["log"] = PACKET_LOG
-    text: str
-    level: Optional[LogLevel] = None
-
 class ReqStartWorkflow(BaseModel):
     """
     Runner-level request to start another workflow and return its final message
@@ -131,7 +119,6 @@ ReqPacket = Annotated[
         ReqInterimMessage,
         ReqFinalMessage,
         ReqTokenUsage,
-        ReqLogMessage,
         ReqStatusChange,
         ReqStop,
         ReqStartWorkflow,
