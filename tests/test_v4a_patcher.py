@@ -761,3 +761,39 @@ async def run_terminal(project: Project) -> None:
     assert deletes == []
     assert writes["src/vocode/ui/terminal/app.py"] == expected_content
     assert statuses == {"src/vocode/ui/terminal/app.py": FileApplyStatus.Update}
+
+
+def test_duplicate_identical_blocks_apply_to_both_occurrences():
+    """
+    When multiple change chunks are identical and the file contains
+    two occurrences of the same context/delete sequence, the parser
+    should match the first chunk to the first occurrence and the second
+    chunk to the second occurrence (non-overlapping).
+    """
+    patch_text = """*** Begin Patch
+*** Update File: src/vocode/runner/executors/llm/__init__.py
+@@
+ # Test
+-# Foobar
++# Bazz
+@@
+ # Test
+-# Foobar
++# Bazz
+*** End Patch"""
+    initial = {
+        "src/vocode/runner/executors/llm/__init__.py": "# Test\n# Foobar\n# Test\n# Foobar\n"
+    }
+    statuses, errs, writes, deletes, opened = run_patch(
+        patch_text, initial_files=initial
+    )
+    assert errs == []
+    assert deletes == []
+    assert opened == ["src/vocode/runner/executors/llm/__init__.py"]
+    assert (
+        writes["src/vocode/runner/executors/llm/__init__.py"]
+        == "# Test\n# Bazz\n# Test\n# Bazz\n"
+    )
+    assert statuses == {
+        "src/vocode/runner/executors/llm/__init__.py": FileApplyStatus.Update
+    }

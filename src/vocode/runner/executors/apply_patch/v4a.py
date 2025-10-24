@@ -733,6 +733,7 @@ def build_commits(
     def find_chunk_linear(
         file_lines: List[str],
         chunk: Chunk,
+        start_min: int = 0,
     ) -> Tuple[Optional[int], Optional[int], Optional[List[str]], Optional[str]]:
         """
         Linear, anchor-aware search for a chunk.
@@ -758,8 +759,9 @@ def build_commits(
         if pat_len == 0:
             return None, None, None, "Empty change block (no context/deletions)"
 
-        # Candidate starts: consider all feasible positions
-        candidate_starts: List[int] = list(range(0, max(0, n_lines - pat_len + 1)))
+        # Candidate starts: consider all feasible positions, honoring a minimum start index
+        start_min = max(0, start_min)
+        candidate_starts: List[int] = list(range(start_min, max(start_min, n_lines - pat_len + 1)))
 
         anchor_idxs: List[int] = []
         for it in items:
@@ -768,9 +770,11 @@ def build_commits(
                     if it.text in line:
                         anchor_idxs.append(i)
         if anchor_idxs:
-            # Start matching at or after the earliest labeled anchor occurrence
+            # Start matching at or after the earliest labeled anchor occurrence,
+            # also honoring the provided start_min lower bound.
             min_anchor = min(anchor_idxs)
-            candidate_starts = [i for i in candidate_starts if i >= min_anchor]
+            lower_bound = max(start_min, min_anchor)
+            candidate_starts = [i for i in candidate_starts if i >= lower_bound]
         # Partial/best match tracking removed.
 
         def try_match_at(
@@ -943,8 +947,10 @@ def build_commits(
         located: List[Tuple[int, int, List[str], Optional[int]]] = []
         any_failed = False
         last_start_idx: Optional[int] = None
+        last_end_idx: Optional[int] = None
         for ch in action.chunks:
-            start_idx, end_idx, replacement, hint = find_chunk_linear(lines, ch)
+            # First, attempt a global search (for order/overlap diagnostics).
+            start_idx, end_idx, replacement, hint = find_chunk_linear(lines, ch, start_min=0)
             if start_idx is None or end_idx is None or replacement is None:
                 add_error(
                     f"Failed to locate change block in {path}",
@@ -965,7 +971,17 @@ def build_commits(
                 )
                 any_failed = True
                 continue
+            # If this match would overlap the previous match, attempt to find a non-overlapping
+            # occurrence starting at the end of the previous match. This disambiguates duplicate
+            # identical blocks that legitimately occur twice.
+            if last_end_idx is not None and start_idx < last_end_idx:
+                start2, end2, replacement2, _hint2 = find_chunk_linear(
+                    lines, ch, start_min=last_end_idx
+                )
+                if start2 is not None and end2 is not None and replacement2 is not None:
+                    start_idx, end_idx, replacement = start2, end2, replacement2
             last_start_idx = start_idx
+            last_end_idx = end_idx
             located.append((start_idx, end_idx, replacement, ch.start_line))
 
         # If some chunks could not be found, still apply the ones we did find.
