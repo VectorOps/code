@@ -91,7 +91,6 @@ from vocode.ui.terminal.helpers import (
     respond_approval,
     StreamThrottler,
 )
-from vocode.ui.terminal.logger import install as install_terminal_logger
 from vocode import diagnostics
 
 LOG_LEVEL_ORDER = {
@@ -299,12 +298,6 @@ class TerminalApp:
         with contextlib.suppress(Exception):
             if self.old_sigterm:
                 signal.signal(signal.SIGTERM, self.old_sigterm)
-        # Remove terminal logger handler if installed
-        with contextlib.suppress(Exception):
-            if self._log_handler is not None:
-                import logging
-                logging.getLogger().removeHandler(self._log_handler)
-                self._log_handler = None
         await self._stop_toolbar_ticker()
         if self.ui and self.ui.is_active():
             await self.ui.stop()
@@ -625,23 +618,6 @@ class TerminalApp:
         loop.set_exception_handler(self._unhandled_exception_handler)
         # 1) Print banner first (no dependency on UI/session)
         ui_cfg = self.project.settings.ui if self.project.settings else None
-        # Auto-install terminal logger handler with UI-configured level
-        try:
-            import logging
-            level_map = {
-                LogLevel.debug: logging.DEBUG,
-                LogLevel.info: logging.INFO,
-                LogLevel.warning: logging.WARNING,
-                LogLevel.error: logging.ERROR,
-            }
-            cfg_level = ui_cfg.log_level if ui_cfg else LogLevel.info
-            handler_level = level_map.get(cfg_level, logging.INFO)
-            self._log_handler = install_terminal_logger(
-                loop, level=handler_level, use_fmt=False
-            )
-        except Exception:
-            # Non-fatal: if logging install fails, continue without terminal handler
-            self._log_handler = None
         pt_style = styles.get_pt_style()
         show_banner = True if ui_cfg is None else ui_cfg.show_banner
         if show_banner:
