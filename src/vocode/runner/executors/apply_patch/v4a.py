@@ -209,14 +209,52 @@ CONTEXT_PREFIX = " "
 MOVE_TO_PREFIX = "*** Move to:"
 
 
-@dataclass
-class PartialMatch:
-    matched: int = -1
-    start: Optional[int] = None
-    expected: str = ""
-    actual: str = ""
-    fail_line: Optional[int] = None
-    double_escape_hint: Optional[str] = None
+# Partial/best match diagnostics removed; unmatched blocks will be quoted in hints.
+def render_chunk_block(ch: Chunk) -> str:
+    """
+    Render a chunk in a diff-like quoted form:
+    - Anchors with '@@'
+    - Context with a single leading space
+    - Deletions with '-'
+    - Additions with '+'
+    """
+    out: List[str] = []
+    # Emit anchors as provided
+    for it in ch.items:
+        if it.type == NeedleType.ANCHOR:
+            anchor_txt = it.text
+            out.append(f"{ANCHOR_PREFIX} {anchor_txt}".rstrip())
+    # Build the pattern (excluding anchors) to position additions
+    pat_built: List[tuple[NeedleType, str]] = [
+        (it.type, it.text) for it in ch.items if it.type != NeedleType.ANCHOR
+    ]
+    pat_len_now = len(pat_built)
+    emitted: Dict[int, bool] = {}
+    for jj, (lt2, t2) in enumerate(pat_built):
+        # Insert zero-delete additions at this position
+        for gi, g in enumerate(ch.edits):
+            if g.del_count == 0 and g.start_pat_index == jj and not emitted.get(gi, False):
+                for a in g.additions:
+                    out.append(f"{ADD_PREFIX}{a}")
+                emitted[gi] = True
+        if lt2 == NeedleType.CONTEXT:
+            out.append(f"{CONTEXT_PREFIX}{t2}")
+        elif lt2 == NeedleType.DELETE:
+            out.append(f"{DELETE_PREFIX}{t2}")
+            # For deletions, emit additions after the last deleted line in the group
+            for gi, g in enumerate(ch.edits):
+                if g.del_count > 0 and g.start_pat_index <= jj < g.start_pat_index + g.del_count:
+                    if jj == g.start_pat_index + g.del_count - 1 and not emitted.get(gi, False):
+                        for a in g.additions:
+                            out.append(f"{ADD_PREFIX}{a}")
+                        emitted[gi] = True
+    # Tail insertions at end
+    for gi, g in enumerate(ch.edits):
+        if g.start_pat_index == pat_len_now and not emitted.get(gi, False):
+            for a in g.additions:
+                out.append(f"{ADD_PREFIX}{a}")
+            emitted[gi] = True
+    return "\n".join(out)
 
 
 def _is_relative_path(p: str) -> bool:
@@ -733,9 +771,7 @@ def build_commits(
             # Start matching at or after the earliest labeled anchor occurrence
             min_anchor = min(anchor_idxs)
             candidate_starts = [i for i in candidate_starts if i >= min_anchor]
-
-        best_partial = PartialMatch()
-        partial_results: List[Tuple[int, int, str, str, Optional[str]]] = []
+        # Partial/best match tracking removed.
 
         def try_match_at(
             start: int,
@@ -751,13 +787,6 @@ def build_commits(
             while j < pat_len:
                 if i >= n_lines:
                     expected = pat_texts[j]
-                    partial_results.append((start, matched, expected, "<EOF>", None))
-                    if matched > best_partial.matched:
-                        best_partial.matched = matched
-                        best_partial.start = start
-                        best_partial.expected = expected
-                        best_partial.actual = "<EOF>"
-                        best_partial.fail_line = i + 1
                     return False, matched, None, insert_pat_positions, None, None
 
                 expected_line = pat_texts[j]
@@ -789,25 +818,7 @@ def build_commits(
                         i += 1
                         continue
 
-                hint_str: Optional[str] = None
-                if expected_line and actual_line:
-                    unescaped_once = re.sub(r"\\\\", r"\\", expected_line)
-                    if unescaped_once == actual_line:
-                        hint_str = (
-                            "Line appears to be double-escaped in the patch. "
-                            "Do NOT escape characters in the patch; write raw file text (no JSON/Markdown escaping)."
-                        )
-                partial_results.append(
-                    (start, matched, expected_line, actual_line, hint_str)
-                )
-                if matched > best_partial.matched:
-                    best_partial.matched = matched
-                    best_partial.start = start
-                    best_partial.expected = expected_line
-                    best_partial.actual = actual_line
-                    best_partial.fail_line = i + 1
-                    best_partial.double_escape_hint = hint_str
-                return False, matched, hint_str, insert_pat_positions, None, None
+                return False, matched, None, insert_pat_positions, None, None
 
             # Success: mutate chunk items to include inserted blanks at the recorded pat indices
             if insert_pat_positions:
@@ -877,34 +888,10 @@ def build_commits(
             if ok:
                 return start, end_idx, replacement, None
 
-        # Hint construction
-        hint_lines: List[str] = []
-        hint_lines.append(
-            f"No exact match. Evaluated {len(candidate_starts)} candidate positions."
-        )
-        if best_partial.start is not None:
-            hint_lines.append(
-                f"Best partial match at L{best_partial.start + 1}: matched {best_partial.matched}/{pat_len} lines."
-            )
-        if partial_results:
-            hint_lines.append("Possible variants from partial matches:")
-            # Sort: highest matched first, then by start line; show top 3 only
-            partial_sorted = sorted(partial_results, key=lambda r: (-r[1], r[0]))
-            for st, m, exp, act, _hs in partial_sorted[:3]:
-                hint_lines.append(f"- L{st + 1}: matched {m}/{pat_len}")
-                if m > 0:
-                    hint_lines.append("  Matched source lines (from file):")
-                    # Show the matched prefix (bounded)
-                    hint_lines.append("    ...")
-                if exp != "" or act != "":
-                    hint_lines.append(f"  Next expected line: {exp!r}")
-                    hint_lines.append(f"  File has: {act!r}")
-        if best_partial.double_escape_hint:
-            hint_lines.append(best_partial.double_escape_hint)
-        hint_lines.append(
-            "Tips: ensure exact whitespace and blank lines match; remove escaping; do not trim indentation."
-        )
-        return None, None, None, "\n".join(hint_lines)
+        # Failure: quote the unmatched block the user provided
+        block_quote = render_chunk_block(chunk)
+        hint = f"Change block not found. Here is the block you provided:\n---\n{block_quote}\n---"
+        return None, None, None, hint
 
     # Process actions (compute all matches first per file, then check overlaps, then apply)
     for path, action in effective_actions.items():

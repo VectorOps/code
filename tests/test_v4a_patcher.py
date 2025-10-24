@@ -445,8 +445,21 @@ def test_update_partial_match_reports_hint_and_no_write():
     assert writes == {}
     assert len(errs) == 1
     assert "Failed to locate change block" in errs[0].msg
-    assert "Matched" in (errs[0].hint or "")
-    assert "Possible variants" in (errs[0].hint or "")
+    # New behavior: the hint should quote the provided block, not partial match diagnostics.
+    hint = errs[0].hint or ""
+    assert "Change block not found. Here is the block you provided:" in hint
+    assert "---" in hint
+    # Quoted block should contain the exact lines from the patch
+    assert " ctx1" in hint
+    assert " ctx2" in hint
+    assert " ctx3" in hint
+    assert "- old" in hint
+    assert "+ new" in hint
+    assert " ctxA" in hint
+    assert " ctxB" in hint
+    assert " ctxC" in hint
+    assert "Matched" not in hint
+    assert "Possible variants" not in hint
 
 
 def test_partial_apply_on_some_chunks_updates_and_reports_error():

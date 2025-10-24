@@ -24,6 +24,7 @@ system: |
   2. To understand structure or locate information: **call `vectorops_search` first**, then optionally request **file summaries** (imports, signatures, data definitions, docs).
   3. If a summary conflicts with fetched code, **the code prevails**.
   4. **Do not** quote code from summaries; only quote code fetched from **complete files**.
+  5. Do not use summaries to generate diffs.
 
   ## Read Policy
 

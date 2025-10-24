@@ -225,9 +225,7 @@ class ApplyPatchExecutor(Executor):
                 applied_deleted = sorted([f for f in deleted if f in applied_files])
 
                 # Files that had errors and did not result in any applied change
-                failed_files = sorted(
-                    {e.filename for e in errs if getattr(e, "filename", None)}
-                )
+                failed_files = sorted({e.filename for e in errs if e.filename})
                 not_applied_failed = sorted(
                     [f for f in failed_files if f not in applied_files]
                 )
@@ -274,12 +272,12 @@ class ApplyPatchExecutor(Executor):
                 lines.append("Errors:")
                 for e in errs:
                     loc = ""
-                    if getattr(e, "filename", None) and getattr(e, "line", None):
+                    if e.filename and e.line is not None:
                         loc = f"{e.filename}:{e.line}: "
-                    elif getattr(e, "filename", None):
+                    elif e.filename:
                         loc = f"{e.filename}: "
                     lines.append(f"* {loc}{e.msg}")
-                    if getattr(e, "hint", None):
+                    if e.hint:
                         lines.append(f"  Hint: {e.hint}")
 
                 final = Message(role="agent", text="\n".join(lines))

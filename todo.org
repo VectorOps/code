@@ -52,6 +52,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 - If workflow is visible - print immediately
 - Create helper that takes in formatted text and accumulates / prints it
 *** [ ] Add a hotkey to show collapsed output
+** [ ] Figure our a way to run a shell command and pass its output as a response back to the workflow from UI. For example, running linter or test manually.
 ** [ ] Better visual separation of prompts vs responses
 ** [ ] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
 ** [ ] Disable know warnings, they mess up UI output
@@ -78,6 +79,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [X] If call does not have correct payload that's not JSON - should respond back with an error immediately
 *** [ ] Report tool token usage
 *** [ ] Report % token usage
+**** [ ] Fix it to get input limit
 *** [ ] Add tool calling budgets (number of calls, tokens, etc)
 *** [ ] Detect tool call loops
 *** [ ] Add stats for the number of tokens in the context and context window limits
