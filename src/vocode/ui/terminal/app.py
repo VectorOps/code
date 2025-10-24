@@ -49,6 +49,8 @@ from vocode.ui.proto import (
     PACKET_PROJECT_OP_START,
     PACKET_PROJECT_OP_PROGRESS,
     PACKET_PROJECT_OP_FINISH,
+    PACKET_LOG as UI_PACKET_LOG,
+    UIPacketLog,
 )
 from vocode.ui.rpc import RpcHelper
 from vocode.runner.models import (
@@ -542,6 +544,23 @@ class TerminalApp:
                 if self.rpc.handle_response(envelope):
                     continue
                 msg = envelope.payload
+                # UI-level log packets
+                if msg.kind == UI_PACKET_LOG:
+                    assert isinstance(msg, UIPacketLog)
+                    cfg_log_level = LogLevel.info
+                    if self.ui.project.settings and self.ui.project.settings.ui:
+                        cfg_log_level = self.ui.project.settings.ui.log_level
+                    if LOG_LEVEL_ORDER[msg.level] < LOG_LEVEL_ORDER[cfg_log_level]:
+                        continue
+                    if self.stream_throttler:
+                        await self._flush_and_clear_stream()
+                    prefix = f"[{msg.level.value}] "
+                    src = f"{msg.logger}: " if msg.logger else ""
+                    text = msg.message
+                    if msg.exc_text:
+                        text = f"{text}\n{msg.exc_text}"
+                    await out(prefix + src + text)
+                    continue
                 if msg.kind == PACKET_STATUS:
                     self.reset_interrupt()
                     await self._update_toolbar_ticker()

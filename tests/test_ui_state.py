@@ -11,6 +11,7 @@ from vocode.ui.proto import (
     UIPacketStatus,
     UIPacketRunInput,
     UIPacketUIReset,
+    UIPacketLog,
 )
 from vocode.runner.models import (
     ReqMessageRequest,
@@ -30,10 +31,15 @@ from vocode.project import ProjectState
 
 async def _recv_skip_node_status(ui: UIState) -> UIPacketEnvelope:
     """
-    Helper: receive next envelope, skipping UIPacketStatus that include node transition fields.
+    Helper: receive next envelope, skipping:
+    - UIPacketStatus that include node transition fields, and
+    - UIPacketLog packets emitted by the UIState logging interceptor.
     """
     while True:
         env = await ui.recv()
+        # Ignore any UI log packets for test determinism
+        if isinstance(env.payload, UIPacketLog):
+            continue
         if isinstance(env.payload, UIPacketStatus):
             if getattr(env.payload, "prev_node", None) or getattr(
                 env.payload, "curr_node", None
@@ -177,7 +183,6 @@ def test_ui_state_basic_flow(monkeypatch):
         req1_env = await _recv_skip_node_status(ui)
         assert isinstance(req1_env.payload, UIPacketRunEvent)
         assert req1_env.payload.event.node == "node1"
-        assert req1_env.msg_id == 3
         assert req1_env.payload.event.input_requested is False
 
         # 3) Status waiting_input before next event
@@ -190,7 +195,6 @@ def test_ui_state_basic_flow(monkeypatch):
         req2_env = await _recv_skip_node_status(ui)
         assert isinstance(req2_env.payload, UIPacketRunEvent)
         assert req2_env.payload.event.node == "node2"
-        assert req2_env.msg_id == 5
         assert req2_env.payload.event.input_requested is True
         # While waiting for input, the driver is blocked; current_node_name is stable.
         # This avoids the race present for non-input events.
@@ -213,8 +217,9 @@ def test_ui_state_basic_flow(monkeypatch):
         req3_env = await _recv_skip_node_status(ui)
         assert isinstance(req3_env.payload, UIPacketRunEvent)
         assert req3_env.payload.event.node == "node3"
-        assert req3_env.msg_id == 7
         assert req3_env.payload.event.input_requested is False
+        # Ensure message ids are increasing across run events despite interleaved packets (e.g., logs)
+        assert req1_env.msg_id < req2_env.msg_id < req3_env.msg_id
 
         # 7) Final status finished
         msg4_env = await _recv_skip_node_status(ui)
@@ -264,7 +269,7 @@ def test_ui_state_stop_while_waiting(monkeypatch):
 
         # Issue stop; driver should emit stopped and exit
         await ui.stop()
-        s2_env = await ui.recv()
+        s2_env = await _recv_skip_node_status(ui)
         assert isinstance(s2_env.payload, UIPacketStatus)
         assert s2_env.payload.prev == RunnerStatus.waiting_input
         assert s2_env.payload.curr == RunnerStatus.stopped

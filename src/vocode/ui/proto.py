@@ -2,7 +2,7 @@ from typing import Annotated, Optional, Union, Literal, Any, Dict, List
 from pydantic import BaseModel, Field
 
 from vocode.runner.models import RunEvent, RunInput
-from vocode.state import RunnerStatus
+from vocode.state import RunnerStatus, LogLevel
 
 PACKET_RUN_EVENT = "run_event"
 PACKET_STATUS = "status"
@@ -18,6 +18,7 @@ PACKET_UI_RELOAD = "ui_reload"
 PACKET_PROJECT_OP_START = "project_op_start"
 PACKET_PROJECT_OP_PROGRESS = "project_op_progress"
 PACKET_PROJECT_OP_FINISH = "project_op_finish"
+PACKET_LOG = "log"
 
 
 class UIPacketRunEvent(BaseModel):
@@ -103,6 +104,15 @@ class UIPacketProjectOpProgress(BaseModel):
 class UIPacketProjectOpFinish(BaseModel):
     kind: Literal["project_op_finish"] = PACKET_PROJECT_OP_FINISH
 
+class UIPacketLog(BaseModel):
+    kind: Literal["log"] = PACKET_LOG
+    level: LogLevel
+    message: str
+    logger: Optional[str] = None
+    pathname: Optional[str] = None
+    lineno: Optional[int] = None
+    exc_text: Optional[str] = None
+
 
 UIPacket = Annotated[
     Union[
@@ -120,6 +130,7 @@ UIPacket = Annotated[
         UIPacketProjectOpStart,
         UIPacketProjectOpProgress,
         UIPacketProjectOpFinish,
+        UIPacketLog,
     ],
     Field(discriminator="kind"),
 ]

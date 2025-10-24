@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING, List, Union, Any, Dict
 import contextlib
@@ -53,8 +54,10 @@ from .proto import (
     UIPacketProjectOpStart,
     UIPacketProjectOpProgress,
     UIPacketProjectOpFinish,
+    UIPacketLog,
 )
 from .rpc import RpcHelper
+from .logging_interceptor import UILoggingHandler
 
 if TYPE_CHECKING:
     from vocode.project import Project
@@ -109,6 +112,10 @@ class UIState:
         self._current_node_name: Optional[str] = None
         self._lock = asyncio.Lock()
         self._stop_signal: asyncio.Event = asyncio.Event()
+        # UI logging forwarder state (installed when a run starts)
+        self._log_queue: Optional["asyncio.Queue[dict]"] = None
+        self._log_forwarder_task: Optional[asyncio.Task] = None
+        self._log_handler: Optional[logging.Handler] = None
         # LLM usage totals are stored on Project.llm_usage and proxied via properties.
         # Start background tasks for command deltas and incoming packet routing
         # LLM usage totals are stored on Project.llm_usage and proxied via properties.
@@ -216,6 +223,8 @@ class UIState:
             self._msg_counter = 0
             self._last_status = None
             self._stop_signal.clear()
+            # Install stdlib logging interceptor for the duration of the run
+            self._install_logging_interceptor()
             # Always instruct UI to reset when a runner starts.
             await self._send_ui_reset()
             self._drive_task = asyncio.create_task(self._drive_runner())
@@ -303,6 +312,8 @@ class UIState:
             self._msg_counter = 0
             self._last_status = None
             self._stop_signal.clear()
+            # Reinstall logging interceptor on restart
+            self._install_logging_interceptor()
             # Always instruct UI to reset when a runner restarts.
             await self._send_ui_reset()
             self._drive_task = asyncio.create_task(self._drive_runner())
@@ -664,6 +675,9 @@ class UIState:
         except Exception as e:
             logger.exception("UIState: runner driver failed: %s", e)
         finally:
+            # Remove logging interceptor when the driver exits
+            with contextlib.suppress(Exception):
+                self._uninstall_logging_interceptor()
             # Cancel watcher task if it's still running
             if self._stop_watcher_task:
                 self._stop_watcher_task.cancel()
@@ -876,3 +890,53 @@ class UIState:
                     payload=UIPacketAck(),
                 )
             )
+
+    # ------------------------
+    # Stdlib logging integration
+    # ------------------------
+    def _install_logging_interceptor(self) -> None:
+        if self._log_handler is not None:
+            return
+        loop = asyncio.get_running_loop()
+        self._log_queue = asyncio.Queue()
+        self._log_forwarder_task = asyncio.create_task(self._forward_logs())
+        self._log_handler = UILoggingHandler(loop, self._log_queue)  # type: ignore[arg-type]
+        logging.getLogger().addHandler(self._log_handler)
+
+    def _uninstall_logging_interceptor(self) -> None:
+        # Remove handler from root logger
+        if self._log_handler is not None:
+            try:
+                logging.getLogger().removeHandler(self._log_handler)
+            finally:
+                self._log_handler = None
+        # Stop forwarder task
+        if self._log_forwarder_task is not None:
+            self._log_forwarder_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                asyncio.get_running_loop().run_until_complete(self._log_forwarder_task)  # type: ignore[misc]
+            self._log_forwarder_task = None
+        # Drop queue reference
+        self._log_queue = None
+
+    async def _forward_logs(self) -> None:
+        try:
+            while True:
+                assert self._log_queue is not None
+                item = await self._log_queue.get()
+                try:
+                    payload = UIPacketLog(
+                        level=item.get("level"),
+                        message=item.get("message", ""),
+                        logger=item.get("logger"),
+                        pathname=item.get("pathname"),
+                        lineno=item.get("lineno"),
+                        exc_text=item.get("exc_text"),
+                    )
+                    await self._outgoing.put(
+                        UIPacketEnvelope(msg_id=self._next_msg_id(), payload=payload)
+                    )
+                except Exception as e:
+                    logger.warning("UIState: failed to forward log item: %s", e)
+        except asyncio.CancelledError:
+            return
