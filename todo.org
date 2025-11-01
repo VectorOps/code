@@ -19,11 +19,14 @@
 * [ ] Configuration
 ** [ ] Add a way to fully disable know integration
 ** [ ] Figure out why confirmation override for discovery did not work
-** [ ] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
+** [ ] Prompts
+*** [ ] Discovery prompt: add clause to not offer solution
+*** [ ] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
 ** [ ] [#A] Tweak prompt for discovery to only work with existing files
 Concrete example: files that were read and already in context.
 ** [ ] Rewrite system prompt for analyst node
 * [ ] UI protocol
+** [ ] Debug stopping and continuing, sometimes it does not start after stop?
 ** [ ] Add syntax name hint to apply formatting
 * [ ] [#A] Nested workflows support
 ** [X] Create API to start a new workflow
@@ -73,6 +76,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 **** [ ] Fix scenario when multiple similar blocks are being updated one after another
 *** [ ] Better error reporting for unmatched blocks. Currently it's too verbose.
 *** [ ] Unified Diff format
+* [ ] Filters
+** [ ] Adjust file filter to also inject filename into context
 * [ ] Nodes
 ** [ ] Add a node that injects files in context. Add file manager.
 ** [ ] LLM node

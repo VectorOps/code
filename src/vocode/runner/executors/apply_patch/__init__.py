@@ -265,7 +265,8 @@ class ApplyPatchExecutor(Executor):
                         lines.append(f"* {f}")
                     lines.append(
                         "If there were other files that were not mentioned in "
-                        "this response, regenerate chunks for them as well."
+                        "this response, regenerate chunks for them as well. Make sure "
+                        "you read the files."
                     )
 
                 # Append detailed error list with filename/line/hint
