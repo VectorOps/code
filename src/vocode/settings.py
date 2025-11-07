@@ -107,8 +107,6 @@ class UISettings(BaseModel):
     multiline: bool = True
     # Optional editing mode override. None => use prompt_toolkit default (Emacs)
     edit_mode: Optional[Literal["emacs", "vim"]] = None
-    # Minimum log level to display in the terminal.
-    log_level: LogLevel = LogLevel.info
     # Show banner
     show_banner: bool = True
 
@@ -118,6 +116,7 @@ class LoggingSettings(BaseModel):
     default_level: LogLevel = LogLevel.info
     # Mapping of logger name -> level override (e.g., {"asyncio": "debug"})
     enabled_loggers: Dict[str, LogLevel] = Field(default_factory=dict)
+
 
 class MCPServerSettings(BaseModel):
     # FastMCP-compatible server config. One of url OR command must be provided.

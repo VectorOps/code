@@ -85,6 +85,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Report tool token usage
 *** [ ] Report % token usage
 **** [ ] Fix it to get input limit
+*** [ ] If LLM did not return token count, show estimation but add (est) to the UI
 *** [ ] Add tool calling budgets (number of calls, tokens, etc)
 *** [ ] Detect tool call loops
 *** [ ] Add stats for the number of tokens in the context and context window limits
