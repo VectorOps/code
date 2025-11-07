@@ -26,6 +26,7 @@ from vocode.runner.models import (
 )
 
 from vocode.settings import ToolSpec  # type: ignore
+from vocode.logger import logger
 from .models import LLMNode, LLMExpect, LLMState
 
 
@@ -478,9 +479,7 @@ class LLMExecutor(Executor):
                     effective_max_tokens = max(1, int(model_limit * pct / 100))
 
             # Log the full prompt at debug level before sending
-            logging.getLogger(__name__).debug(
-                "LLM request:\n%s", json.dumps(conv, indent=2)
-            )
+            logger.debug("LLM request:", req=conv)
 
             # Start streaming with retries and error handling
             max_retries = 3
@@ -576,18 +575,16 @@ class LLMExecutor(Executor):
                             await asyncio.sleep(0.5 * (2 ** (attempt - 1)))
                         else:
                             await asyncio.sleep(0)
-                        logging.getLogger(__name__).warning(
-                            "LLM retry %s/%s after error (status=%s): %s",
-                            attempt,
-                            max_retries,
-                            status_code,
-                            str(e),
+                        logger.warning(
+                            "LLM retry",
+                            attempt=attempt,
+                            max_retries=max_retries,
+                            status_code=status_code,
+                            err=str(e),
                         )
                         continue
 
-                    logging.getLogger(__name__).error(
-                        "LLM error (status=%s): %s", status_code, str(e)
-                    )
+                    logger.error("LLM error", status_code=status_code, err=str(e))
                     selected_outcome = None
                     if len(outcomes) > 1:
                         selected_outcome = outcomes[0]
@@ -611,7 +608,7 @@ class LLMExecutor(Executor):
                             text = f"Token usage: {int(pct)}% of limit ({used_tokens} / {token_limit})"
                         else:
                             text = f"Token usage: {used_tokens} tokens (model limit unknown)"
-                        logging.getLogger(__name__).info("%s", text)
+                        logger.info("%s", text)
                     except Exception:
                         pass
                     return
@@ -798,7 +795,7 @@ class LLMExecutor(Executor):
                     text = f"Token usage: {int(pct)}% of limit ({used_tokens} / {token_limit})"
                 else:
                     text = f"Token usage: {used_tokens} tokens (model limit unknown)"
-                logging.getLogger(__name__).info("%s", text)
+                logger.info("%s", text)
             except Exception:
                 # Do not fail run on logging issues
                 pass

@@ -14,6 +14,7 @@ from vocode.runner.runner import Executor
 from vocode.state import Message, ToolCall
 from vocode.runner.models import ReqToolCall, ReqFinalMessage
 from vocode.tools import BaseTool, ToolStartWorkflowResponse
+from vocode.settings import Settings, WorkflowConfig, LoggingSettings
 
 
 class DummyLLMUsage:
@@ -35,11 +36,9 @@ class DummyCommands:
 
 class DummyProject:
     def __init__(self, workflows: dict):
-        class Settings:
-            def __init__(self, workflows):
-                self.workflows = workflows
-
-        self.settings = Settings(workflows)
+        # Convert provided workflow stubs to real WorkflowConfig entries
+        wf_map = {name: WorkflowConfig(nodes=wf.nodes, edges=wf.edges) for name, wf in workflows.items()}
+        self.settings = Settings(workflows=wf_map, logging=LoggingSettings())
         self.llm_usage = DummyLLMUsage()
         self.commands = DummyCommands()
         self.project_state = {}

@@ -10,7 +10,7 @@ from vocode.runner.models import (
     ReqFinalMessage,
     ExecRunInput,
 )
-logger = logging.getLogger(__name__)
+from vocode.logger import logger
 
 
 class DebugExecutor(Executor):
@@ -22,7 +22,9 @@ class DebugExecutor(Executor):
         # Intentionally do not enforce a specific Node subclass to keep this executor usable
         # without requiring a DebugNode model.
 
-    async def run(self, inp: ExecRunInput) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
+    async def run(
+        self, inp: ExecRunInput
+    ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         # Log all incoming messages at debug level using stdlib logging (forwarded to UI by interceptor)
         for m in inp.messages:
             try:

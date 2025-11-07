@@ -3,7 +3,6 @@ import logging
 from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING, List, Union, Any, Dict
 import contextlib
-from vocode.settings_loader import build_model_from_settings
 
 from vocode.logger import logger
 from vocode.runner.runner import Runner
@@ -56,7 +55,7 @@ from .proto import (
     UIPacketLog,
 )
 from .rpc import RpcHelper
-from .logging_interceptor import UILoggingHandler
+from .logging import configure_stdlib_logging, attach_ui_interceptor
 
 if TYPE_CHECKING:
     from vocode.project import Project
@@ -882,10 +881,13 @@ class UIState:
         if self._log_handler is not None:
             return
         loop = asyncio.get_running_loop()
+        # Configure stdlib logging based on project settings.
+        if self.project and self.project.settings:
+            configure_stdlib_logging(self.project.settings)
+        # Start forwarding and attach interceptor
         self._log_queue = asyncio.Queue()
         self._log_forwarder_task = asyncio.create_task(self._forward_logs())
-        self._log_handler = UILoggingHandler(loop, self._log_queue)  # type: ignore[arg-type]
-        logging.getLogger().addHandler(self._log_handler)
+        self._log_handler = attach_ui_interceptor(loop, self._log_queue)  # type: ignore[arg-type]
 
     def _uninstall_logging_interceptor(self) -> None:
         # Remove handler from root logger
@@ -897,8 +899,7 @@ class UIState:
         # Stop forwarder task
         if self._log_forwarder_task is not None:
             self._log_forwarder_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                asyncio.get_running_loop().run_until_complete(self._log_forwarder_task)  # type: ignore[misc]
+            # Do not await here; we're already in the running loop
             self._log_forwarder_task = None
         # Drop queue reference
         self._log_queue = None

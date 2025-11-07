@@ -113,6 +113,12 @@ class UISettings(BaseModel):
     show_banner: bool = True
 
 
+class LoggingSettings(BaseModel):
+    # Default level for our primary loggers (vocode, knowlt) if not overridden.
+    default_level: LogLevel = LogLevel.info
+    # Mapping of logger name -> level override (e.g., {"asyncio": "debug"})
+    enabled_loggers: Dict[str, LogLevel] = Field(default_factory=dict)
+
 class MCPServerSettings(BaseModel):
     # FastMCP-compatible server config. One of url OR command must be provided.
     url: Optional[str] = None
@@ -164,6 +170,8 @@ class Settings(BaseModel):
     tools: List[ToolSpec] = Field(default_factory=list)
     know: Optional[KnowProjectSettings] = Field(default=None)
     ui: Optional[UISettings] = Field(default=None)
+    # Optional logging configuration (per-logger overrides).
+    logging: Optional[LoggingSettings] = Field(default=None)
     # Optional Model Context Protocol (MCP) configuration
     mcp: Optional[MCPSettings] = Field(default=None)
     # Optional process subsystem settings

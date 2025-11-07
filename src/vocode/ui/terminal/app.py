@@ -534,11 +534,6 @@ class TerminalApp:
                 # UI-level log packets
                 if msg.kind == UI_PACKET_LOG:
                     assert isinstance(msg, UIPacketLog)
-                    cfg_log_level = LogLevel.info
-                    if self.ui.project.settings and self.ui.project.settings.ui:
-                        cfg_log_level = self.ui.project.settings.ui.log_level
-                    if LOG_LEVEL_ORDER[msg.level] < LOG_LEVEL_ORDER[cfg_log_level]:
-                        continue
                     if self.stream_throttler:
                         await self._flush_and_clear_stream()
                     prefix = f"[{msg.level.value}] "
@@ -829,12 +824,6 @@ class TerminalApp:
 
 
 async def run_terminal(project: Project) -> None:
-    import logging
-
-    logging.getLogger("asyncio").setLevel(logging.DEBUG)
-    asyncio.get_event_loop().set_debug(True)
-    asyncio.get_event_loop().slow_callback_duration = 0.05
-
     # Thin wrapper: defer to TerminalApp for all terminal behavior.
     app = TerminalApp(project)
     await app.run()

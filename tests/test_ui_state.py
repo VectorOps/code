@@ -27,6 +27,7 @@ from vocode.runner.models import (
 from vocode.state import RunnerStatus, Message, Activity, ActivityType
 from vocode.commands import CommandManager
 from vocode.project import ProjectState
+from vocode.settings import Settings, WorkflowConfig, LoggingSettings
 
 
 async def _recv_skip_node_status(ui: UIState) -> UIPacketEnvelope:
@@ -73,8 +74,11 @@ async def respond_approval(ui: UIState, source_msg_id: int, approved: bool) -> N
 class FakeProject:
     def __init__(self, settings=None):
         wf_name = "wf-project-state"
-        wf_cfg = SimpleNamespace(nodes=[], edges=[])
-        self.settings = settings or SimpleNamespace(workflows={wf_name: wf_cfg})
+        wf_cfg = WorkflowConfig(nodes=[], edges=[], config={})
+        self.settings = settings or Settings(
+            workflows={wf_name: wf_cfg},
+            logging=LoggingSettings(),  # ensure logger settings exist
+        )
         self.commands = CommandManager()
         self.project_state = ProjectState()
         self.llm_usage = TokenUsageTotals()
