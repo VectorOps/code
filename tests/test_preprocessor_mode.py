@@ -3,6 +3,7 @@ from typing import List
 from unittest.mock import patch
 from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 from vocode.runner.executors.llm import LLMExecutor, LLMNode
+from vocode.runner.executors.llm.helpers import build_base_messages as h_build_base_messages
 from vocode.models import PreprocessorSpec, Mode
 from vocode.state import Message
 
@@ -70,7 +71,7 @@ def test_preprocessor_mode_system(base_messages):
     executor = LLMExecutor(config=node, project=DummyProject())
     # The system message is added by _build_base_messages from the node config,
     # so we only need to pass the user messages.
-    result_messages = executor._build_base_messages(node, base_messages[1:])
+    result_messages = h_build_base_messages(node, base_messages[1:], executor.project)
     assert result_messages[0]["content"] == "system prompt S"
     assert result_messages[1]["content"] == "hello"
     assert result_messages[2]["content"] == "world"
@@ -87,7 +88,7 @@ def test_preprocessor_mode_user(base_messages):
         ],
     )
     executor = LLMExecutor(config=node, project=DummyProject())
-    result_messages = executor._build_base_messages(node, base_messages[1:])
+    result_messages = h_build_base_messages(node, base_messages[1:], executor.project)
     assert result_messages[0]["content"] == "system prompt"
     assert result_messages[1]["content"] == "hello"
     assert result_messages[2]["content"] == "world U"
@@ -106,7 +107,7 @@ def test_preprocessor_mode_system_prepend(base_messages):
         ],
     )
     executor = LLMExecutor(config=node, project=DummyProject())
-    result_messages = executor._build_base_messages(node, base_messages[1:])
+    result_messages = h_build_base_messages(node, base_messages[1:], executor.project)
     assert result_messages[0]["content"] == "S system prompt"
     assert result_messages[1]["content"] == "hello"
     assert result_messages[2]["content"] == "world"
@@ -124,7 +125,7 @@ def test_preprocessor_multiple_are_applied(base_messages):
         ],
     )
     executor = LLMExecutor(config=node, project=DummyProject())
-    result_messages = executor._build_base_messages(node, base_messages[1:])
+    result_messages = h_build_base_messages(node, base_messages[1:], executor.project)
     assert result_messages[0]["content"] == "system prompt S1 S2"
     assert result_messages[1]["content"] == "hello"
 
@@ -145,7 +146,7 @@ def test_diff_preprocessor(base_messages):
         "vocode.runner.executors.llm.preprocessors.diff.SUPPORTED_PATCH_FORMATS",
         {"test_format": type("obj", (object,), {"system_prompt": " DIFF"})}
     ):
-        result_messages = executor._build_base_messages(node, base_messages[1:])
+        result_messages = h_build_base_messages(node, base_messages[1:], executor.project)
 
     assert result_messages[0]["content"] == "system prompt DIFF"
     assert result_messages[1]["content"] == "hello"
