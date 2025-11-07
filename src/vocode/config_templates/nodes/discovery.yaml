@@ -4,9 +4,9 @@ name: discovery
 type: llm
 model: ${LLM_DISCOVERY_MODEL}
 tools:
-  - vectorops_list_files
-  - vectorops_summarize_files
-  - vectorops_search
+  - list_files
+  - summarize_files
+  - search_project
 outcomes:
   - name: done
 message_mode: concatenate_final

@@ -250,7 +250,7 @@ class LLMExecutor(Executor):
 
     def _resolve_model_token_limit(self, cfg: "LLMNode") -> Optional[int]:
         """
-        Resolve the model context window (token limit) with fallbacks:
+        Resolve the model input context window (prompt token limit) with fallbacks:
         1) litellm.get_max_tokens(cfg.model)
         2) cfg.extra['model_max_tokens']
         Returns None if not available/valid. Does not consult project-level caps.
@@ -597,17 +597,15 @@ class LLMExecutor(Executor):
                         ),
                         state,
                     )
-                    # Post-final token usage log against model context window (if known)
+                    # Post-final token usage log against model context window (input), if known
                     try:
-                        token_limit = self._resolve_model_token_limit(cfg)
-                        used_tokens = (
-                            state.total_prompt_tokens + state.total_completion_tokens
-                        )
-                        if token_limit and token_limit > 0:
-                            pct = round((used_tokens / token_limit) * 100.0)
-                            text = f"Token usage: {int(pct)}% of limit ({used_tokens} / {token_limit})"
+                        input_token_limit = self._resolve_model_token_limit(cfg)
+                        used_input_tokens = state.total_prompt_tokens
+                        if input_token_limit and input_token_limit > 0:
+                            pct = round((used_input_tokens / input_token_limit) * 100.0)
+                            text = f"Input token usage: {int(pct)}% of limit ({used_input_tokens} / {input_token_limit})"
                         else:
-                            text = f"Token usage: {used_tokens} tokens (model limit unknown)"
+                            text = f"Input token usage: {used_input_tokens} tokens (model limit unknown)"
                         logger.info("%s", text)
                     except Exception:
                         pass
@@ -631,7 +629,7 @@ class LLMExecutor(Executor):
             # Per-cycle usage and model context window for reporting
             current_prompt_tokens = prompt_tokens
             current_completion_tokens = completion_tokens
-            model_token_limit = self._resolve_model_token_limit(cfg)
+            model_input_token_limit = self._resolve_model_token_limit(cfg)
 
             self.project.add_llm_usage(
                 prompt_delta=prompt_tokens,
@@ -724,7 +722,7 @@ class LLMExecutor(Executor):
                         acc_cost_dollars=self.project.llm_usage.cost_dollars,
                         current_prompt_tokens=current_prompt_tokens,
                         current_completion_tokens=current_completion_tokens,
-                        token_limit=model_token_limit,
+                        token_limit=model_input_token_limit,
                         local=True,
                     ),
                     state,
@@ -768,7 +766,7 @@ class LLMExecutor(Executor):
                     acc_cost_dollars=self.project.llm_usage.cost_dollars,
                     current_prompt_tokens=current_prompt_tokens,
                     current_completion_tokens=current_completion_tokens,
-                    token_limit=model_token_limit,
+                    token_limit=model_input_token_limit,
                     local=True,
                 ),
                 state,
@@ -784,17 +782,15 @@ class LLMExecutor(Executor):
                 state,
             )
             # Post-final info log: current session token usage vs configured project limit
-            # Post-final token usage log against model context window (if known)
+            # Post-final token usage log against model context window (input), if known
             try:
-                token_limit = self._resolve_model_token_limit(cfg)
-                used_tokens = (current_prompt_tokens or 0) + (
-                    current_completion_tokens or 0
-                )
-                if token_limit and token_limit > 0:
-                    pct = round((used_tokens / token_limit) * 100.0)
-                    text = f"Token usage: {int(pct)}% of limit ({used_tokens} / {token_limit})"
+                input_token_limit = self._resolve_model_token_limit(cfg)
+                used_input_tokens = (current_prompt_tokens or 0)
+                if input_token_limit and input_token_limit > 0:
+                    pct = round((used_input_tokens / input_token_limit) * 100.0)
+                    text = f"Input token usage: {int(pct)}% of limit ({used_input_tokens} / {input_token_limit})"
                 else:
-                    text = f"Token usage: {used_tokens} tokens (model limit unknown)"
+                    text = f"Input token usage: {used_input_tokens} tokens (model limit unknown)"
                 logger.info("%s", text)
             except Exception:
                 # Do not fail run on logging issues

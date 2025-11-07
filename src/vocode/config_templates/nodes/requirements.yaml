@@ -4,9 +4,9 @@ name: requirements
 type: llm
 model: ${LLM_REQUIREMENTS_MODEL}
 tools:
-  - vectorops_list_files
-  - vectorops_search
-  - vectorops_summarize_files
+  - list_files
+  - search_project
+  - summarize_files
 outcomes:
   - name: done
 system: |
