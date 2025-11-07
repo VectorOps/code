@@ -26,13 +26,18 @@ from vocode.settings import ToolSpec
 def chunk_content(text: str):
     return {"choices": [{"delta": {"content": text}}]}
 
+
 class _DummyUsage:
     def __init__(self, prompt_tokens: int, completion_tokens: int):
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
 
+
 def chunk_usage(prompt_tokens: int, completion_tokens: int):
-    return {"choices": [{"delta": {}}], "usage": _DummyUsage(prompt_tokens, completion_tokens)}
+    return {
+        "choices": [{"delta": {}}],
+        "usage": _DummyUsage(prompt_tokens, completion_tokens),
+    }
 
 
 def chunk_tool_call(index: int, call_id: str, name: str, args_part: str):
@@ -127,7 +132,7 @@ async def test_llm_executor_function_call_and_outcome_selection(monkeypatch, tmp
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self, project, spec):
+            async def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "Get weather",
@@ -304,7 +309,7 @@ async def test_llm_executor_single_outcome_no_choose_tool_and_role_mapping(
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self, project, spec):
+            async def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "",
@@ -410,7 +415,7 @@ async def test_llm_executor_tool_call_auto_approve_passthrough(monkeypatch, tmp_
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self, project, spec):
+            async def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "Get weather",
@@ -450,7 +455,7 @@ async def test_llm_executor_tool_call_auto_approve_global_overrides_node(
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self, project, spec):
+            async def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "",
@@ -492,7 +497,7 @@ async def test_llm_executor_tool_call_auto_approve_node_used_when_global_missing
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self, project, spec):
+            async def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "",
@@ -531,7 +536,7 @@ async def test_llm_executor_tool_call_auto_approve_none_when_unset(
     async with ProjectSandbox.create(tmp_path) as project:
 
         class _DummyWeatherTool:
-            def openapi_spec(self, project, spec):
+            async def openapi_spec(self, project, spec):
                 return {
                     "name": "weather",
                     "description": "",
@@ -694,7 +699,9 @@ async def test_llm_executor_emits_post_final_token_pct_log(monkeypatch, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_llm_executor_reads_usage_object_prefer_over_estimate(monkeypatch, tmp_path):
+async def test_llm_executor_reads_usage_object_prefer_over_estimate(
+    monkeypatch, tmp_path
+):
     cfg = LLMNode(
         name="LLM",
         model="gpt-x",
@@ -713,4 +720,7 @@ async def test_llm_executor_reads_usage_object_prefer_over_estimate(monkeypatch,
         )
         _, pkt_final, _ = await drain_until_non_interim(agen)
         assert pkt_final.kind == "final_message"
-        assert project.llm_usage.prompt_tokens == 50 and project.llm_usage.completion_tokens == 10
+        assert (
+            project.llm_usage.prompt_tokens == 50
+            and project.llm_usage.completion_tokens == 10
+        )

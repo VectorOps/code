@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from knowlt.tools.base import BaseTool as KnowBaseTool, ToolRegistry as KnowToolRegistry
 from ..tools import BaseTool, register_tool, ToolTextResponse
 from ..settings import ToolSpec
- 
+
 if TYPE_CHECKING:
     from vocode.project import Project
 
@@ -22,8 +22,8 @@ class _KnowToolWrapper(BaseTool):
         # Propagate input/output model types from the Know tool
         self.input_model = self._know_tool.tool_input
 
-    def openapi_spec(self, project: "Project", spec: ToolSpec) -> dict[str, Any]:
-        return self._know_tool.get_openai_schema()
+    async def openapi_spec(self, project: "Project", spec: ToolSpec) -> dict[str, Any]:
+        return await self._know_tool.get_openai_schema()
 
     async def run(
         self, project: "Project", spec: ToolSpec, args: Any

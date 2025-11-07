@@ -946,7 +946,7 @@ wheels = [
 [[package]]
 name = "knowlt"
 version = "0.1.0"
-source = { git = "https://github.com/VectorOps/knowlt.git#dbdbe0c16f03f2ca77d2f7ffe8359d2bb7002153" }
+source = { git = "https://github.com/VectorOps/knowlt.git#6757f97d6ff3279e8cb57589a03828f0b2dcb74e" }
 dependencies = [
     { name = "click" },
     { name = "devtools" },

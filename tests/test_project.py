@@ -19,6 +19,7 @@ def _write_config(base: Path, content: str) -> Path:
     cfg_path.write_text(content, encoding="utf-8")
     return cfg_path
 
+
 class DummyKnow:
     async def start(self, *_args, **_kwargs):
         return None
@@ -28,6 +29,7 @@ class DummyKnow:
 
     async def refresh(self, repo=None, **_kwargs):
         return None
+
 
 @pytest.fixture(autouse=True)
 def patch_know(monkeypatch):
@@ -47,7 +49,7 @@ def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeyp
         async def run(self, project: "Project", spec, args: BaseModel):
             pass
 
-        def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
+        async def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
             return {}
 
     class NeedsTool(BaseTool):
@@ -56,7 +58,7 @@ def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeyp
         async def run(self, project: "Project", spec, args: BaseModel):
             pass
 
-        def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
+        async def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
             return {}
 
     class DisabledTool(BaseTool):
@@ -65,7 +67,7 @@ def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeyp
         async def run(self, project: "Project", spec, args: BaseModel):
             pass
 
-        def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
+        async def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
             return {}
 
     register_tool("echo", EchoTool())
@@ -127,7 +129,9 @@ async def test_project_parses_mcp_settings_and_starts_manager(tmp_path, monkeypa
     )
 
     monkeypatch.setattr(
-        "vocode.mcp.manager.MCPManager._create_client", make_fake_mcp_client_creator(fake_client), raising=True
+        "vocode.mcp.manager.MCPManager._create_client",
+        make_fake_mcp_client_creator(fake_client),
+        raising=True,
     )
 
     # Write config enabling MCP (connect mode via URL) and allow all tools
@@ -163,4 +167,3 @@ tools:
     # Shutdown cleans up
     await proj.shutdown()
     assert "mcp_echo" not in proj.tools
-

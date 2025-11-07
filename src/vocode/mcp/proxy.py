@@ -26,14 +26,7 @@ class MCPToolProxy(BaseTool):
         self._manager = manager
         # Tools accept Any/dict directly; no dynamic Pydantic model is constructed.
 
-    def openapi_spec(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": "",
-            "parameters": self._parameters_schema
-            or {"type": "object", "properties": {}},
-        }
-    def openapi_spec(self, project: "Project", spec: ToolSpec) -> Dict[str, Any]:
+    async def openapi_spec(self, project: "Project", spec: ToolSpec) -> Dict[str, Any]:
         return {
             "name": self.name,
             "description": "",
@@ -41,7 +34,9 @@ class MCPToolProxy(BaseTool):
             or {"type": "object", "properties": {}},
         }
 
-    async def run(self, project: "Project", spec: ToolSpec, args: Any) -> ToolTextResponse:
+    async def run(
+        self, project: "Project", spec: ToolSpec, args: Any
+    ) -> ToolTextResponse:
         """
         Accept parsed arguments (typically a dict) and forward to MCP manager.
         Falls back to empty dict for unsupported types/None.
@@ -60,6 +55,4 @@ class MCPToolProxy(BaseTool):
             return ToolTextResponse(text=text)
         except Exception as e:
             # Return a structured error instead of propagating.
-            return ToolTextResponse(
-                text=f"Tool '{self.name}' failed: {e}"
-            )
+            return ToolTextResponse(text=f"Tool '{self.name}' failed: {e}")

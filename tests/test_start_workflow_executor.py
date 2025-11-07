@@ -37,7 +37,10 @@ class DummyCommands:
 class DummyProject:
     def __init__(self, workflows: dict):
         # Convert provided workflow stubs to real WorkflowConfig entries
-        wf_map = {name: WorkflowConfig(nodes=wf.nodes, edges=wf.edges) for name, wf in workflows.items()}
+        wf_map = {
+            name: WorkflowConfig(nodes=wf.nodes, edges=wf.edges)
+            for name, wf in workflows.items()
+        }
         self.settings = Settings(workflows=wf_map, logging=LoggingSettings())
         self.llm_usage = DummyLLMUsage()
         self.commands = DummyCommands()
@@ -119,7 +122,7 @@ async def test_tool_start_workflow_initiates_child_and_returns_result():
                 workflow="child", initial_text=initial_text
             )
 
-        def openapi_spec(self):
+        async def openapi_spec(self):
             return {
                 "name": self.name,
                 "description": "Starts a child workflow",

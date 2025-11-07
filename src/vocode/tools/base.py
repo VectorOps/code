@@ -83,7 +83,7 @@ class BaseTool(ABC):
         pass
 
     @abstractmethod
-    def openapi_spec(self, project: "Project", spec: ToolSpec) -> Dict[str, Any]:
+    async def openapi_spec(self, project: "Project", spec: ToolSpec) -> Dict[str, Any]:
         """
         Return this tool's definition in OpenAI 'function' tool format,
         using JSON Schema for parameters.

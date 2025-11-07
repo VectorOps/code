@@ -178,6 +178,41 @@ class LLMExecutor(Executor):
             or 0.0
         )
 
+    # ---- Model info helpers ----
+    def _safe_get(self, obj: Any, key: str) -> Any:
+        try:
+            if isinstance(obj, dict):
+                return obj.get(key)
+            return getattr(obj, key, None)
+        except Exception:
+            return None
+
+    def _get_model_info(self, model: str) -> Optional[Any]:
+        with contextlib.suppress(Exception):
+            return litellm.get_model_info(model)
+        return None
+
+    def _get_model_info_value(self, model: str, key: str) -> Optional[Any]:
+        mi = self._get_model_info(model)
+        if mi is None:
+            return None
+        return self._safe_get(mi, key)
+
+    def _calc_cost_from_model_info(
+        self, model: str, prompt_tokens: int, completion_tokens: int
+    ) -> Optional[float]:
+        try:
+            mi = self._get_model_info(model)
+            if mi is None:
+                return None
+            in_per_tok = float(self._safe_get(mi, "input_cost_per_token") or 0.0)
+            out_per_tok = float(self._safe_get(mi, "output_cost_per_token") or 0.0)
+            if (in_per_tok or out_per_tok) and (prompt_tokens or completion_tokens):
+                return (prompt_tokens * in_per_tok) + (completion_tokens * out_per_tok)
+        except Exception:
+            return None
+        return None
+
     def _get_round_cost(
         self,
         stream: Any,
@@ -195,7 +230,15 @@ class LLMExecutor(Executor):
                 round_cost = float(cost)
         except Exception:
             pass  # Continue to fallbacks
-        # Note: legacy hidden params fallbacks removed; rely on litellm.completion_cost or per-1k config.
+        # Secondary fallback: compute via litellm.get_model_info() input/output per-token pricing
+        if round_cost == 0.0:
+            model_info_cost = self._calc_cost_from_model_info(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+            if model_info_cost is not None:
+                round_cost = float(model_info_cost)
 
         if round_cost == 0.0:
             # Final fallback: compute using per-1k pricing configured on the node.
@@ -251,20 +294,30 @@ class LLMExecutor(Executor):
     def _resolve_model_token_limit(self, cfg: "LLMNode") -> Optional[int]:
         """
         Resolve the model input context window (prompt token limit) with fallbacks:
-        1) litellm.get_max_tokens(cfg.model)
+        1) litellm.get_model_info(cfg.model).max_input_tokens
         2) cfg.extra['model_max_tokens']
+        3) litellm.get_model_info(cfg.model).max_tokens (total/context window)
         Returns None if not available/valid. Does not consult project-level caps.
         """
-        # 1) Provider/model-reported context window
+        # 1) Provider/model-reported input context window via model info
         with contextlib.suppress(Exception):
-            v = int(litellm.get_max_tokens(cfg.model) or 0)
-            if v > 0:
-                return v
+            v = self._get_model_info_value(cfg.model, "max_input_tokens")
+            if v:
+                v = int(v or 0)
+                if v > 0:
+                    return v
         # 2) Node config override
         with contextlib.suppress(Exception):
             v = int((cfg.extra or {}).get("model_max_tokens") or 0)
             if v > 0:
                 return v
+        # 3) Fallback to total context window from model info
+        with contextlib.suppress(Exception):
+            v = self._get_model_info_value(cfg.model, "max_tokens")
+            if v:
+                v = int(v or 0)
+                if v > 0:
+                    return v
         return None
 
     def _extract_usage_tokens(
@@ -418,6 +471,7 @@ class LLMExecutor(Executor):
         # Compute effective tool specs (node merged with global settings)
         eff_specs: Dict[str, ToolSpec] = self._build_effective_tool_specs(cfg)
         external_tools: List[Dict[str, Any]] = []
+
         for spec in cfg.tools or []:
             tool_name = spec.name
             tool = self.project.tools.get(tool_name)
@@ -425,7 +479,7 @@ class LLMExecutor(Executor):
                 external_tools.append(
                     {
                         "type": "function",
-                        "function": tool.openapi_spec(
+                        "function": await tool.openapi_spec(
                             self.project, eff_specs[tool_name]
                         ),
                     }
@@ -584,7 +638,7 @@ class LLMExecutor(Executor):
                         )
                         continue
 
-                    logger.error("LLM error", status_code=status_code, err=str(e))
+                    logger.error("LLM error", status_code=status_code, err=e)
                     selected_outcome = None
                     if len(outcomes) > 1:
                         selected_outcome = outcomes[0]
@@ -597,18 +651,6 @@ class LLMExecutor(Executor):
                         ),
                         state,
                     )
-                    # Post-final token usage log against model context window (input), if known
-                    try:
-                        input_token_limit = self._resolve_model_token_limit(cfg)
-                        used_input_tokens = state.total_prompt_tokens
-                        if input_token_limit and input_token_limit > 0:
-                            pct = round((used_input_tokens / input_token_limit) * 100.0)
-                            text = f"Input token usage: {int(pct)}% of limit ({used_input_tokens} / {input_token_limit})"
-                        else:
-                            text = f"Input token usage: {used_input_tokens} tokens (model limit unknown)"
-                        logger.info("%s", text)
-                    except Exception:
-                        pass
                     return
 
             assistant_text = "".join(assistant_text_parts)
@@ -781,18 +823,3 @@ class LLMExecutor(Executor):
                 ReqFinalMessage(message=final_msg, outcome_name=selected_outcome),
                 state,
             )
-            # Post-final info log: current session token usage vs configured project limit
-            # Post-final token usage log against model context window (input), if known
-            try:
-                input_token_limit = self._resolve_model_token_limit(cfg)
-                used_input_tokens = (current_prompt_tokens or 0)
-                if input_token_limit and input_token_limit > 0:
-                    pct = round((used_input_tokens / input_token_limit) * 100.0)
-                    text = f"Input token usage: {int(pct)}% of limit ({used_input_tokens} / {input_token_limit})"
-                else:
-                    text = f"Input token usage: {used_input_tokens} tokens (model limit unknown)"
-                logger.info("%s", text)
-            except Exception:
-                # Do not fail run on logging issues
-                pass
-            return

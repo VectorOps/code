@@ -11,6 +11,7 @@ class StartWorkflowTool(BaseTool):
     - The target workflow name must be provided via ToolSpec.config["workflow"].
     - Optional initial user text can be provided in args as "text" (preferred) or "initial_text".
     """
+
     name = "start_workflow"
 
     async def run(self, project, spec: ToolSpec, args: Any):
@@ -32,7 +33,7 @@ class StartWorkflowTool(BaseTool):
 
         return ToolStartWorkflowResponse(workflow=workflow, initial_text=initial_text)
 
-    def openapi_spec(self, project, spec: ToolSpec) -> Dict[str, Any]:
+    async def openapi_spec(self, project, spec: ToolSpec) -> Dict[str, Any]:
         workflow_name = (spec.config or {}).get("workflow")
         wf_desc: Optional[str] = None
         try:
