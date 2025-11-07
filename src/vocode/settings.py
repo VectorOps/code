@@ -11,7 +11,7 @@ from .models import Node, Edge
 from .state import LogLevel
 
 
-from know.settings import ProjectSettings as KnowProjectSettings
+from knowlt.settings import ProjectSettings as KnowProjectSettings
 
 
 # Base path for packaged template configs, e.g. include: { vocode: "nodes/requirements.yaml" }

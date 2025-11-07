@@ -4,12 +4,10 @@ import json
 from typing import Any, Optional, TYPE_CHECKING, Union
 from pydantic import BaseModel
 
-from know.tools.base import BaseTool as KnowBaseTool, ToolRegistry as KnowToolRegistry
+from knowlt.tools.base import BaseTool as KnowBaseTool, ToolRegistry as KnowToolRegistry
 from ..tools import BaseTool, register_tool, ToolTextResponse
 from ..settings import ToolSpec
-
-from .project import know_thread
-
+ 
 if TYPE_CHECKING:
     from vocode.project import Project
 
@@ -30,11 +28,9 @@ class _KnowToolWrapper(BaseTool):
     async def run(
         self, project: "Project", spec: ToolSpec, args: Any
     ) -> ToolTextResponse:
-        def do_execute():
-            return self._know_tool.execute(project.know.pm, args)
-
         try:
-            result = await know_thread.async_proxy()(do_execute)()
+            # Execute the knowlt tool directly (async).
+            result = await self._know_tool.execute(project.know.pm, args)
             return ToolTextResponse(text=result if result is not None else None)
         except Exception as e:
             # Return a structured error instead of propagating.

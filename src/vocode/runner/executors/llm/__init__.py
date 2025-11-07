@@ -246,6 +246,7 @@ class LLMExecutor(Executor):
                 config=merged_cfg,
             )
         return effective
+
     def _resolve_model_token_limit(self, cfg: "LLMNode") -> Optional[int]:
         """
         Resolve the model context window (token limit) with fallbacks:
@@ -476,8 +477,10 @@ class LLMExecutor(Executor):
                     pct = cfg.function_tokens_pct
                     effective_max_tokens = max(1, int(model_limit * pct / 100))
 
-            # Log the full prompt at debug level before sending (forwarded to UI via interceptor)
-            logging.getLogger(__name__).debug("LLM request:\n%s", json.dumps(conv, indent=2))
+            # Log the full prompt at debug level before sending
+            logging.getLogger(__name__).debug(
+                "LLM request:\n%s", json.dumps(conv, indent=2)
+            )
 
             # Start streaming with retries and error handling
             max_retries = 3
@@ -510,7 +513,9 @@ class LLMExecutor(Executor):
 
                         # Capture usage if provider includes it per chunk (include_usage=True)
                         try:
-                            usage_obj = chunk.get("usage")  # may be litellm Usage object
+                            usage_obj = chunk.get(
+                                "usage"
+                            )  # may be litellm Usage object
                             if usage_obj is not None:
                                 # Accept both dict and object; _extract_usage_tokens handles details
                                 last_usage = usage_obj
@@ -573,13 +578,15 @@ class LLMExecutor(Executor):
                             await asyncio.sleep(0)
                         logging.getLogger(__name__).warning(
                             "LLM retry %s/%s after error (status=%s): %s",
-                            attempt, max_retries, status_code, str(e)
+                            attempt,
+                            max_retries,
+                            status_code,
+                            str(e),
                         )
                         continue
 
                     logging.getLogger(__name__).error(
-                        "LLM error (status=%s): %s",
-                        status_code, str(e)
+                        "LLM error (status=%s): %s", status_code, str(e)
                     )
                     selected_outcome = None
                     if len(outcomes) > 1:
@@ -596,7 +603,9 @@ class LLMExecutor(Executor):
                     # Post-final token usage log against model context window (if known)
                     try:
                         token_limit = self._resolve_model_token_limit(cfg)
-                        used_tokens = state.total_prompt_tokens + state.total_completion_tokens
+                        used_tokens = (
+                            state.total_prompt_tokens + state.total_completion_tokens
+                        )
                         if token_limit and token_limit > 0:
                             pct = round((used_tokens / token_limit) * 100.0)
                             text = f"Token usage: {int(pct)}% of limit ({used_tokens} / {token_limit})"
@@ -781,7 +790,9 @@ class LLMExecutor(Executor):
             # Post-final token usage log against model context window (if known)
             try:
                 token_limit = self._resolve_model_token_limit(cfg)
-                used_tokens = (current_prompt_tokens or 0) + (current_completion_tokens or 0)
+                used_tokens = (current_prompt_tokens or 0) + (
+                    current_completion_tokens or 0
+                )
                 if token_limit and token_limit > 0:
                     pct = round((used_tokens / token_limit) * 100.0)
                     text = f"Token usage: {int(pct)}% of limit ({used_tokens} / {token_limit})"

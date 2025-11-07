@@ -23,6 +23,9 @@ class FakeMCPClient:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
+    async def close(self):
+        pass
+
     async def list_tools(self) -> List[SimpleNamespace]:
         return [
             SimpleNamespace(name=t.get("name"), inputSchema=t.get("inputSchema"))

@@ -8,14 +8,17 @@ from vocode.settings import ToolSpec
 if TYPE_CHECKING:
     from .project import Project
 
+
 # Models
 class ToolResponseType(str, Enum):
     text = "text"
     start_workflow = "start_workflow"
 
+
 class ToolTextResponse(BaseModel):
     type: ToolResponseType = Field(default=ToolResponseType.text)
     text: Optional[str] = None
+
 
 class ToolStartWorkflowResponse(BaseModel):
     type: ToolResponseType = Field(default=ToolResponseType.start_workflow)
@@ -25,6 +28,7 @@ class ToolStartWorkflowResponse(BaseModel):
     # Optional advanced form; if provided, initial_text is ignored.
     initial_message: Optional[Message] = None
 
+
 ToolResponse = Annotated[
     Union[ToolTextResponse, ToolStartWorkflowResponse],
     Field(discriminator="type"),
@@ -33,23 +37,28 @@ ToolResponse = Annotated[
 # Global registry of tool name -> tool instance
 _registry: Dict[str, "BaseTool"] = {}
 
+
 def register_tool(name: str, tool: "BaseTool") -> None:
     """Registers a tool instance."""
     if name in _registry:
         raise ValueError(f"Tool with name '{name}' already registered.")
     _registry[name] = tool
 
+
 def unregister_tool(name: str) -> bool:
     """Unregister a tool instance by name. Returns True if removed, False if not present."""
     return _registry.pop(name, None) is not None
+
 
 def get_tool(name: str) -> Optional["BaseTool"]:
     """Gets a tool instance by name."""
     return _registry.get(name)
 
+
 def get_all_tools() -> Dict[str, "BaseTool"]:
     """Returns a copy of the tool registry."""
     return dict(_registry)
+
 
 class BaseTool(ABC):
     # Subclasses must set this to a unique string
@@ -59,7 +68,9 @@ class BaseTool(ABC):
         pass
 
     @abstractmethod
-    async def run(self, project: "Project", spec: ToolSpec, args: Any) -> Optional[ToolResponse]:
+    async def run(
+        self, project: "Project", spec: ToolSpec, args: Any
+    ) -> Optional[ToolResponse]:
         """
         Execute this tool within the context of the given Project.
         Args:

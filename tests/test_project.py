@@ -20,7 +20,7 @@ def _write_config(base: Path, content: str) -> Path:
     return cfg_path
 
 class DummyKnow:
-    def start(self, *_args, **_kwargs):
+    async def start(self, *_args, **_kwargs):
         return None
 
     async def shutdown(self):

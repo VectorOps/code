@@ -157,7 +157,9 @@ tools:
             assert alive, "Spawned server process not alive"
 
         # Invoke the MCP tool through the proxy
-        res = await project.tools["mcp_echo"].run(project, ToolSpec(name="mcp_echo"), {"text": "hello"})
+        res = await project.tools["mcp_echo"].run(
+            project, ToolSpec(name="mcp_echo"), {"text": "hello"}
+        )
         # Support both legacy str and new ToolTextResponse
         res_text = res.text if hasattr(res, "text") else res
         assert res_text == "hello"

@@ -2,10 +2,10 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .base import UIState
+
 # Canonical autocompletion provider names
 PROVIDER_WORKFLOW_LIST = "workflow_list"
 PROVIDER_FILELIST = "filelist"
-
 
 
 async def ac_workflow_list(ui: "UIState", params: Dict[str, Any]) -> List[str]:
@@ -25,7 +25,7 @@ async def ac_filelist(ui: "UIState", params: Dict[str, Any]) -> List[str]:
         limit = int(params.get("limit") or 5)
         # Pass repo_ids from KnowProjectManager
         repo_ids: Optional[List[str]] = kp.pm.repo_ids
-        files = kp.data.file.filename_complete(
+        files = await kp.data.file.filename_complete(
             needle=needle, repo_ids=repo_ids, limit=limit
         )
         return [f.path for f in files if f.path]

@@ -76,6 +76,7 @@ class MCPManager:
         # Exit the FastMCP client context
         if self._client is not None:
             await self._client.__aexit__(None, None, None)
+            await self._client.close()
             self._client = None
 
         self._started = False

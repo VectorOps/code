@@ -6,7 +6,7 @@ from asyncio import Queue
 
 if TYPE_CHECKING:
     from .tools import BaseTool
-    from know.models import Repo
+    from knowlt.models import Repo
 
 from .know import KnowProject
 from .scm.git import GitSCM
@@ -63,14 +63,12 @@ class Project:
         base_path: Path,
         config_relpath: Path,
         settings: Optional[Settings],
-        tools: Dict[str, "BaseTool"],
-        know: KnowProject,
     ):
         self.base_path: Path = base_path
         self.config_relpath: Path = config_relpath
         self.settings: Optional[Settings] = settings
-        self.tools: Dict[str, "BaseTool"] = tools
-        self.know: KnowProject = know
+        self.tools: Dict[str, "BaseTool"] = {}
+        self.know: KnowProject = KnowProject()
         self.mcp_manager: Optional[MCPManager] = None
         # Project-level shared state for executors
         self.project_state: ProjectState = ProjectState()
@@ -172,10 +170,15 @@ class Project:
         """
         Start project subsystems that require async initialization (e.g., MCP).
         """
+        # Initialize knowlt manager before subsystems that might depend on it.
+        if self.settings and self.settings.know:
+            await self.know.start(self.settings.know)
+
         if self.settings and self.settings.mcp:
             # Create and start MCP manager; it will register tool proxies and refresh the tool map.
             self.mcp_manager = MCPManager(self.settings.mcp)
             await self.mcp_manager.start(self)
+
         # Initialize process manager (idempotent)
         if self.processes is None:
             backend_name = (
@@ -297,16 +300,16 @@ def init_project(
         know_data_path.mkdir(parents=True, exist_ok=True)
         know_settings.repository_connection = str(know_data_path / "know.duckdb")
 
-    know_project = KnowProject()
-    know_project.start(know_settings)
+    # Persist computed know settings for deferred async initialization in start()
+    settings.know = know_settings
 
+    # TODO: Move out
     register_know_tools()
+
     proj = Project(
         base_path=base,
         config_relpath=rel,
         settings=settings,
-        tools={},  # will be refreshed from registry below
-        know=know_project,
     )
     # Initialize tools snapshot based on current registry (includes 'know' tools).
     proj.refresh_tools_from_registry()

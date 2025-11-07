@@ -3,7 +3,11 @@ from __future__ import annotations
 import shutil
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
-from prompt_toolkit.formatted_text import AnyFormattedText, FormattedText, merge_formatted_text
+from prompt_toolkit.formatted_text import (
+    AnyFormattedText,
+    FormattedText,
+    merge_formatted_text,
+)
 from prompt_toolkit.formatted_text.utils import fragment_list_width
 
 from vocode.ui.terminal import colors
@@ -12,10 +16,10 @@ from vocode.settings import ToolCallFormatter  # type: ignore
 
 # Defaults can be extended over time. Users can override/extend via Settings.tool_call_formatters.
 DEFAULT_TOOL_CALL_FORMATTERS: Dict[str, "ToolCallFormatter"] = {
-    "vectorops_search": ToolCallFormatter(title="SymbolSearch", rule="query"),
-    "vectorops_read_files": ToolCallFormatter(title="ReadFile", rule="path"),
-    "vectorops_summarize_files": ToolCallFormatter(title="FileSummary", rule="paths"),
-    "vectorops_list_files": ToolCallFormatter(title="ListFiles", rule="patterns"),
+    "search_project": ToolCallFormatter(title="SymbolSearch", rule="query"),
+    "read_files": ToolCallFormatter(title="ReadFile", rule="path"),
+    "summarize_files": ToolCallFormatter(title="FileSummary", rule="paths"),
+    "list_files": ToolCallFormatter(title="ListFiles", rule="patterns"),
 }
 
 
@@ -25,6 +29,7 @@ def _extract_field_value(payload: Any, field: str) -> List[Any]:
     Otherwise return an empty list, indicating 'absent'.
     """
     from collections.abc import Mapping as _Mapping
+
     if isinstance(payload, _Mapping) and field in payload:  # type: ignore[arg-type]
         return [payload[field]]  # type: ignore[index]
     return []
@@ -152,7 +157,9 @@ def render_tool_call(
         if not print_source:
             return preview
         # Append formatted JSON on a new line.
-        return merge_formatted_text([preview, "\n", colors.render_json(arguments), "\n"])
+        return merge_formatted_text(
+            [preview, "\n", colors.render_json(arguments), "\n"]
+        )
     # Extract params by field name. If field is absent, show ellipsis.
     extracted = _extract_field_value(arguments, cfg.rule)
     if not extracted:
@@ -165,7 +172,9 @@ def render_tool_call(
         preview = _truncate_params_to_width(prefix, params, suffix, max_total)
         if not print_source:
             return preview
-        return merge_formatted_text([preview, "\n", colors.render_json(arguments), "\n"])
+        return merge_formatted_text(
+            [preview, "\n", colors.render_json(arguments), "\n"]
+        )
     param_strings = _flatten_params(extracted)
     param_fragments = _build_param_fragments(param_strings)
 

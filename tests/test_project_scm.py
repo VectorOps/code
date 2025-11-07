@@ -9,7 +9,7 @@ from vocode.project import Project
 
 
 class DummyKnow:
-    def start(self, *_args, **_kwargs):
+    async def start(self, *_args, **_kwargs):
         return None
 
     async def shutdown(self):
