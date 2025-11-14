@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncIterator, Optional, Any, List, Set
+from typing import AsyncIterator, Optional, Any, List, Set, Tuple
 from pydantic import model_validator
 
 from vocode.runner.runner import Executor
 from vocode.models import Node
 from vocode.state import Message
-from vocode.runner.models import ReqFinalMessage, ExecRunInput
+from vocode.runner.models import ReqPacket, ReqInterimMessage, ReqFinalMessage, ExecRunInput
 from vocode.proc.manager import ProcessManager
 
 
@@ -49,9 +49,11 @@ class ExecExecutor(Executor):
 
     async def run(
         self, inp: ExecRunInput
-    ) -> AsyncIterator[tuple[ReqFinalMessage, Optional[Any]]]:
+    ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: ExecNode = self.config  # type: ignore[assignment]
         timeout_s = cfg.timeout_s if cfg.timeout_s is not None else 120.0
+        # Debounce window: if the command finishes quickly, do not stream interims
+        STREAM_DEBOUNCE_S = 0.25
 
         pm: ProcessManager = self.project.processes
 
@@ -60,48 +62,99 @@ class ExecExecutor(Executor):
             command=cfg.command, name=f"exec:{cfg.name}", shell=True, use_pty=False
         )
 
-        # Collect stdout and stderr concurrently (append stderr after stdout)
+        # Prepare streaming buffers and pumps
         stdout_parts: List[str] = []
         stderr_parts: List[str] = []
+        queue: asyncio.Queue[Tuple[str, str]] = asyncio.Queue()
+        pending_chunks: List[str] = []
 
-        async def _read_stdout():
+        async def _pump_stdout():
             async for chunk in handle.iter_stdout():
-                stdout_parts.append(chunk)
+                await queue.put(("stdout", chunk))
 
-        async def _read_stderr():
+        async def _pump_stderr():
             async for chunk in handle.iter_stderr():
-                stderr_parts.append(chunk)
+                await queue.put(("stderr", chunk))
 
-        readers = [
-            asyncio.create_task(_read_stdout()),
-            asyncio.create_task(_read_stderr()),
-        ]
-
-        timed_out = False
-        try:
-            rc = await asyncio.wait_for(handle.wait(), timeout=timeout_s)
-        except asyncio.TimeoutError:
-            timed_out = True
-            # Kill the process, then wait for it to exit
-            try:
-                await handle.kill()
-            finally:
-                try:
-                    rc = await handle.wait()
-                except Exception:
-                    rc = None  # not expected to be used further
-
-        # Ensure readers finished
-        await asyncio.gather(*readers, return_exceptions=True)
-
-        output = "".join(stdout_parts) + "".join(stderr_parts)
-
-        # Build final message text: message (optional), then command header, then output
+        pump_out = asyncio.create_task(_pump_stdout())
+        pump_err = asyncio.create_task(_pump_stderr())
+        wait_task = asyncio.create_task(handle.wait())
+        # Build header text used for both streaming and final message
         header_parts: List[str] = []
         if cfg.message:
             header_parts.append(cfg.message)
         header_parts.append(f"> {cfg.command}")
         header = "\n".join(header_parts)
+
+        # Stream chunks as they arrive while observing timeout
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
+        timed_out = False
+        rc: Optional[int] = None
+        streaming_started = False
+
+        while True:
+            # Handle timeout
+            if not wait_task.done() and timeout_s is not None:
+                if loop.time() - start_time > timeout_s:
+                    timed_out = True
+                    await handle.kill()
+
+            # Drain available output
+            try:
+                src, chunk = await asyncio.wait_for(queue.get(), timeout=0.1)
+                if src == "stdout":
+                    stdout_parts.append(chunk)
+                else:
+                    stderr_parts.append(chunk)
+                # Decide when to start streaming: after debounce window and if process is still running
+                if not streaming_started:
+                    pending_chunks.append(chunk)
+                    if (loop.time() - start_time) >= STREAM_DEBOUNCE_S and not wait_task.done():
+                        streaming_started = True
+                        # Emit header first, then any pending chunks accumulated so far
+                        _ = yield (
+                            ReqInterimMessage(
+                                message=Message(role="agent", text=header, node=cfg.name)
+                            ),
+                            None,
+                        )
+                        for p in pending_chunks:
+                            _ = yield (
+                                ReqInterimMessage(
+                                    message=Message(role="agent", text=p, node=cfg.name)
+                                ),
+                                None,
+                            )
+                        pending_chunks.clear()
+                else:
+                    # Stream this chunk immediately
+                    _ = yield (
+                        ReqInterimMessage(
+                            message=Message(role="agent", text=chunk, node=cfg.name)
+                        ),
+                        None,
+                    )
+            except asyncio.TimeoutError:
+                pass
+
+            # Exit condition: process finished, pumps done, and queue drained
+            if wait_task.done() and pump_out.done() and pump_err.done() and queue.empty():
+                break
+
+        # Ensure pumps finished
+        await asyncio.gather(pump_out, pump_err, return_exceptions=True)
+        # Get return code
+        try:
+            rc = wait_task.result()
+        except Exception:
+            # In case wait_task raised due to cancellation/kill sequencing
+            try:
+                rc = await handle.wait()
+            except Exception:
+                rc = None
+
+        output = "".join(stdout_parts) + "".join(stderr_parts)
         final_text = f"{header}\n{output}"
 
         # Outcome selection
@@ -116,5 +169,5 @@ class ExecExecutor(Executor):
             if len(cfg.outcomes) == 1:
                 outcome_name = cfg.outcomes[0].name
 
-        final_msg = Message(role="agent", text=final_text)
+        final_msg = Message(role="agent", text=final_text, node=cfg.name)
         yield ReqFinalMessage(message=final_msg, outcome_name=outcome_name), None

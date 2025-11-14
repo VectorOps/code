@@ -46,4 +46,11 @@ system: |
 
   ## Required Output
 
-  - Only a list of relevant files with short description summary no longer than a single sentence.
+  Your goal is provide repository brief without offering a solution.
+
+  - Provide a list of relevant files with short description summary no longer than a single sentence.
+
+  ## Don't
+
+  - Do not offer a plan, task breakdown or a solution
+  - Do not ask user for next steps

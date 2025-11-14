@@ -157,6 +157,7 @@ workflows:
           - search_project
           - summarize_files
           - read_files
+          - exec
         reset_policy: keep_state
     edges:
       - prompt.done -> analyst

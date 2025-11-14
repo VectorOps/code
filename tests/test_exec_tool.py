@@ -25,7 +25,8 @@ def test_exec_tool_basic_stderr_and_timeout(tmp_path: Path):
         pm = ProcessManager(backend_name="local", default_cwd=tmp_path)
         proj = _DummyProject(pm)
         tool = ExecTool()
-        spec = ToolSpec(name="exec")
+        # Use a small timeout for CI speed; default is 60s for production use.
+        spec = ToolSpec(name="exec", config={"timeout_s": 0.1})
 
         # Basic echo
         resp1 = await tool.run(proj, spec, {"command": "echo hi"})

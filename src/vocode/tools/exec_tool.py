@@ -11,9 +11,9 @@ from vocode.settings import ToolSpec
 
 if TYPE_CHECKING:
     from vocode.project import Project
-
-# Fixed timeout for all exec tool invocations (seconds)
-EXEC_TOOL_TIMEOUT_S: float = 1.0
+# Default timeout for exec tool invocations (seconds).
+# Can be overridden per-tool via ToolSpec.config["timeout_s"].
+EXEC_TOOL_TIMEOUT_S: float = 60.0
 
 
 class ExecTool(BaseTool):
@@ -21,6 +21,7 @@ class ExecTool(BaseTool):
     Execute a command in a subprocess using the project's ProcessManager.
     Collects combined stdout/stderr, enforces a fixed timeout, and returns a JSON string payload.
     """
+
     name = "exec"
 
     async def run(self, project: "Project", spec: ToolSpec, args: Any):
@@ -45,7 +46,9 @@ class ExecTool(BaseTool):
             raise ValueError("ExecTool requires 'command' (string) argument")
 
         # Spawn a one-off process (shell=True)
-        handle = await pm.spawn(command=command, name="tool:exec", shell=True, use_pty=False)
+        handle = await pm.spawn(
+            command=command, name="tool:exec", shell=True, use_pty=False
+        )
 
         stdout_parts: List[str] = []
         stderr_parts: List[str] = []
@@ -57,6 +60,12 @@ class ExecTool(BaseTool):
         async def _read_stderr():
             async for chunk in handle.iter_stderr():
                 stderr_parts.append(chunk)
+        # Determine timeout: allow override via tool spec config
+        cfg = spec.config or {}
+        try:
+            timeout_s = float(cfg.get("timeout_s", EXEC_TOOL_TIMEOUT_S))
+        except (TypeError, ValueError):
+            timeout_s = EXEC_TOOL_TIMEOUT_S
 
         readers = [
             asyncio.create_task(_read_stdout()),
@@ -66,7 +75,7 @@ class ExecTool(BaseTool):
         timed_out = False
         rc: Optional[int] = None
         try:
-            rc = await asyncio.wait_for(handle.wait(), timeout=EXEC_TOOL_TIMEOUT_S)
+            rc = await asyncio.wait_for(handle.wait(), timeout=timeout_s)
         except asyncio.TimeoutError:
             timed_out = True
             try:
@@ -90,8 +99,8 @@ class ExecTool(BaseTool):
         return {
             "name": self.name,
             "description": (
-                f"Execute a shell command and return combined stdout/stderr, exit code, and timeout status. "
-                f"This tool enforces a fixed timeout of {EXEC_TOOL_TIMEOUT_S} seconds."
+                "Execute a shell command and return combined stdout/stderr, exit code, and timeout status. "
+                f"Timeout is configurable via tool config (timeout_s) and defaults to {EXEC_TOOL_TIMEOUT_S} seconds."
             ),
             "parameters": {
                 "type": "object",
@@ -110,6 +119,7 @@ class ExecTool(BaseTool):
 # Register tool on import
 try:
     from .base import register_tool
+
     register_tool(ExecTool.name, ExecTool())
 except Exception:
     pass
