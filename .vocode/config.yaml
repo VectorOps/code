@@ -145,7 +145,7 @@ workflows:
     nodes:
       - name: prompt
         type: input
-        message: Enter your request
+        message: What do you need help with?
         confirmation: auto
         hide_final_output: true
         outcomes:
@@ -153,9 +153,11 @@ workflows:
       - $include:
           template: nodes/analyst.yaml
         tools:
+          - list_files
           - search_project
           - summarize_files
           - read_files
+        reset_policy: keep_state
     edges:
       - prompt.done -> analyst
       - analyst.done -> prompt
