@@ -11,7 +11,7 @@
 ** [ ] Changing
 ** [ ] Contribution rules
 * [ ] Preprocessors
-** [ ] Figure out a way to print warnings or logs
+** [X] Figure out a way to print warnings or logs
 * [ ] Runner
 ** [ ] [#A] Add a way to restrict number of loops when cycling
 ** [X] Add a way to tell how many times node can be executed and skip if more times have passed
@@ -46,6 +46,7 @@ Unclosed client session
 client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Terminal UI
 ** [ ] Figure out a way to avoid showing nested output for workflow (tool calls, etc)
+*** [ ] Allow nodes to specify if output should be hidden by default
 *** [ ] Ideas
 - Group messages to current workflow by name
 - Workflow can have display mode
@@ -58,7 +59,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Figure our a way to run a shell command and pass its output as a response back to the workflow from UI. For example, running linter or test manually.
 ** [ ] Better visual separation of prompts vs responses
 ** [ ] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
-** [ ] Disable know warnings, they mess up UI output
+** [X] Disable know warnings, they mess up UI output
 ** [ ] Animation does not always start after providing feedback message back to Node
 ** [ ] Better multi-line inputs, don't require esc+enter to send
 ** [ ] Show how long individual steps took, in seconds
