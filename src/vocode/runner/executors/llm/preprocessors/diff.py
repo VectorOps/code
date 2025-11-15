@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Dict, Any, Optional
-from vocode.runner.executors.apply_patch import SUPPORTED_PATCH_FORMATS
+from vocode.patch import get_supported_formats, get_system_instruction
 from vocode.models import PreprocessorSpec, Mode
 from vocode.state import Message
 
@@ -24,11 +24,10 @@ def _diff_preprocessor(project, spec: PreprocessorSpec, messages: List[Message])
     else:
         fmt = "v4a"
 
-    entry = SUPPORTED_PATCH_FORMATS.get(fmt)
-    if not entry:
+    if fmt not in get_supported_formats():
         return messages
 
-    instruction = entry.system_prompt
+    instruction = get_system_instruction(fmt)
 
     suffix = (spec.options or {}).get("suffix", "")
     target_message = None
@@ -60,5 +59,5 @@ def _diff_preprocessor(project, spec: PreprocessorSpec, messages: List[Message])
 register_preprocessor(
     name="diff",
     func=_diff_preprocessor,
-    description=f"Injects system instructions for diff patches. Options: {{'format': one of {', '.join(sorted(SUPPORTED_PATCH_FORMATS.keys()))}}}",
+    description=f"Injects system instructions for diff patches. Options: {{'format': one of {', '.join(sorted(get_supported_formats()))}}}",
 )

@@ -5,8 +5,7 @@ from enum import Enum, auto
 from typing import Callable, Dict, List, Optional, Tuple
 import os
 import re
-
-from vocode.runner.executors.apply_patch.models import FileApplyStatus
+from .models import FileApplyStatus
 
 
 DIFF_PATCH_SYSTEM_INSTRUCTION = r"""# Patch format: SEARCH/REPLACE blocks

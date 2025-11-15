@@ -1,5 +1,5 @@
-from vocode.runner.executors.apply_patch.patch import process_patch
-from vocode.runner.executors.apply_patch.models import FileApplyStatus
+from vocode.patch.patch import process_patch
+from vocode.patch.models import FileApplyStatus
 
 def test_process_aider_like_fenced_adds_file():
 
@@ -36,8 +36,8 @@ def test_process_aider_like_fenced_adds_file():
 
 
 def test_update_successful_fenced_patch():
-    from vocode.runner.executors.apply_patch.patch import process_patch
-    from vocode.runner.executors.apply_patch.models import FileApplyStatus
+    from vocode.patch.patch import process_patch
+    from vocode.patch.models import FileApplyStatus
 
     writes = {}
 
@@ -72,8 +72,8 @@ def test_update_successful_fenced_patch():
 
 
 def test_update_partial_when_search_not_found():
-    from vocode.runner.executors.apply_patch.patch import process_patch
-    from vocode.runner.executors.apply_patch.models import FileApplyStatus
+    from vocode.patch.patch import process_patch
+    from vocode.patch.models import FileApplyStatus
 
     writes = {}
 
@@ -110,8 +110,8 @@ def test_update_partial_when_search_not_found():
 
 
 def test_delete_success():
-    from vocode.runner.executors.apply_patch.patch import process_patch
-    from vocode.runner.executors.apply_patch.models import FileApplyStatus
+    from vocode.patch.patch import process_patch
+    from vocode.patch.models import FileApplyStatus
 
     deletions = []
 
@@ -145,8 +145,8 @@ def test_delete_success():
 
 
 def test_duplicate_file_entry_error():
-    from vocode.runner.executors.apply_patch.patch import process_patch
-    from vocode.runner.executors.apply_patch.models import FileApplyStatus
+    from vocode.patch.patch import process_patch
+    from vocode.patch.models import FileApplyStatus
 
     writes: dict[str, str] = {}
 
@@ -192,7 +192,7 @@ def test_duplicate_file_entry_error():
 
 
 def test_absolute_path_rejected():
-    from vocode.runner.executors.apply_patch.patch import process_patch
+    from vocode.patch.patch import process_patch
 
     writes = {}
     deletions = []
@@ -228,8 +228,8 @@ def test_absolute_path_rejected():
 
 
 def test_read_error_marks_partial_update():
-    from vocode.runner.executors.apply_patch.patch import process_patch
-    from vocode.runner.executors.apply_patch.models import FileApplyStatus
+    from vocode.patch.patch import process_patch
+    from vocode.patch.models import FileApplyStatus
 
     writes = {}
 
@@ -264,8 +264,8 @@ def test_read_error_marks_partial_update():
 
 
 def test_mixed_add_update_delete_and_partial():
-    from vocode.runner.executors.apply_patch.patch import process_patch
-    from vocode.runner.executors.apply_patch.models import FileApplyStatus
+    from vocode.patch.patch import process_patch
+    from vocode.patch.models import FileApplyStatus
 
     writes = {}
     deletions = []

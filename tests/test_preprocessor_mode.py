@@ -143,8 +143,11 @@ def test_diff_preprocessor(base_messages):
     executor = LLMExecutor(config=node, project=DummyProject())
 
     with patch(
-        "vocode.runner.executors.llm.preprocessors.diff.SUPPORTED_PATCH_FORMATS",
-        {"test_format": type("obj", (object,), {"system_prompt": " DIFF"})}
+        "vocode.runner.executors.llm.preprocessors.diff.get_supported_formats",
+        return_value=("test_format",),
+    ), patch(
+        "vocode.runner.executors.llm.preprocessors.diff.get_system_instruction",
+        return_value=" DIFF",
     ):
         result_messages = h_build_base_messages(node, base_messages[1:], executor.project)
 

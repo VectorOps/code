@@ -26,8 +26,11 @@ def test_diff_preprocessor_does_not_reinject(base_messages):
     spec = PreprocessorSpec(name="diff", options={"format": "test_format"})
     
     with patch(
-        "vocode.runner.executors.llm.preprocessors.diff.SUPPORTED_PATCH_FORMATS",
-        {"test_format": type("obj", (object,), {"system_prompt": " DIFF"})}
+        "vocode.runner.executors.llm.preprocessors.diff.get_supported_formats",
+        return_value=("test_format",),
+    ), patch(
+        "vocode.runner.executors.llm.preprocessors.diff.get_system_instruction",
+        return_value=" DIFF",
     ):
         # First call injects the content
         out_messages = pp.func(DummyProject(), spec, base_messages)

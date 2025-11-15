@@ -405,19 +405,74 @@ class TerminalApp:
                 commands.unregister(cli_name)
                 self.dynamic_cli_commands.discard(cli_name)
 
+    async def _handle_custom_commands_packet(self, cd: UIPacketCustomCommands) -> None:
+        assert (
+            self.commands is not None and self.rpc is not None and self.ui is not None
+        )
+        commands = self.commands
+        rpc = self.rpc
+        ac_factory = lambda name: make_canned_provider(rpc, name)
+        existing_names = {c.name for c in commands.list_commands()}
+        for c in cd.added:
+            cli_name = f"/{c.name}"
+            if cli_name in existing_names and cli_name not in self.dynamic_cli_commands:
+                continue
+            if cli_name in self.dynamic_cli_commands:
+                commands.unregister(cli_name)
+                self.dynamic_cli_commands.discard(cli_name)
+
+            async def _proxy(ctx: CommandContext, args: list[str], *, _cname=c.name):
+                self.pending_cmd = _cname
+                try:
+                    res = await rpc.call(UIPacketRunCommand(name=_cname, input=args))
+                    if res is None:
+                        return
+                    if res.kind != PACKET_COMMAND_RESULT:
+                        await ctx.out(
+                            f"Command '{_cname}' failed: unexpected response {res.kind}"
+                        )
+                        return
+                    if res.ok:
+                        if res.output:
+                            await ctx.out(res.output)
+                    else:
+                        await ctx.out(
+                            f"Command '{_cname}' failed: {res.error or 'unknown error'}"
+                        )
+                except Exception as e:
+                    await ctx.out(f"Error executing command '{_cname}': {e}")
+                finally:
+                    self.pending_cmd = None
+
+            commands.register(
+                cli_name,
+                c.help or "",
+                c.usage,
+                (ac_factory(c.autocompleter) if c.autocompleter else None),
+            )(
+                _proxy
+            )  # type: ignore[arg-type]
+            self.dynamic_cli_commands.add(cli_name)
+            existing_names.add(cli_name)
+        for name in cd.removed:
+            cli_name = f"/{name}"
+            if cli_name in self.dynamic_cli_commands:
+                commands.unregister(cli_name)
+                self.dynamic_cli_commands.discard(cli_name)
+
     def _register_router_handlers(self) -> None:
         assert self._router is not None
         # Requests from UIState routed to Terminal
-        self._router.register(PACKET_RUN_EVENT, self.handle_run_event)
-        self._router.register(PACKET_STATUS, self._handle_status_packet)
-        self._router.register(PACKET_UI_RESET, self._handle_ui_reset_packet)
-        self._router.register(PACKET_CUSTOM_COMMANDS, self._handle_custom_commands_req)
-        self._router.register(PACKET_PROJECT_OP_START, self._handle_project_op_start)
-        self._router.register(PACKET_PROJECT_OP_PROGRESS, self._handle_project_op_progress)
-        self._router.register(PACKET_PROJECT_OP_FINISH, self._handle_project_op_finish)
-        self._router.register(UI_PACKET_LOG, self._handle_log_packet)
+        self._router.register(PACKET_RUN_EVENT, self._ui_run_event)
+        self._router.register(PACKET_STATUS, self._ui_status)
+        self._router.register(PACKET_UI_RESET, self._ui_reset)
+        self._router.register(PACKET_CUSTOM_COMMANDS, self._ui_custom_commands)
+        self._router.register(PACKET_PROJECT_OP_START, self._ui_project_op_start)
+        self._router.register(PACKET_PROJECT_OP_PROGRESS, self._ui_project_op_progress)
+        self._router.register(PACKET_PROJECT_OP_FINISH, self._ui_project_op_finish)
+        self._router.register(UI_PACKET_LOG, self._ui_log)
 
-    async def _handle_status_packet(self, envelope: UIPacketEnvelope):
+    async def _ui_status(self, envelope: UIPacketEnvelope):
         msg = envelope.payload
         # Reset interrupt counter and update toolbar ticker state.
         self.reset_interrupt()
@@ -448,18 +503,18 @@ class TerminalApp:
             await self._update_toolbar_ticker()
         return None
 
-    async def _handle_ui_reset_packet(self, envelope: UIPacketEnvelope):
+    async def _ui_reset(self, envelope: UIPacketEnvelope):
         # Clear local pending input and queued responses on reset.
         self.pending_req_env = None
         self.queued_resp = None
         await self._update_toolbar_ticker()
         return None
 
-    async def _handle_custom_commands_req(self, envelope: UIPacketEnvelope):
-        await self.handle_custom_commands_packet(envelope.payload)  # type: ignore[arg-type]
+    async def _ui_custom_commands(self, envelope: UIPacketEnvelope):
+        await self._handle_custom_commands_packet(envelope.payload)  # type: ignore[arg-type]
         return None
 
-    async def _handle_project_op_start(self, envelope: UIPacketEnvelope):
+    async def _ui_project_op_start(self, envelope: UIPacketEnvelope):
         msg = envelope.payload
         self._op_message = msg.message
         self._op_progress = 0
@@ -468,7 +523,7 @@ class TerminalApp:
             self.session.app.invalidate()
         return None
 
-    async def _handle_project_op_progress(self, envelope: UIPacketEnvelope):
+    async def _ui_project_op_progress(self, envelope: UIPacketEnvelope):
         msg = envelope.payload
         self._op_progress = msg.progress
         self._op_total = msg.total
@@ -478,7 +533,7 @@ class TerminalApp:
             self.session.app.invalidate()
         return None
 
-    async def _handle_project_op_finish(self, envelope: UIPacketEnvelope):
+    async def _ui_project_op_finish(self, envelope: UIPacketEnvelope):
         # Clear progress state and refresh toolbar.
         self._op_message = None
         self._op_progress = None
@@ -487,7 +542,7 @@ class TerminalApp:
             self.session.app.invalidate()
         return None
 
-    async def _handle_log_packet(self, envelope: UIPacketEnvelope):
+    async def _ui_log(self, envelope: UIPacketEnvelope):
         msg: UIPacketLog = envelope.payload  # type: ignore[assignment]
         # Flush current stream so logs do not interleave with message streaming.
         if self.stream_throttler:
@@ -500,124 +555,130 @@ class TerminalApp:
         await out(prefix + src + text)
         return None
 
-    async def handle_run_event(self, envelope: UIPacketEnvelope) -> None:
+    async def _runner_message_stream(self, envelope: UIPacketEnvelope) -> None:
         assert self.ui is not None
         req_payload = envelope.payload
         assert req_payload.kind == PACKET_RUN_EVENT
         ev = req_payload.event.event
+        # Interim streamed assistant message chunks
+        speaker = ev.message.role or "assistant"
+        text = ev.message.text or ""
+        if not self.stream_throttler:
+            assert self.session is not None
+            self.last_streamed_text = None
+            self.stream_throttler = StreamThrottler(
+                session=self.session, speaker=speaker
+            )
+        assert self.stream_throttler is not None
+        await self.stream_throttler.append(text)
+        return
 
-        if ev.kind == PACKET_MESSAGE and ev.message:
-            speaker = ev.message.role or "assistant"
-            text = ev.message.text or ""
-            if not self.stream_throttler:
-                assert self.session is not None
-                self.last_streamed_text = None
-                self.stream_throttler = StreamThrottler(
-                    session=self.session, speaker=speaker
-                )
-
-            assert self.stream_throttler is not None
-            await self.stream_throttler.append(text)
-
-            return
-
+    async def _runner_message_request(self, envelope: UIPacketEnvelope) -> None:
+        assert self.ui is not None
+        req_payload = envelope.payload
+        assert req_payload.kind == PACKET_RUN_EVENT
+        ev = req_payload.event.event
+        # Ensure any prior stream is flushed
         if self.stream_throttler:
             await self._flush_and_clear_stream()
+        self.last_streamed_text = None  # New stream context
+        if ev.message:
+            await out_fmt(colors.render_markdown(ev.message))
+        self.pending_req_env = envelope if req_payload.event.input_requested else None
+        if self.pending_req_env is not None and self.queued_resp is not None:
+            await respond_packet(self.ui, self.pending_req_env.msg_id, self.queued_resp)
+            self.queued_resp = None
+            self.pending_req_env = None
+        if self.session:
+            self.session.app.invalidate()
+        await self._update_toolbar_ticker()
+        return
 
-        if ev.kind == PACKET_MESSAGE_REQUEST:
-            self.last_streamed_text = None  # New stream context, clear old state
-            if ev.message:
-                await out_fmt(colors.render_markdown(ev.message))
-            self.pending_req_env = (
-                envelope if req_payload.event.input_requested else None
+    async def _runner_tool_call(self, envelope: UIPacketEnvelope) -> None:
+        assert self.ui is not None
+        req_payload = envelope.payload
+        assert req_payload.kind == PACKET_RUN_EVENT
+        ev = req_payload.event.event
+        # Ensure any prior stream is flushed
+        if self.stream_throttler:
+            await self._flush_and_clear_stream()
+        self.last_streamed_text = None  # New stream context
+        fmt_map = (
+            self.ui.project.settings.tool_call_formatters
+            if (self.ui and self.ui.project.settings)
+            else None
+        )
+        term_width = shutil.get_terminal_size(fallback=(80, 24)).columns
+        print_source = bool(req_payload.event.input_requested)
+        for tc in ev.tool_calls:
+            fragments = render_tool_call(
+                tc.name,
+                tc.arguments,
+                fmt_map,
+                terminal_width=term_width,
+                print_source=print_source,
             )
-            if self.pending_req_env is not None and self.queued_resp is not None:
-                await respond_packet(
-                    self.ui, self.pending_req_env.msg_id, self.queued_resp
-                )
-                self.queued_resp = None
-                self.pending_req_env = None
-            if self.session:
-                self.session.app.invalidate()
-            await self._update_toolbar_ticker()
-            return
-
-        if ev.kind == PACKET_TOOL_CALL:
-            self.last_streamed_text = None  # New stream context, clear old state
-            # Render each tool call as a formatted function-call preview.
-            fmt_map = (
-                self.ui.project.settings.tool_call_formatters
-                if (self.ui and self.ui.project.settings)
-                else None
-            )
-            term_width = shutil.get_terminal_size(fallback=(80, 24)).columns
-            # If input is requested, a confirmation is being asked for the tool call.
-            print_source = bool(req_payload.event.input_requested)
-            # Header
-            header_fragments = [
-                ("class:system.star", "* "),
-                ("class:system.text", "Tool call"),
-            ]
             print_formatted_text(
-                to_formatted_text(header_fragments), style=styles.get_pt_style()
+                # Always prefix each tool call with chevrons in star color
+                to_formatted_text([("class:system.star", "<<< ")]),
+                style=styles.get_pt_style(),
+                end="",
             )
-            for tc in ev.tool_calls:
-                fragments = render_tool_call(
-                    tc.name,
-                    tc.arguments,
-                    fmt_map,
-                    terminal_width=term_width,
-                    print_source=print_source,
-                )
-                # Print a prefixed line: "| " + <formatted tool call>
-                # Use end="" for the prefix so the tool call prints on the same line.
-                print_formatted_text(
-                    to_formatted_text([("class:system.text", "| ")]),
-                    style=styles.get_pt_style(),
-                    end="",
-                )
-                print_formatted_text(
-                    to_formatted_text(fragments),
-                    style=styles.get_pt_style(),
-                )
-            # Empty line after the tool-call block
-            print_formatted_text("")
-            self.pending_req_env = (
-                envelope if req_payload.event.input_requested else None
+            print_formatted_text(
+                to_formatted_text(fragments), style=styles.get_pt_style()
             )
-            if self.pending_req_env is not None and self.queued_resp is not None:
-                await respond_packet(
-                    self.ui, self.pending_req_env.msg_id, self.queued_resp
-                )
-                self.queued_resp = None
-                self.pending_req_env = None
-            if self.session:
-                self.session.app.invalidate()
-            await self._update_toolbar_ticker()
-            return
+        print_formatted_text("")
+        self.pending_req_env = envelope if req_payload.event.input_requested else None
+        if self.pending_req_env is not None and self.queued_resp is not None:
+            await respond_packet(self.ui, self.pending_req_env.msg_id, self.queued_resp)
+            self.queued_resp = None
+            self.pending_req_env = None
+        if self.session:
+            self.session.app.invalidate()
+        await self._update_toolbar_ticker()
+        return
 
+    async def _runner_final_message(self, envelope: UIPacketEnvelope) -> None:
+        assert self.ui is not None
+        req_payload = envelope.payload
+        assert req_payload.kind == PACKET_RUN_EVENT
+        ev = req_payload.event.event
+        # Ensure any prior stream is flushed
+        if self.stream_throttler:
+            await self._flush_and_clear_stream()
+        streamed_text = self.last_streamed_text
+        self.last_streamed_text = None
+        if ev.message:
+            if streamed_text is None or ev.message.text != streamed_text:
+                text = ev.message.text or ""
+                await out_fmt(colors.render_markdown(text))
+        self.pending_req_env = envelope if req_payload.event.input_requested else None
+        if self.pending_req_env is not None and self.queued_resp is not None:
+            await respond_packet(self.ui, self.pending_req_env.msg_id, self.queued_resp)
+            self.queued_resp = None
+            self.pending_req_env = None
+        if self.session:
+            self.session.app.invalidate()
+        await self._update_toolbar_ticker()
+        return
+
+    async def _ui_run_event(self, envelope: UIPacketEnvelope) -> None:
+        assert self.ui is not None
+        req_payload = envelope.payload
+        assert req_payload.kind == PACKET_RUN_EVENT
+        ev = req_payload.event.event
+        if ev.kind == PACKET_MESSAGE and ev.message:
+            await self._runner_message_stream(envelope)
+            return
+        if ev.kind == PACKET_MESSAGE_REQUEST:
+            await self._runner_message_request(envelope)
+            return
+        if ev.kind == PACKET_TOOL_CALL:
+            await self._runner_tool_call(envelope)
+            return
         if ev.kind == PACKET_FINAL_MESSAGE:
-            streamed_text = self.last_streamed_text
-            self.last_streamed_text = None  # Consume it
-            if ev.message:
-                # If the final message is the same as what we just streamed, don't print it.
-                if streamed_text is None or ev.message.text != streamed_text:
-                    text = ev.message.text or ""
-                    await out_fmt(colors.render_markdown(text))
-            self.pending_req_env = (
-                envelope if req_payload.event.input_requested else None
-            )
-            if self.pending_req_env is not None and self.queued_resp is not None:
-                await respond_packet(
-                    self.ui, self.pending_req_env.msg_id, self.queued_resp
-                )
-                self.queued_resp = None
-                self.pending_req_env = None
-            if self.session:
-                self.session.app.invalidate()
-            await self._update_toolbar_ticker()
+            await self._runner_final_message(envelope)
             return
-
 
     async def event_consumer(self) -> None:
         assert self.ui is not None

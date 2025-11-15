@@ -1,7 +1,6 @@
 import pytest
-
-from vocode.runner.executors.apply_patch.v4a import process_patch
-from vocode.runner.executors.apply_patch.models import FileApplyStatus
+from vocode.patch.v4a import process_patch
+from vocode.patch.models import FileApplyStatus
 
 
 def run_patch(

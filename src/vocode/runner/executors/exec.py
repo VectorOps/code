@@ -155,7 +155,16 @@ class ExecExecutor(Executor):
                 rc = None
 
         output = "".join(stdout_parts) + "".join(stderr_parts)
-        final_text = f"{header}\n{output}"
+        # If we streamed, the terminal already saw 'header' and all chunks exactly as they arrived.
+        # Avoid printing twice by matching the streamed text exactly (no extra newline).
+        if streaming_started:
+            final_text = f"{header}{output}"
+        else:
+            # No streaming: include a newline between header and output for readability
+            if output:
+                final_text = f"{header}\n{output}"
+            else:
+                final_text = header
 
         # Outcome selection
         outcome_name: Optional[str] = None
