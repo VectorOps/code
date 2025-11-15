@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 from typing import Callable, Dict, List, Tuple, Optional
+from abc import ABC, abstractmethod
 
 from .models import FileApplyStatus
 from .v4a import (
@@ -38,14 +39,94 @@ def get_system_instruction(fmt: str) -> str:
         raise ValueError(f"Unsupported patch format: {fmt}")
     return entry["system_prompt"]  # type: ignore[return-value]
 
+class PatchFileOps(ABC):
+    """
+    Abstract contract for file operations used by patch processors.
+    Implementations must handle path safety and track changes map.
+    """
+
+    @abstractmethod
+    def open(self, rel: str) -> str:
+        ...
+
+    @abstractmethod
+    def write(self, rel: str, content: str) -> None:
+        ...
+
+    @abstractmethod
+    def delete(self, rel: str) -> None:
+        ...
+
+    @property
+    @abstractmethod
+    def changes_map(self) -> Dict[str, str]:
+        """
+        A map of relative file paths to change kind: 'created' | 'updated' | 'deleted'.
+        """
+        ...
+
+
+class FileSystemPatchFileOps(PatchFileOps):
+    """
+    File-backed implementation that enforces path safety under base_path and
+    records change kinds for refresh.
+    """
+
+    def __init__(self, base_path: pathlib.Path):
+        self._base_path = base_path
+        self._changes: Dict[str, str] = {}
+
+    def _resolve_safe_path(self, rel: str) -> pathlib.Path:
+        if rel.startswith("/") or rel.startswith("~"):
+            raise DiffError(f"Absolute paths are not allowed: {rel}")
+        abs_path = (self._base_path / rel).resolve()
+        base_resolved = self._base_path.resolve()
+        if str(abs_path).startswith(str(base_resolved)):
+            return abs_path
+        raise DiffError(f"Path escapes project root: {rel}")
+
+    def _record(self, rel: str, change: str) -> None:
+        prev = self._changes.get(rel)
+        if prev is None:
+            self._changes[rel] = change
+            return
+        if change == "deleted":
+            self._changes[rel] = change
+        elif change == "updated" and prev != "deleted":
+            self._changes[rel] = change
+
+    def open(self, rel: str) -> str:
+        path = self._resolve_safe_path(rel)
+        with path.open("rt", encoding="utf-8") as fh:
+            return fh.read()
+
+    def write(self, rel: str, content: str) -> None:
+        path = self._resolve_safe_path(rel)
+        existed = path.exists()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wt", encoding="utf-8") as fh:
+            fh.write(content)
+        self._record(rel, "updated" if existed else "created")
+
+    def delete(self, rel: str) -> None:
+        path = self._resolve_safe_path(rel)
+        path.unlink(missing_ok=True)
+        self._record(rel, "deleted")
+
+    @property
+    def changes_map(self) -> Dict[str, str]:
+        return self._changes
+
 
 def apply_patch(
     fmt: str,
     text: str,
     base_path: pathlib.Path,
+    ops: Optional[PatchFileOps] = None,
 ) -> Tuple[str, str, Dict[str, str], Dict[str, FileApplyStatus], List[object]]:
     """
-    Apply a patch to disk under base_path using the specified format ('v4a' or 'patch').
+    Apply a patch using the specified format ('v4a' or 'patch').
+    If ops is not provided, a file-backed implementation under base_path is used.
     Returns (summary_text, outcome_name, changes_map, status_map, errors).
     changes_map values: 'created' | 'updated' | 'deleted'
     """
@@ -54,54 +135,12 @@ def apply_patch(
     if not entry:
         raise ValueError(f"Unsupported patch format: {fmt}")
     handler = entry["handler"]  # type: ignore[assignment]
-
-    # Path helpers (safe resolution)
-    def _resolve_safe_path(rel: str) -> pathlib.Path:
-        if rel.startswith("/") or rel.startswith("~"):
-            raise DiffError(f"Absolute paths are not allowed: {rel}")
-        abs_path = (base_path / rel).resolve()
-        base_resolved = base_path.resolve()
-        if str(abs_path).startswith(str(base_resolved)):
-            return abs_path
-        raise DiffError(f"Path escapes project root: {rel}")
-
-    # Change tracker for refresh classification
-    changes_map: Dict[str, str] = {}
-
-    def _record(rel: str, change: str) -> None:
-        prev = changes_map.get(rel)
-        if prev is None:
-            changes_map[rel] = change
-            return
-        # precedence: deleted > updated > created
-        if change == "deleted":
-            changes_map[rel] = change
-        elif change == "updated" and prev not in ("deleted",):
-            changes_map[rel] = change
-        # created never overrides
-
-    # IO callbacks
-    def open_fn(rel: str) -> str:
-        path = _resolve_safe_path(rel)
-        with path.open("rt", encoding="utf-8") as fh:
-            return fh.read()
-
-    def write_fn(rel: str, content: str) -> None:
-        path = _resolve_safe_path(rel)
-        existed = path.exists()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("wt", encoding="utf-8") as fh:
-            fh.write(content)
-        _record(rel, "updated" if existed else "created")
-
-    def delete_fn(rel: str) -> None:
-        path = _resolve_safe_path(rel)
-        # Only record on success
-        path.unlink(missing_ok=True)
-        _record(rel, "deleted")
+    file_ops = ops or FileSystemPatchFileOps(base_path)
 
     # Process
-    statuses, errs = handler(text, open_fn, write_fn, delete_fn)  # type: ignore[misc]
+    statuses, errs = handler(  # type: ignore[misc]
+        text, file_ops.open, file_ops.write, file_ops.delete
+    )
 
     # Summarize
     created = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Create])
@@ -113,13 +152,13 @@ def apply_patch(
     lines: List[str] = []
 
     if errs:
-        applied_files = set(changes_map.keys())
+        applied_files = set(file_ops.changes_map.keys())
         applied_any = bool(applied_files)
         applied_created = sorted([f for f in created if f in applied_files])
         applied_updated_full = sorted([f for f in updated_full if f in applied_files])
         applied_updated_partial = sorted([f for f in updated_partial if f in applied_files])
         applied_deleted = sorted([f for f in deleted if f in applied_files])
-        failed_files = sorted({getattr(e, "filename", None) for e in errs if getattr(e, "filename", None)})
+        failed_files = sorted({e.filename for e in errs if e.filename})  # type: ignore[attr-defined]
         not_applied_failed = sorted([f for f in failed_files if f not in applied_files])
 
         if not applied_any:
@@ -154,10 +193,10 @@ def apply_patch(
 
         lines.append("Errors:")
         for e in errs:
-            msg = getattr(e, "msg", str(e))
-            hint = getattr(e, "hint", None)
-            filename = getattr(e, "filename", None)
-            line_no = getattr(e, "line", None)
+            msg = e.msg  # type: ignore[attr-defined]
+            hint = e.hint  # type: ignore[attr-defined]
+            filename = e.filename  # type: ignore[attr-defined]
+            line_no = e.line  # type: ignore[attr-defined]
             loc = ""
             if filename and line_no is not None:
                 loc = f"{filename}:{line_no}: "
@@ -187,4 +226,4 @@ def apply_patch(
                 lines.append(f"* {f}")
 
     summary = "\n".join(lines)
-    return summary, outcome, changes_map, statuses, errs
+    return summary, outcome, file_ops.changes_map, statuses, errs
