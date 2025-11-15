@@ -1,49 +1,13 @@
 import asyncio
 import pytest
-from pathlib import Path
-
 from vocode.ui.base import UIState
 from vocode.ui.proto import (
     PACKET_PROJECT_OP_START,
     PACKET_PROJECT_OP_PROGRESS,
     PACKET_PROJECT_OP_FINISH,
 )
-from vocode.proto import (
-    PacketProjectOpStart,
-    PacketProjectOpProgress,
-    PacketProjectOpFinish,
-)
-
-
-class _FakeCommands:
-    def __init__(self):
-        self._q = asyncio.Queue()
-    def subscribe(self):
-        return self._q
-    def clear(self):
-        pass
-
-
-class _FakeLLMUsage:
-    def __init__(self):
-        self.prompt_tokens = 0
-        self.completion_tokens = 0
-        self.cost_dollars = 0.0
-
-
-class FakeProject:
-    def __init__(self):
-        self.base_path = Path(".")
-        self.settings = None
-        self.commands = _FakeCommands()
-        self.llm_usage = _FakeLLMUsage()
-        self.project_state = type("PS", (), {"clear": lambda self: None})()
-        self._q = asyncio.Queue()
-    async def message_generator(self):
-        while True:
-            yield await self._q.get()
-    async def send_message(self, pack):
-        await self._q.put(pack)
+from vocode.proto import PacketProjectOpStart, PacketProjectOpProgress, PacketProjectOpFinish
+from vocode.testing.ui import FakeProject
 
 
 @pytest.mark.asyncio

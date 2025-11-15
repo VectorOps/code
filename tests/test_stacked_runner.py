@@ -1,60 +1,19 @@
 import asyncio
 import pytest
-
 from vocode.ui.base import UIState
 from vocode.runner.runner import Executor
-from vocode.runner.models import (
-    ReqFinalMessage,
-    ReqStartWorkflow,
-    RespMessage,
-    RespApproval,
-    RunInput,
-)
+from vocode.runner.models import ReqFinalMessage, ReqStartWorkflow, RespMessage, RespApproval, RunInput
 from vocode.models import Node, Workflow, Graph
 from vocode.state import Message, RunnerStatus
 from vocode.runner.executors.noop import NoopNode
-from vocode.ui.proto import (
-    UIPacketEnvelope,
-    UIPacketRunInput,
-    PACKET_RUN_EVENT,
-    PACKET_STATUS,
-)
-from vocode.settings import Settings, WorkflowConfig, LoggingSettings
+from vocode.ui.proto import UIPacketEnvelope, UIPacketRunInput, PACKET_RUN_EVENT, PACKET_STATUS
+from vocode.testing.ui import FakeProject
 
 
-class DummyLLMUsage:
-    prompt_tokens = 0
-    completion_tokens = 0
-    cost_dollars = 0.0
-
-
-class DummyCommands:
-    def subscribe(self):
-        return asyncio.Queue()
-
-    async def execute(self, name, ctx, args):
-        return ""
-
-    def clear(self):
-        pass
-
-
-class DummyProject:
-    def __init__(self, workflows: dict):
-        # Convert provided workflow stubs to real WorkflowConfig entries
-        wf_map = {name: WorkflowConfig(nodes=wf.nodes, edges=wf.edges) for name, wf in workflows.items()}
-        self.settings = Settings(workflows=wf_map, logging=LoggingSettings())
-        self.llm_usage = DummyLLMUsage()
-        self.commands = DummyCommands()
-        self.project_state = {}
-        self.base_path = "."
-
-    async def message_generator(self):
-        if False:
-            yield None
-
-    async def shutdown(self):
-        pass
+#
+# TestProject helper for tests
+# Use TestProject in tests below via TestProject.with_workflows(...)
+#
 
 
 class StartWorkflowExecutor(Executor):
@@ -89,9 +48,7 @@ async def test_stacked_runner_end_to_end():
             self.nodes = nodes
             self.edges = edges
 
-    project = DummyProject(
-        {"parent": WF(parent_nodes, []), "child": WF(child_nodes, [])}
-    )
+    project = FakeProject.with_workflows({"parent": WF(parent_nodes, []), "child": WF(child_nodes, [])})
 
     ui = UIState(project)
     await ui.start_by_name("parent")
@@ -131,9 +88,7 @@ async def test_stop_restart_top_only():
     parent_nodes = [Node(name="parent", type="start_workflow_test", outcomes=[])]
     child_nodes = [NoopNode(name="noop", type="noop", outcomes=[])]
     WF = lambda n, e: type("WF", (), {"nodes": n, "edges": e})
-    project = DummyProject(
-        {"parent": WF(parent_nodes, []), "child": WF(child_nodes, [])}
-    )
+    project = FakeProject.with_workflows({"parent": WF(parent_nodes, []), "child": WF(child_nodes, [])})
     ui = UIState(project)
     await ui.start_by_name("parent")
     # Allow child to be pushed
@@ -167,7 +122,7 @@ async def test_stop_restart_top_only():
 
 @pytest.mark.asyncio
 async def test_replace_user_input_raises_when_not_possible():
-    project = DummyProject({})
+    project = FakeProject.with_workflows({})
     ui = UIState(project)
     with pytest.raises(RuntimeError):
         await ui.replace_user_input(RespMessage(message=Message(role="user", text="x")))

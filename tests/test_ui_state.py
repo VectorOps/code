@@ -1,154 +1,22 @@
 import asyncio
 from types import SimpleNamespace
-from typing import List, Optional, Tuple
-
 import pytest
-
 from vocode.ui.base import UIState
-from vocode.ui.proto import (
-    UIPacketEnvelope,
-    UIPacketRunEvent,
-    UIPacketStatus,
-    UIPacketRunInput,
-    UIPacketUIReset,
-    UIPacketLog,
+from vocode.ui.proto import UIPacketEnvelope, UIPacketRunEvent, UIPacketStatus, UIPacketRunInput, UIPacketUIReset
+from vocode.runner.models import ReqMessageRequest, RunInput, RespMessage
+from vocode.state import RunnerStatus, Message
+from vocode.testing.ui import (
+    FakeProject,
+    FakeRunner,
+    recv_skip_node_status,
+    respond_message,
+    respond_approval,
+    mk_interim,
+    mk_final,
 )
-from vocode.runner.models import (
-    ReqMessageRequest,
-    ReqInterimMessage,
-    ReqFinalMessage,
-    RespMessage,
-    RespApproval,
-    RespPacket,
-    RunInput,
-    RunEvent,
-    TokenUsageTotals,
-)
-from vocode.state import RunnerStatus, Message, Activity, ActivityType
-from vocode.commands import CommandManager
-from vocode.project import ProjectState
-from vocode.settings import Settings, WorkflowConfig, LoggingSettings
 
 
-async def _recv_skip_node_status(ui: UIState) -> UIPacketEnvelope:
-    """
-    Helper: receive next envelope, skipping:
-    - UIPacketStatus that include node transition fields, and
-    - UIPacketLog packets emitted by the UIState logging interceptor.
-    """
-    while True:
-        env = await ui.recv()
-        # Ignore any UI log packets for test determinism
-        if isinstance(env.payload, UIPacketLog):
-            continue
-        if isinstance(env.payload, UIPacketStatus):
-            if getattr(env.payload, "prev_node", None) or getattr(
-                env.payload, "curr_node", None
-            ):
-                # Ignore node-transition status packets in tests
-                continue
-        return env
-
-
-async def respond_packet(
-    ui: UIState, source_msg_id: int, packet: Optional[RespPacket]
-) -> None:
-    inp = RunInput(response=packet) if packet is not None else RunInput(response=None)
-    await ui.send(
-        UIPacketEnvelope(
-            msg_id=ui.next_client_msg_id(),
-            source_msg_id=source_msg_id,
-            payload=UIPacketRunInput(input=inp),
-        )
-    )
-
-
-async def respond_message(ui: UIState, source_msg_id: int, message: Message) -> None:
-    await respond_packet(ui, source_msg_id, RespMessage(message=message))
-
-
-async def respond_approval(ui: UIState, source_msg_id: int, approved: bool) -> None:
-    await respond_packet(ui, source_msg_id, RespApproval(approved=approved))
-
-
-class FakeProject:
-    def __init__(self, settings=None):
-        wf_name = "wf-project-state"
-        wf_cfg = WorkflowConfig(nodes=[], edges=[], config={})
-        self.settings = settings or Settings(
-            workflows={wf_name: wf_cfg},
-            logging=LoggingSettings(),  # ensure logger settings exist
-        )
-        self.commands = CommandManager()
-        self.project_state = ProjectState()
-        self.llm_usage = TokenUsageTotals()
-
-
-class FakeRunner:
-    """
-    Minimal fake runner to drive UIState driver loop.
-    Script is a list of tuples:
-      (node_name, req_packet, input_requested: bool, status_before: RunnerStatus)
-    """
-
-    def __init__(self, workflow, project, initial_message=None):
-        self.status: RunnerStatus = RunnerStatus.idle
-        self.script: List[Tuple[str, object, bool, RunnerStatus]] = getattr(
-            workflow, "script", []
-        )
-        self.received_inputs: List[Optional[RunInput]] = []
-        self.rewound: Optional[int] = None
-        self.replaced_input = None
-        # Simple runtime_graph for UIState lookup. workflow may provide node_hide_map mapping node->bool.
-        node_hide_map = getattr(workflow, "node_hide_map", {})
-        self.runtime_graph = SimpleNamespace(
-            get_runtime_node_by_name=lambda name: SimpleNamespace(
-                model=SimpleNamespace(
-                    hide_final_output=bool(node_hide_map.get(name, False))
-                )
-            )
-        )
-
-    def cancel(self) -> None:
-        self.status = RunnerStatus.canceled
-
-    def stop(self) -> None:
-        self.status = RunnerStatus.stopped
-
-    async def rewind(self, task, n: int = 1) -> None:
-        self.rewound = n
-
-    def replace_user_input(self, task, response, step_index=None) -> None:
-        self.replaced_input = response
-
-    async def run(self, assignment):
-        sent = None
-        try:
-            for node_name, req_packet, input_requested, status_before in self.script:
-                # Set status for this step before yielding the event, so UIState emits it first.
-                self.status = status_before
-                ev = RunEvent(
-                    node=node_name,
-                    execution=Activity(type=ActivityType.executor),
-                    event=req_packet,
-                    input_requested=input_requested,
-                )
-                sent = yield ev
-                if input_requested:
-                    # UIState sends RunInput (or None) back
-                    self.received_inputs.append(sent)
-            # Finish cleanly
-            self.status = RunnerStatus.finished
-        finally:
-            return
-
-
-def _mk_interim(text: str) -> ReqInterimMessage:
-    return ReqInterimMessage(message=Message(role="agent", text=text))
-
-
-def _mk_final(text: str) -> ReqFinalMessage:
-    return ReqFinalMessage(message=Message(role="agent", text=text), outcome_name=None)
+_recv_skip_node_status = recv_skip_node_status
 
 
 def test_ui_state_basic_flow(monkeypatch):
@@ -161,11 +29,11 @@ def test_ui_state_basic_flow(monkeypatch):
         # Prepare a workflow stub with a scripted sequence of events
         script = [
             # Step 1: interim message, no input, status running
-            ("node1", _mk_interim("hello"), False, RunnerStatus.running),
+            ("node1", mk_interim("hello"), False, RunnerStatus.running),
             # Step 2: input request, status waiting_input
             ("node2", ReqMessageRequest(), True, RunnerStatus.waiting_input),
             # Step 3: final message, status running
-            ("node3", _mk_final("bye"), False, RunnerStatus.running),
+            ("node3", mk_final("bye"), False, RunnerStatus.running),
         ]
         wf = SimpleNamespace(name="wf", script=script)
         project = FakeProject()
@@ -327,9 +195,7 @@ def test_project_state_reset_clears(monkeypatch):
 
         # Use a workflow stub with a single final; reset will rebuild from settings via start_by_name
         wf_name = "wf-project-state"
-        script = [
-            ("node1", _mk_final("done"), False, RunnerStatus.running),
-        ]
+        script = [("node1", mk_final("done"), False, RunnerStatus.running)]
         wf = SimpleNamespace(name=wf_name, script=script)
         project = FakeProject()
         ui = UIState(project)
