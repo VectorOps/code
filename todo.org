@@ -27,6 +27,7 @@
 Concrete example: files that were read and already in context.
 ** [ ] Rewrite system prompt for analyst node
 * [ ] UI protocol
+** [ ] Remove direct calls from app to UIState
 ** [ ] Debug stopping and continuing, sometimes it does not start after stop?
 ** [ ] Add syntax name hint to apply formatting
 * [ ] [#A] Nested workflows support
@@ -46,6 +47,7 @@ Concrete example: files that were read and already in context.
 Unclosed client session
 client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Terminal UI
+** [ ] Add support for images
 ** [ ] Figure out a way to avoid showing nested output for workflow (tool calls, etc)
 *** [ ] Allow nodes to specify if output should be hidden by default
 *** [ ] Ideas
@@ -103,7 +105,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Tools
 ** [ ] Integrate Know
 *** [ ] Figure out how to express 3rd party dependencies and give access
-*** [ ] Disable warnings
+*** [X] Disable warnings
 *** [ ] Add a way to fully disable know so project is not parsed.
 ** [ ] Add pattern matching rules to auto-approve rule calls
 ** [ ] Skills
