@@ -1,0 +1,79 @@
+import asyncio
+from pathlib import Path
+
+import pytest
+
+from vocode.tools import get_tool
+from vocode.settings import ToolSpec
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_tool_success(tmp_path: Path):
+    # Arrange files
+    (tmp_path / "f.txt").write_text("pre\n old\npost\n", encoding="utf-8")
+    (tmp_path / "gone.txt").write_text("remove me", encoding="utf-8")
+
+    patch_text = """*** Begin Patch
+*** Update File: f.txt
+ pre
+- old
++ new
+ post
+*** Add File: new.txt
++ hello
+*** Delete File: gone.txt
+*** End Patch"""
+
+    # Fake project with refresh tracking
+    class FakeProject:
+        def __init__(self, base_path: Path):
+            self.base_path = base_path
+            self.refresh_calls = []
+
+        async def refresh(self, *, files):
+            # Record the list passed by tool
+            self.refresh_calls.append(list(files))
+
+    project = FakeProject(tmp_path)
+    tool = get_tool("apply_patch")
+    assert tool is not None, "apply_patch tool should be registered"
+
+    # Act: format comes from tool config, not args
+    spec = ToolSpec(name="apply_patch", config={"format": "v4a"})
+    resp = await tool.run(project, spec, {"text": patch_text})  # type: ignore
+    # Allow background refresh task to run
+    await asyncio.sleep(0)
+
+    # Assert response summary and filesystem changes
+    assert resp is not None
+    assert resp.type.value == "text"
+    assert resp.text and "Applied patch successfully" in resp.text
+
+    assert (tmp_path / "f.txt").read_text(encoding="utf-8") == "pre\n new\npost\n"
+    assert (tmp_path / "new.txt").read_text(encoding="utf-8") == " hello"
+    assert not (tmp_path / "gone.txt").exists()
+
+    # Refresh should be called once with three files
+    assert len(project.refresh_calls) == 1
+    assert len(project.refresh_calls[0]) == 3
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_tool_unsupported_format(tmp_path: Path):
+    class FakeProject:
+        def __init__(self, base_path: Path):
+            self.base_path = base_path
+
+        async def refresh(self, *, files):
+            pass
+
+    project = FakeProject(tmp_path)
+    tool = get_tool("apply_patch")
+    assert tool is not None
+
+    # Format provided via tool config; args only include text
+    spec = ToolSpec(name="apply_patch", config={"format": "unknown"})
+    resp = await tool.run(project, spec, {"text": "*** Begin Patch\n*** End Patch"})  # type: ignore
+    assert resp is not None
+    assert resp.type.value == "text"
+    assert "Unsupported patch format" in (resp.text or "")
