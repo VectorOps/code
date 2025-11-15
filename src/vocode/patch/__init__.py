@@ -42,25 +42,6 @@ def get_system_instruction(fmt: str) -> str:
 def apply_patch(
     fmt: str,
     text: str,
-    open_fn: Callable[[str], str],
-    write_fn: Callable[[str, str], None],
-    delete_fn: Callable[[str], None],
-) -> Tuple[Dict[str, FileApplyStatus], List[object]]:
-    """
-    Callback-based helper; primarily for tests and custom environments.
-    Returns (status_map, errors).
-    """
-    key = (fmt or "").lower()
-    entry = _REGISTRY.get(key)
-    if not entry:
-        raise ValueError(f"Unsupported patch format: {fmt}")
-    handler = entry["handler"]  # type: ignore[assignment]
-    return handler(text, open_fn, write_fn, delete_fn)  # type: ignore[misc]
-
-
-def apply_patch_to_repo(
-    fmt: str,
-    text: str,
     base_path: pathlib.Path,
 ) -> Tuple[str, str, Dict[str, str], Dict[str, FileApplyStatus], List[object]]:
     """

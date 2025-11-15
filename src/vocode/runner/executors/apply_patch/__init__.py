@@ -16,7 +16,7 @@ from vocode.runner.models import (
     ExecRunInput,
     PACKET_MESSAGE,
 )
-from vocode.patch import get_supported_formats, apply_patch_to_repo
+from vocode.patch import get_supported_formats, apply_patch
 
 
 # Node
@@ -99,7 +99,7 @@ class ApplyPatchExecutor(Executor):
             from vocode.project import FileChangeModel, FileChangeType
 
             base_path = self.project.base_path  # type: ignore[attr-defined]
-            summary, outcome, changes_map, _statuses, _errs = apply_patch_to_repo(
+            summary, outcome, changes_map, _statuses, _errs = apply_patch(
                 fmt, source_text, base_path
             )
             final = Message(role="agent", text=summary)
