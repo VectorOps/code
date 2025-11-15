@@ -1,5 +1,5 @@
 import asyncio
-from typing import Callable, Awaitable, Optional
+from typing import Callable, Awaitable, Optional, Dict
 
 from vocode.logger import logger
 from .proto import UIPacket, UIPacketEnvelope, UIPacketAck, PACKET_ACK
@@ -74,11 +74,7 @@ class RpcHelper:
             fut.set_result(envelope)
             return True
 
-        logger.warning(
-            "%s: received response for unknown or completed request %d",
-            self._name,
-            envelope.source_msg_id,
-        )
+        # No pending waiter; let router decide on logging policy (debug-level).
         return False
 
     def cancel_all(self):
@@ -86,3 +82,44 @@ class RpcHelper:
             if not fut.done():
                 fut.cancel(f"{self._name} RPC client is shutting down")
         self._pending_requests.clear()
+
+
+class IncomingPacketRouter:
+    def __init__(self, rpc: RpcHelper, name: str):
+        self._rpc = rpc
+        self._name = name
+        self._handlers: Dict[
+            str, Callable[[UIPacketEnvelope], Awaitable[Optional[UIPacket]]]
+        ] = {}
+
+    def register(
+        self,
+        kind: str,
+        handler: Callable[[UIPacketEnvelope], Awaitable[Optional[UIPacket]]],
+    ) -> None:
+        self._handlers[kind] = handler
+
+    async def handle(self, envelope: UIPacketEnvelope) -> bool:
+        # Reply handling
+        if envelope.source_msg_id is not None:
+            matched = self._rpc.handle_response(envelope)
+            if not matched:
+                logger.debug(
+                    "%s: unmatched response source_msg_id=%s kind=%s",
+                    self._name,
+                    envelope.source_msg_id,
+                    getattr(envelope.payload, "kind", None),
+                )
+            return True
+
+        # Request dispatch
+        kind = envelope.payload.kind
+        handler = self._handlers.get(kind)
+        if not handler:
+            logger.debug("%s: no handler for request kind=%s", self._name, kind)
+            return False
+
+        resp = await handler(envelope)
+        if resp is not None:
+            await self._rpc.reply(resp, source_msg_id=envelope.msg_id)
+        return True

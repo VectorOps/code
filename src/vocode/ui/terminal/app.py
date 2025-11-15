@@ -52,7 +52,7 @@ from vocode.ui.proto import (
     PACKET_LOG as UI_PACKET_LOG,
     UIPacketLog,
 )
-from vocode.ui.rpc import RpcHelper
+from vocode.ui.rpc import RpcHelper, IncomingPacketRouter
 from vocode.runner.models import (
     ReqMessageRequest,
     ReqToolCall,
@@ -124,6 +124,7 @@ class TerminalApp:
         self.project = project
         self.ui: Optional[UIState] = None
         self.rpc: Optional[RpcHelper] = None
+        self._router: Optional[IncomingPacketRouter] = None
         self.commands: Optional[Commands] = None
         self.session: Optional[PromptSession] = None
         self.kb: Optional[KeyBindings] = None
@@ -404,6 +405,101 @@ class TerminalApp:
                 commands.unregister(cli_name)
                 self.dynamic_cli_commands.discard(cli_name)
 
+    def _register_router_handlers(self) -> None:
+        assert self._router is not None
+        # Requests from UIState routed to Terminal
+        self._router.register(PACKET_RUN_EVENT, self.handle_run_event)
+        self._router.register(PACKET_STATUS, self._handle_status_packet)
+        self._router.register(PACKET_UI_RESET, self._handle_ui_reset_packet)
+        self._router.register(PACKET_CUSTOM_COMMANDS, self._handle_custom_commands_req)
+        self._router.register(PACKET_PROJECT_OP_START, self._handle_project_op_start)
+        self._router.register(PACKET_PROJECT_OP_PROGRESS, self._handle_project_op_progress)
+        self._router.register(PACKET_PROJECT_OP_FINISH, self._handle_project_op_finish)
+        self._router.register(UI_PACKET_LOG, self._handle_log_packet)
+
+    async def _handle_status_packet(self, envelope: UIPacketEnvelope):
+        msg = envelope.payload
+        # Reset interrupt counter and update toolbar ticker state.
+        self.reset_interrupt()
+        await self._update_toolbar_ticker()
+        # If node changed, print a styled "Running <node>" line
+        curr_node = msg.curr_node
+        prev_node = msg.prev_node
+        if curr_node and curr_node != prev_node:
+            node_display = msg.curr_node_description or curr_node
+            fragments = [
+                ("class:system.star", "* "),
+                ("class:system.text", f"Running {node_display}"),
+            ]
+            print_formatted_text(
+                to_formatted_text(fragments),
+                style=styles.get_pt_style(),
+            )
+        # When runner is no longer active, clear pending input and stop any streaming.
+        if msg.curr in (
+            RunnerStatus.stopped,
+            RunnerStatus.canceled,
+            RunnerStatus.finished,
+            RunnerStatus.idle,
+        ):
+            self.pending_req_env = None
+            self.queued_resp = None
+            await self._flush_and_clear_stream()
+            await self._update_toolbar_ticker()
+        return None
+
+    async def _handle_ui_reset_packet(self, envelope: UIPacketEnvelope):
+        # Clear local pending input and queued responses on reset.
+        self.pending_req_env = None
+        self.queued_resp = None
+        await self._update_toolbar_ticker()
+        return None
+
+    async def _handle_custom_commands_req(self, envelope: UIPacketEnvelope):
+        await self.handle_custom_commands_packet(envelope.payload)  # type: ignore[arg-type]
+        return None
+
+    async def _handle_project_op_start(self, envelope: UIPacketEnvelope):
+        msg = envelope.payload
+        self._op_message = msg.message
+        self._op_progress = 0
+        self._op_total = None
+        if self.session:
+            self.session.app.invalidate()
+        return None
+
+    async def _handle_project_op_progress(self, envelope: UIPacketEnvelope):
+        msg = envelope.payload
+        self._op_progress = msg.progress
+        self._op_total = msg.total
+        # Simple progress output; keep consistent with previous behavior.
+        await out(f"Progress: {msg.progress} / {msg.total}...\r", end="")
+        if self.session:
+            self.session.app.invalidate()
+        return None
+
+    async def _handle_project_op_finish(self, envelope: UIPacketEnvelope):
+        # Clear progress state and refresh toolbar.
+        self._op_message = None
+        self._op_progress = None
+        self._op_total = None
+        if self.session:
+            self.session.app.invalidate()
+        return None
+
+    async def _handle_log_packet(self, envelope: UIPacketEnvelope):
+        msg: UIPacketLog = envelope.payload  # type: ignore[assignment]
+        # Flush current stream so logs do not interleave with message streaming.
+        if self.stream_throttler:
+            await self._flush_and_clear_stream()
+        prefix = f"[{msg.level.value}] "
+        src = f"{msg.logger}: " if msg.logger else ""
+        text = msg.message
+        if msg.exc_text:
+            text = f"{text}\n{msg.exc_text}"
+        await out(prefix + src + text)
+        return None
+
     async def handle_run_event(self, envelope: UIPacketEnvelope) -> None:
         assert self.ui is not None
         req_payload = envelope.payload
@@ -522,91 +618,14 @@ class TerminalApp:
             await self._update_toolbar_ticker()
             return
 
+
     async def event_consumer(self) -> None:
         assert self.ui is not None
+        assert self._router is not None
         while True:
             try:
                 envelope = await self.ui.recv()
-                assert self.rpc is not None
-                if self.rpc.handle_response(envelope):
-                    continue
-                msg = envelope.payload
-                # UI-level log packets
-                if msg.kind == UI_PACKET_LOG:
-                    assert isinstance(msg, UIPacketLog)
-                    if self.stream_throttler:
-                        await self._flush_and_clear_stream()
-                    prefix = f"[{msg.level.value}] "
-                    src = f"{msg.logger}: " if msg.logger else ""
-                    text = msg.message
-                    if msg.exc_text:
-                        text = f"{text}\n{msg.exc_text}"
-                    await out(prefix + src + text)
-                    continue
-                if msg.kind == PACKET_STATUS:
-                    self.reset_interrupt()
-                    await self._update_toolbar_ticker()
-                    # If node changed, print a styled "Running <node>" line
-                    curr_node = msg.curr_node
-                    prev_node = msg.prev_node
-                    if curr_node and curr_node != prev_node:
-                        node_display = msg.curr_node_description or curr_node
-                        fragments = [
-                            ("class:system.star", "* "),
-                            ("class:system.text", f"Running {node_display}"),
-                        ]
-                        print_formatted_text(
-                            to_formatted_text(fragments),
-                            style=styles.get_pt_style(),
-                        )
-                    # When runner is no longer active, clear pending input and stop any streaming.
-                    if msg.curr in (
-                        RunnerStatus.stopped,
-                        RunnerStatus.canceled,
-                        RunnerStatus.finished,
-                        RunnerStatus.idle,
-                    ):
-                        self.pending_req_env = None
-                        self.queued_resp = None
-                        await self._flush_and_clear_stream()
-                        await self._update_toolbar_ticker()
-                    continue
-                if msg.kind == PACKET_RUN_EVENT:
-                    await self.handle_run_event(envelope)
-                    continue
-                if msg.kind == PACKET_UI_RESET:
-                    self.pending_req_env = None
-                    self.queued_resp = None
-                    await self._update_toolbar_ticker()
-                    continue
-                if msg.kind == PACKET_CUSTOM_COMMANDS:
-                    await self.handle_custom_commands_packet(msg)
-                    continue
-                if msg.kind == PACKET_PROJECT_OP_START:
-                    # await out(f"Starting: {msg.message}...")
-                    self._op_message = msg.message
-                    self._op_progress = 0
-                    self._op_total = None
-                    if self.session:
-                        self.session.app.invalidate()
-                    continue
-                if msg.kind == PACKET_PROJECT_OP_PROGRESS:
-                    self._op_progress = msg.progress
-                    self._op_total = msg.total
-                    # TODO: Fix me
-                    await out(f"Progress: {msg.progress} / {msg.total}...\r", end="")
-                    if self.session:
-                        self.session.app.invalidate()
-                    continue
-                if msg.kind == PACKET_PROJECT_OP_FINISH:
-                    # await out(f"Completed: {self._op_message}.")
-
-                    self._op_message = None
-                    self._op_progress = None
-                    self._op_total = None
-                    if self.session:
-                        self.session.app.invalidate()
-                    continue
+                await self._router.handle(envelope)
             except Exception:
                 import traceback
 
@@ -690,6 +709,9 @@ class TerminalApp:
             request_exit=self.request_exit,
             rpc=self.rpc,
         )
+        # Router for dispatching incoming envelopes (requests/responses)
+        self._router = IncomingPacketRouter(self.rpc, "TerminalApp")
+        self._register_router_handlers()
 
         self.consumer_task = asyncio.create_task(self.event_consumer())
 

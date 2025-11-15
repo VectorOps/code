@@ -55,6 +55,7 @@ from .proto import (
     UIPacketLog,
 )
 from .rpc import RpcHelper
+from .rpc import IncomingPacketRouter
 from .logging import configure_stdlib_logging, attach_ui_interceptor
 
 if TYPE_CHECKING:
@@ -91,9 +92,8 @@ class UIState:
 
         self._outgoing: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
         self._incoming: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
-        self._rpc = RpcHelper(
-            self._outgoing.put, "UIState", id_generator=self._next_msg_id
-        )
+        self._rpc = RpcHelper(self._outgoing.put, "UIState", id_generator=self._next_msg_id)
+        self._router = IncomingPacketRouter(self._rpc, "UIState")
         self.autocomplete = AutoCompletionManager(self)
 
         self.autocomplete.register(acp.PROVIDER_WORKFLOW_LIST, acp.ac_workflow_list)
@@ -180,10 +180,7 @@ class UIState:
         """
         Send a response from UI client back to UIState.
         """
-        if envelope.source_msg_id is not None and self._rpc.handle_response(envelope):
-            return
-
-        # All incoming packets (including run_command and completion_request) are placed on the single incoming queue.
+        # Route all incoming packets (including replies) through a single queue handled by the router task.
         await self._incoming.put(envelope)
 
     # ------------------------
@@ -704,21 +701,19 @@ class UIState:
         except Exception as e:
             logger.exception("UIState: command events forwarder failed: %s", e)
 
+    def _register_router_handlers(self) -> None:
+        # Register request handlers directly — methods already match the required signature.
+        self._router.register(PACKET_RUN_COMMAND, self._handle_run_command)
+        self._router.register(PACKET_COMPLETION_REQUEST, self._handle_completion_request)
+        self._router.register(PACKET_UI_RELOAD, self._handle_ui_reload)
+
     async def _route_incoming_packets(self) -> None:
         try:
+            # Register request handlers once
+            self._register_router_handlers()
             while True:
                 envelope = await self._incoming.get()
-                kind = envelope.payload.kind
-                if kind == PACKET_RUN_COMMAND:
-                    await self._handle_run_command(envelope)
-                elif kind == PACKET_COMPLETION_REQUEST:
-                    await self._handle_completion_request(envelope)
-                elif kind == PACKET_UI_RELOAD:
-                    await self._handle_ui_reload(envelope)
-                else:
-                    # Non-command/completion requests should be handled elsewhere (e.g., RPC responses).
-                    # Ignore unknown requests.
-                    pass
+                await self._router.handle(envelope)
         except asyncio.CancelledError:
             return
         except Exception as e:
@@ -759,12 +754,12 @@ class UIState:
         except Exception as e:
             logger.exception("UIState: project message forwarder failed: %s", e)
 
-    async def _handle_run_command(self, envelope: UIPacketEnvelope) -> None:
+    async def _handle_run_command(self, envelope: UIPacketEnvelope) -> Optional[UIPacket]:
         from vocode.commands import CommandContext as ExecCommandContext
 
         rc = envelope.payload
         if rc.kind != PACKET_RUN_COMMAND:
-            return
+            return None
 
         name = rc.name
         args: List[str] = list(rc.input or [])
@@ -779,20 +774,12 @@ class UIState:
             ok = False
             error = str(ex)
 
-        await self._outgoing.put(
-            UIPacketEnvelope(
-                msg_id=self._next_msg_id(),
-                source_msg_id=envelope.msg_id,
-                payload=UIPacketCommandResult(
-                    name=name, ok=ok, output=output, error=error
-                ),
-            )
-        )
+        return UIPacketCommandResult(name=name, ok=ok, output=output, error=error)
 
-    async def _handle_completion_request(self, envelope: UIPacketEnvelope) -> None:
+    async def _handle_completion_request(self, envelope: UIPacketEnvelope) -> Optional[UIPacket]:
         req = envelope.payload
         if req.kind != PACKET_COMPLETION_REQUEST:
-            return
+            return None
 
         handler = self.autocomplete.get(req.name)
         if not handler:
@@ -806,15 +793,9 @@ class UIState:
             except Exception as ex:
                 resp = UIPacketCompletionResult(ok=False, suggestions=[], error=str(ex))
 
-        await self._outgoing.put(
-            UIPacketEnvelope(
-                msg_id=self._next_msg_id(),
-                source_msg_id=envelope.msg_id,
-                payload=resp,
-            )
-        )
+        return resp
 
-    async def _handle_ui_reload(self, envelope: UIPacketEnvelope) -> None:
+    async def _handle_ui_reload(self, envelope: UIPacketEnvelope) -> Optional[UIPacket]:
         """
         Force reload:
         - Cancel any current runner
@@ -864,15 +845,8 @@ class UIState:
             await self._send_ui_reset()
         except Exception as e:
             logger.exception("UIState: project reload failed: %s", e)
-        finally:
-            # Always ACK so the caller can proceed
-            await self._outgoing.put(
-                UIPacketEnvelope(
-                    msg_id=self._next_msg_id(),
-                    source_msg_id=envelope.msg_id,
-                    payload=UIPacketAck(),
-                )
-            )
+        # Always ACK so the caller can proceed
+        return UIPacketAck()
 
     # ------------------------
     # Stdlib logging integration

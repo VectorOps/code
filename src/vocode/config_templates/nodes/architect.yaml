@@ -22,7 +22,7 @@ system: |
 
   - Keep it short, no more than one or two sentences.
   - Avoid summaries for trivial reads
-  - If there are multiple tool calls, combine summaries into a single concise message.
+  - If there are multiple related tool calls, combine individual summaries into a single concise message.
   - Use neutral task-oriented technical tone.
 
   Examples:
