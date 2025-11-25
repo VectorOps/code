@@ -74,6 +74,7 @@ class ACompletionStub:
                 "tool_choice": kwargs.get("tool_choice"),
                 "temperature": kwargs.get("temperature"),
                 "max_tokens": kwargs.get("max_tokens"),
+                "reasoning_effort": kwargs.get("reasoning_effort"),
             }
         )
         seq = self._sequences.pop(0)
@@ -724,3 +725,48 @@ async def test_llm_executor_reads_usage_object_prefer_over_estimate(
             project.llm_usage.prompt_tokens == 50
             and project.llm_usage.completion_tokens == 10
         )
+
+
+def test_llm_node_reasoning_effort_validation_ok():
+    # All supported values should be accepted.
+    from vocode.runner.executors.llm import LLMNode
+
+    for level in ["none", "minimal", "low", "medium", "high"]:
+        node = LLMNode(name="llm", model="test-model", reasoning_effort=level)
+        assert node.reasoning_effort == level
+
+
+def test_llm_node_reasoning_effort_validation_rejects_invalid():
+    from vocode.runner.executors.llm import LLMNode
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        LLMNode(name="llm", model="test-model", reasoning_effort="ultra")
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_passes_reasoning_effort(monkeypatch, tmp_path):
+    # Configure node with a supported reasoning_effort value and ensure it reaches acompletion.
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        outcomes=[OutcomeSlot(name="done")],
+        outcome_strategy=OutcomeStrategy.function_call,
+        reasoning_effort="medium",
+    )
+    seq = [chunk_content("ok")]
+    stub = ACompletionStub([seq])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        agen = LLMExecutor(cfg, project).run(
+            ExecRunInput(messages=[Message(role="user", text="hello")], state=None)
+        )
+        # Drain until final
+        _, pkt_final, _ = await drain_until_non_interim(agen)
+        assert pkt_final.kind == "final_message"
+
+    # Verify that reasoning_effort was passed through to litellm.acompletion
+    assert stub.calls, "acompletion was not called"
+    call = stub.calls[0]
+    assert call["reasoning_effort"] == "medium"

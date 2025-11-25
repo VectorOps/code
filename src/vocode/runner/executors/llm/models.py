@@ -8,7 +8,7 @@ from vocode.runner.executors.llm.preprocessors.base import apply_preprocessors
 from litellm import acompletion, completion_cost
 import litellm
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from vocode.runner.runner import Executor
 from vocode.models import Node, PreprocessorSpec, OutcomeStrategy, Mode
 from vocode.state import Message, ToolCall
@@ -58,6 +58,29 @@ class LLMNode(Node):
         ),
     )
 
+    # Optional reasoning effort level, passed through to the LLM provider.
+    # Currently supports the levels exposed by litellm/OpenAI:
+    # "none", "minimal", "low", "medium", "high".
+    reasoning_effort: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional reasoning effort level for reasoning-capable models. "
+            "Supported values: 'none', 'minimal', 'low', 'medium', 'high'."
+        ),
+    )
+
+    @field_validator("reasoning_effort")
+    @classmethod
+    def _validate_reasoning_effort(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        allowed = {"none", "minimal", "low", "medium", "high"}
+        if value not in allowed:
+            raise ValueError(
+                f"reasoning_effort must be one of {sorted(allowed)}, got {value!r}"
+            )
+        return value
+
 
 # Internal LLM state
 class LLMExpect(str, Enum):
@@ -74,3 +97,5 @@ class LLMState(BaseModel):
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
     total_cost_dollars: float = 0.0
+    # Snapshot of the configured reasoning effort, if any, for visibility in state.
+    reasoning_effort: Optional[str] = None

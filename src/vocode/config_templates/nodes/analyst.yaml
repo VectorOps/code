@@ -3,6 +3,7 @@ variables:
 name: analyst
 type: llm
 model: ${LLM_ARCHITECT_MODEL}
+reasoning_effort: ${LLM_ARCHITECT_REASONING}
 outcomes:
   - name: done
 system: |

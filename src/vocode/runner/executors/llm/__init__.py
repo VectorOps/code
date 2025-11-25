@@ -154,6 +154,7 @@ class LLMExecutor(Executor):
                 "stream",
                 "temperature",
                 "max_tokens",
+                "reasoning_effort",
             ):
                 extra_args.pop(k, None)
 
@@ -181,6 +182,9 @@ class LLMExecutor(Executor):
                         max_tokens=effective_max_tokens,
                         tools=tools,
                         tool_choice="auto" if tools else None,
+                        # Optional reasoning effort level for reasoning-capable models.
+                        # Only sets the effort level; does not request reasoning summaries.
+                        reasoning_effort=cfg.reasoning_effort,
                         stream=True,
                         stream_options={"include_usage": True},
                         **extra_args,

@@ -73,7 +73,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Add a way (tab?) to expand/collapse JSON
 *** [ ] Add a way to show full diff for update file tool before confirming with formatting (custom formatter?)
 ** [X] We might have deadlock somewhere that does not break with ctrl+c
-** [ ] Fix estimated cost calculation
+** [X] Fix estimated cost calculation
 * [ ] Block parsers
 ** [ ] Diff parsers
 *** [ ] Patch format
@@ -81,7 +81,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Better error reporting for unmatched blocks. Currently it's too verbose.
 *** [ ] Unified Diff format
 * [ ] Filters
-** [ ] Adjust file filter to also inject filename into context
+** [X] Adjust file filter to also inject filename into context
 * [ ] Nodes
 ** [ ] Change Node tool configuration to accept wildcards
 ** [ ] Add a node that injects files in context. Add file manager.
@@ -100,7 +100,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
 ** [ ] Exec node
-*** [ ] Add timeout
+*** [X] Add timeout
 *** [ ] Need comprehensive tests
 *** [ ] Use containerization / sandboxing framework when available
 * [ ] Tools
