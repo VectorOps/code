@@ -75,6 +75,12 @@ class RunnerFrame:
     to_send: Optional[RunInput] = None
     last_final: Optional[Message] = None
 
+@dataclass
+class ProjectOpState:
+    message: Optional[str] = None
+    progress: Optional[int] = None
+    total: Optional[int] = None
+
 
 class UIState:
     """
@@ -124,6 +130,8 @@ class UIState:
         self._project_messages_task = asyncio.create_task(
             self._forward_project_messages()
         )
+        # Project operation progress (UI-level state)
+        self._project_op: ProjectOpState = ProjectOpState()
 
     def _top_frame(self) -> Optional[RunnerFrame]:
         return self.runner_stack[-1] if self.runner_stack else None
@@ -427,6 +435,13 @@ class UIState:
     def acc_cost_dollars(self) -> float:
         return self.project.llm_usage.cost_dollars
 
+    @property
+    def project_op(self) -> ProjectOpState:
+        """
+        Last known project operation progress (for UI renderers).
+        """
+        return self._project_op
+
     async def rewind(self, n: int = 1) -> None:
         """
         Rewind the last n steps. Allowed only when the runner is not running or waiting for input.
@@ -724,6 +739,10 @@ class UIState:
             async for p in self.project.message_generator():
                 try:
                     if p.kind == PACKET_PROJECT_OP_START:
+                        # Update UI state
+                        self._project_op.message = getattr(p, "message", None)
+                        self._project_op.progress = 0
+                        self._project_op.total = None
                         await self._outgoing.put(
                             UIPacketEnvelope(
                                 msg_id=self._next_msg_id(),
@@ -731,6 +750,9 @@ class UIState:
                             )
                         )
                     elif p.kind == PACKET_PROJECT_OP_PROGRESS:
+                        # Update UI state
+                        self._project_op.progress = getattr(p, "progress", None)
+                        self._project_op.total = getattr(p, "total", None)
                         await self._outgoing.put(
                             UIPacketEnvelope(
                                 msg_id=self._next_msg_id(),
@@ -741,6 +763,8 @@ class UIState:
                             )
                         )
                     elif p.kind == PACKET_PROJECT_OP_FINISH:
+                        # Clear UI state
+                        self._project_op = ProjectOpState()
                         await self._outgoing.put(
                             UIPacketEnvelope(
                                 msg_id=self._next_msg_id(),
@@ -837,6 +861,7 @@ class UIState:
             self._selected_workflow_name = None
             self._current_node_name = None
             self._last_status = None
+            self._project_op = ProjectOpState()
 
             # Restart command forwarder with the new project
             self._cmd_events_task = asyncio.create_task(self._forward_command_events())

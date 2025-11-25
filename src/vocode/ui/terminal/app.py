@@ -15,7 +15,6 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.formatted_text import to_formatted_text
-from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.formatted_text.utils import split_lines, fragment_list_width
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.enums import EditingMode
@@ -30,7 +29,6 @@ from vocode.ui.terminal.ac_client import (
 )
 
 from vocode.project import Project
-from vocode.ui.terminal.buf import MessageBuffer
 from vocode.ui.base import UIState
 from vocode.ui.proto import (
     UIPacketEnvelope,
@@ -54,14 +52,6 @@ from vocode.ui.proto import (
 )
 from vocode.ui.rpc import RpcHelper, IncomingPacketRouter
 from vocode.runner.models import (
-    ReqMessageRequest,
-    ReqToolCall,
-    ReqInterimMessage,
-    ReqFinalMessage,
-    ReqMessageRequest,
-    ReqToolCall,
-    ReqInterimMessage,
-    ReqFinalMessage,
     RespMessage,
     RespApproval,
     PACKET_MESSAGE_REQUEST,
@@ -131,16 +121,10 @@ class TerminalApp:
         self.should_exit: bool = False
         self.interrupt_count: int = 0
         self.pending_req_env: Optional[UIPacketEnvelope] = None
-        self.pending_cmd: Optional[str] = None
         self.dynamic_cli_commands: set[str] = set()
-        self.queued_resp: Optional[Union[RespMessage, RespApproval]] = None
         self.stream_throttler: Optional[StreamThrottler] = None
         self.last_streamed_text: Optional[str] = None
         self._toolbar_ticker_task: Optional[asyncio.Task] = None
-        # Project op progress state for toolbar
-        self._op_message = None
-        self._op_progress = None
-        self._op_total = None
         self.old_sigint = None
         self.old_sigterm = None
         self.old_sigusr2 = None
@@ -350,61 +334,6 @@ class TerminalApp:
             await self.stream_throttler.close()
         self.stream_throttler = None
 
-    async def handle_custom_commands_packet(self, cd: UIPacketCustomCommands) -> None:
-        assert (
-            self.commands is not None and self.rpc is not None and self.ui is not None
-        )
-        commands = self.commands
-        rpc = self.rpc
-        ac_factory = lambda name: make_canned_provider(rpc, name)
-        existing_names = {c.name for c in commands.list_commands()}
-        for c in cd.added:
-            cli_name = f"/{c.name}"
-            if cli_name in existing_names and cli_name not in self.dynamic_cli_commands:
-                continue
-            if cli_name in self.dynamic_cli_commands:
-                commands.unregister(cli_name)
-                self.dynamic_cli_commands.discard(cli_name)
-
-            async def _proxy(ctx: CommandContext, args: list[str], *, _cname=c.name):
-                self.pending_cmd = _cname
-                try:
-                    res = await rpc.call(UIPacketRunCommand(name=_cname, input=args))
-                    if res is None:
-                        return
-                    if res.kind != PACKET_COMMAND_RESULT:
-                        await ctx.out(
-                            f"Command '{_cname}' failed: unexpected response {res.kind}"
-                        )
-                        return
-                    if res.ok:
-                        if res.output:
-                            await ctx.out(res.output)
-                    else:
-                        await ctx.out(
-                            f"Command '{_cname}' failed: {res.error or 'unknown error'}"
-                        )
-                except Exception as e:
-                    await ctx.out(f"Error executing command '{_cname}': {e}")
-                finally:
-                    self.pending_cmd = None
-
-            commands.register(
-                cli_name,
-                c.help or "",
-                c.usage,
-                (ac_factory(c.autocompleter) if c.autocompleter else None),
-            )(
-                _proxy
-            )  # type: ignore[arg-type]
-            self.dynamic_cli_commands.add(cli_name)
-            existing_names.add(cli_name)
-        for name in cd.removed:
-            cli_name = f"/{name}"
-            if cli_name in self.dynamic_cli_commands:
-                commands.unregister(cli_name)
-                self.dynamic_cli_commands.discard(cli_name)
-
     async def _handle_custom_commands_packet(self, cd: UIPacketCustomCommands) -> None:
         assert (
             self.commands is not None and self.rpc is not None and self.ui is not None
@@ -422,7 +351,6 @@ class TerminalApp:
                 self.dynamic_cli_commands.discard(cli_name)
 
             async def _proxy(ctx: CommandContext, args: list[str], *, _cname=c.name):
-                self.pending_cmd = _cname
                 try:
                     res = await rpc.call(UIPacketRunCommand(name=_cname, input=args))
                     if res is None:
@@ -441,8 +369,6 @@ class TerminalApp:
                         )
                 except Exception as e:
                     await ctx.out(f"Error executing command '{_cname}': {e}")
-                finally:
-                    self.pending_cmd = None
 
             commands.register(
                 cli_name,
@@ -498,7 +424,6 @@ class TerminalApp:
             RunnerStatus.idle,
         ):
             self.pending_req_env = None
-            self.queued_resp = None
             await self._flush_and_clear_stream()
             await self._update_toolbar_ticker()
         return None
@@ -506,7 +431,6 @@ class TerminalApp:
     async def _ui_reset(self, envelope: UIPacketEnvelope):
         # Clear local pending input and queued responses on reset.
         self.pending_req_env = None
-        self.queued_resp = None
         await self._update_toolbar_ticker()
         return None
 
@@ -515,18 +439,13 @@ class TerminalApp:
         return None
 
     async def _ui_project_op_start(self, envelope: UIPacketEnvelope):
-        msg = envelope.payload
-        self._op_message = msg.message
-        self._op_progress = 0
-        self._op_total = None
+        # Project op state is stored in UIState; just invalidate display.
         if self.session:
             self.session.app.invalidate()
         return None
 
     async def _ui_project_op_progress(self, envelope: UIPacketEnvelope):
         msg = envelope.payload
-        self._op_progress = msg.progress
-        self._op_total = msg.total
         # Simple progress output; keep consistent with previous behavior.
         await out(f"Progress: {msg.progress} / {msg.total}...\r", end="")
         if self.session:
@@ -534,10 +453,6 @@ class TerminalApp:
         return None
 
     async def _ui_project_op_finish(self, envelope: UIPacketEnvelope):
-        # Clear progress state and refresh toolbar.
-        self._op_message = None
-        self._op_progress = None
-        self._op_total = None
         if self.session:
             self.session.app.invalidate()
         return None
@@ -585,10 +500,6 @@ class TerminalApp:
         if ev.message:
             await out_fmt(colors.render_markdown(ev.message))
         self.pending_req_env = envelope if req_payload.event.input_requested else None
-        if self.pending_req_env is not None and self.queued_resp is not None:
-            await respond_packet(self.ui, self.pending_req_env.msg_id, self.queued_resp)
-            self.queued_resp = None
-            self.pending_req_env = None
         if self.session:
             self.session.app.invalidate()
         await self._update_toolbar_ticker()
@@ -629,10 +540,6 @@ class TerminalApp:
             )
         print_formatted_text("")
         self.pending_req_env = envelope if req_payload.event.input_requested else None
-        if self.pending_req_env is not None and self.queued_resp is not None:
-            await respond_packet(self.ui, self.pending_req_env.msg_id, self.queued_resp)
-            self.queued_resp = None
-            self.pending_req_env = None
         if self.session:
             self.session.app.invalidate()
         await self._update_toolbar_ticker()
@@ -653,10 +560,6 @@ class TerminalApp:
                 text = ev.message.text or ""
                 await out_fmt(colors.render_markdown(text))
         self.pending_req_env = envelope if req_payload.event.input_requested else None
-        if self.pending_req_env is not None and self.queued_resp is not None:
-            await respond_packet(self.ui, self.pending_req_env.msg_id, self.queued_resp)
-            self.queued_resp = None
-            self.pending_req_env = None
         if self.session:
             self.session.app.invalidate()
         await self._update_toolbar_ticker()
@@ -799,10 +702,10 @@ class TerminalApp:
                 def _render_toolbar():
                     base = build_toolbar(self.ui, self._pending_run_event_payload())
                     fr = list(to_formatted_text(base))
-                    if self._op_message is not None:
-                        # Compose a simple progress display in the toolbar
-                        p = int(self._op_progress or 0)
-                        t = int(self._op_total or 0)
+                    # Compose a simple progress display in the toolbar from UIState
+                    if self.ui and self.ui.project_op.message is not None:
+                        p = int(self.ui.project_op.progress or 0)
+                        t = int(self.ui.project_op.total or 0)
                         pct = int((p * 100 / t)) if t else 0
                         bar_width = 20
                         filled = int(bar_width * (p / t)) if t else 0
@@ -810,7 +713,7 @@ class TerminalApp:
                         bar = "[" + "#" * filled + "-" * (bar_width - filled) + "]"
                         fr += [
                             ("", "  |  "),
-                            ("class:system.text", f"{self._op_message} "),
+                            ("class:system.text", f"{self.ui.project_op.message} "),
                             ("class:system.text", f"{bar} {p}/{t} ({pct}%)"),
                         ]
                     return fr
