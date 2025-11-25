@@ -73,6 +73,8 @@ def _input_hint(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> str:
         conf = _current_node_confirmation(ui)
         if conf == Confirmation.confirm:
             return "(approve? [Y/N])"
+        if conf == Confirmation.prompt_approve:
+            return "(type '/approve' to accept, or reply to modify)"
         return "(Enter to continue, or type a reply)"
     return ""
 

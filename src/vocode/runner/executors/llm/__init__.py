@@ -52,6 +52,7 @@ class LLMExecutor(Executor):
         if not isinstance(config, LLMNode):
             # Allow base Node but prefer LLMNode
             raise TypeError("LLMExecutor requires config to be an LLMNode")
+
     async def run(
         self, inp: ExecRunInput
     ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
@@ -98,9 +99,7 @@ class LLMExecutor(Executor):
         # Outcome handling strategy
         outcomes: List[str] = h_get_outcome_names(cfg)
         outcome_desc_bullets: str = h_get_outcome_desc_bullets(cfg)
-        outcome_choice_desc: str = h_get_outcome_choice_desc(
-            cfg, outcome_desc_bullets
-        )
+        outcome_choice_desc: str = h_get_outcome_choice_desc(cfg, outcome_desc_bullets)
         outcome_strategy: OutcomeStrategy = cfg.outcome_strategy
         outcome_name: Optional[str] = state.pending_outcome_name or None
         # Compute effective tool specs (node merged with global settings)
@@ -424,9 +423,7 @@ class LLMExecutor(Executor):
                 elif outcome_strategy == OutcomeStrategy.function_call:
                     # If model never called choose_outcome, try to infer from tag, else fallback
                     if outcome_name is None:
-                        selected = h_parse_outcome_from_text(
-                            assistant_text, outcomes
-                        )
+                        selected = h_parse_outcome_from_text(assistant_text, outcomes)
                         if selected:
                             outcome_name = selected
                             assistant_text = h_strip_outcome_line(assistant_text)

@@ -567,7 +567,17 @@ class TerminalApp:
             if streamed_text is None or ev.message.text != streamed_text:
                 text = ev.message.text or ""
                 await out_fmt(colors.render_markdown(text))
+        # Show helper text before prompting for input on prompt_approve finals.
         self.pending_req_env = envelope if req_payload.event.input_requested else None
+        if (
+            self.pending_req_env is not None
+            and ev.kind == PACKET_FINAL_MESSAGE
+            and _current_node_confirmation(self.ui) == Confirmation.prompt_approve
+        ):
+            await out(
+                "Type '/approve' to accept this result, or enter a reply to modify it."
+            )
+
         if self.session:
             self.session.app.invalidate()
         await self._update_toolbar_ticker()
@@ -768,8 +778,10 @@ class TerminalApp:
                         continue
                     if ev.kind == PACKET_FINAL_MESSAGE:
                         conf = _current_node_confirmation(self.ui)
+                        stripped = text.strip()
+
                         if conf == Confirmation.confirm:
-                            ans = text.strip().lower()
+                            ans = stripped.lower()
                             if ans in ("y", "yes"):
                                 await respond_approval(self.ui, msg_id, True)
                                 self.pending_req_env = None
@@ -782,7 +794,32 @@ class TerminalApp:
                                 continue
                             await out("Please answer Y or N.")
                             continue
-                        if text.strip() == "":
+
+                        if conf == Confirmation.prompt_approve:
+                            # Require explicit /approve to accept; otherwise treat as user reply.
+                            if stripped == "/approve":
+                                await respond_approval(self.ui, msg_id, True)
+                                self.pending_req_env = None
+                                await self._update_toolbar_ticker()
+                                continue
+                            if stripped == "":
+                                # Empty input: re-display guidance and stay in prompt.
+                                await out(
+                                    "Type '/approve' to accept this result, or enter a reply to modify it."
+                                )
+                                continue
+                            # Any non-empty, non-command text is treated as a modified reply.
+                            await respond_message(
+                                self.ui,
+                                msg_id,
+                                Message(role="user", text=text),
+                            )
+                            self.pending_req_env = None
+                            await self._update_toolbar_ticker()
+                            continue
+
+                        # Default 'prompt' semantics: Enter = approve, otherwise reply.
+                        if stripped == "":
                             await respond_approval(self.ui, msg_id, True)
                         else:
                             await respond_message(

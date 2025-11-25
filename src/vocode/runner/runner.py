@@ -459,7 +459,11 @@ class Runner:
             # Otherwise, request input unless all are explicitly auto-approved
             return any((tc.tool_spec.auto_approve is not True) for tc in req.tool_calls)
         if req.kind == PACKET_FINAL_MESSAGE:
-            return node_conf in (Confirmation.prompt, Confirmation.confirm)
+            return node_conf in (
+                Confirmation.prompt,
+                Confirmation.confirm,
+                Confirmation.prompt_approve,
+            )
         return False
 
     async def _run_tools(
