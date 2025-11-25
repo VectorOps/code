@@ -73,3 +73,22 @@ This repository implements a configurable, graph-driven workflow runner with LLM
   - Avoid `Any`; prefer exact models or TypedDict for structured config.
 - Async:
   - Use asyncio primitives; propagate timeouts and cancellation.
+- Never import more than a three symbols. This is allowed:
+```
+from .proto import UIPacket, UIPacketEnvelope, UIPacketRunEvent
+```
+
+This is not allowed:
+
+```
+from .proto import (
+    UIPacket,
+    UIPacketEnvelope,
+    UIPacketRunEvent,
+    UIPacketUIReset,
+    UIPacketStatus,
+    UIPacketRunInput,
+)
+```
+
+Instead, import a module and reference symbols via the module name or alias.

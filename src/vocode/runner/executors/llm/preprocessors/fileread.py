@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Sequence
 
 from vocode.models import Mode, PreprocessorSpec
 from vocode.runner.executors.llm.preprocessors.base import (
@@ -48,18 +48,33 @@ def _fileread_preprocessor(
     - Silently skips absolute, escaping, non-existent, or non-file paths.
     - Injects content into a message determined by spec.mode ('system' or 'user').
     - If message list is empty, creates a new message.
-    - No separators are added (mirrors FilereadExecutor concatenation).
+    - No separators are added between files (mirrors FileReadExecutor concatenation).
+    - Supports a per-file prepend template via options['prepend_template'] which defaults to
+      "User provided {filename}:\n"; set to None to disable.
     """
+
     opts = spec.options or {}
-    paths: List[str] = []
+    # Parse paths from options['paths'] or fallback to options['files']
+    paths: list[str] = []
     raw = opts.get("paths")
-    if isinstance(raw, list):
+    if isinstance(raw, str):
+        paths = [raw]
+    elif isinstance(raw, Sequence):
         paths = [p for p in raw if isinstance(p, str)]
     else:
-        # Fallback to "files" for convenience
         raw_files = opts.get("files")
-        if isinstance(raw_files, list):
+        if isinstance(raw_files, str):
+            paths = [raw_files]
+        elif isinstance(raw_files, Sequence):
             paths = [p for p in raw_files if isinstance(p, str)]
+
+    # Determine per-file prepend template (None disables)
+    prepend_template: Optional[str]
+    if "prepend_template" in opts and opts.get("prepend_template") is None:
+        prepend_template = None
+    else:
+        # Use provided template if any; otherwise default
+        prepend_template = opts.get("prepend_template") or "User provided {filename}:\n"
 
     # Collect contents in order, skipping invalid entries
     parts: List[str] = []
@@ -67,6 +82,12 @@ def _fileread_preprocessor(
         full = _validate_relpath(rel, project)
         if not full:
             continue
+        if prepend_template is not None:
+            try:
+                parts.append(prepend_template.format(filename=full.name))
+            except Exception:
+                # If formatting fails, fall back to raw template string
+                parts.append(str(prepend_template))
         parts.append(_read_file_text(full))
 
     inject = "".join(parts)
@@ -94,10 +115,15 @@ def _fileread_preprocessor(
     # Update message
     if target_message:
         base_text = target_message.text or ""
-        if inject in base_text:
-            return messages
-
         sep = opts.get("separator", "\n\n")
+        # Prevent duplicate reinjection only if the combined block (with separator)
+        # already exists in the base text; avoids false positives on substrings.
+        if spec.prepend:
+            already = f"{inject}{sep}"
+        else:
+            already = f"{sep}{inject}"
+        if already and already in base_text:
+            return messages
 
         if spec.prepend:
             target_message.text = f"{inject}{sep}{base_text}"
@@ -111,5 +137,5 @@ def _fileread_preprocessor(
 register_preprocessor(
     name="file_read",
     func=_fileread_preprocessor,
-    description="Reads files from options.paths (or options.files) and concatenates contents; skips invalid/missing paths.",
+    description="Reads files from options.paths (or options.files), optionally prepends per-file template, and concatenates contents; skips invalid/missing paths.",
 )

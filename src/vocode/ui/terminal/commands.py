@@ -19,6 +19,11 @@ from vocode.ui.proto import (
     PACKET_COMPLETION_RESULT,
     UIPacketUIReload,
 )
+from vocode.ui.terminal.rpc_helpers import (
+    rpc_use,
+    rpc_reset,
+    rpc_restart,
+)
 
 if TYPE_CHECKING:
     from vocode.ui.base import UIState
@@ -137,7 +142,7 @@ async def _use(ctx: CommandContext, args: List[str]) -> None:
         return
     name = args[0]
     try:
-        await ctx.ui.use(name)
+        await rpc_use(ctx.rpc, name)
     except Exception as e:
         await ctx.out(f"Failed to start workflow '{name}': {e}")
 
@@ -148,14 +153,14 @@ async def _run(ctx: CommandContext, args: List[str]) -> None:
         return
     name = args[0]
     try:
-        await ctx.ui.use(name)
+        await rpc_use(ctx.rpc, name)
     except Exception as e:
         await ctx.out(f"Failed to run workflow '{name}': {e}")
 
 
 async def _reset(ctx: CommandContext, args: List[str]) -> None:
     try:
-        await ctx.ui.reset()
+        await rpc_reset(ctx.rpc)
     except Exception as e:
         await ctx.out(f"Failed to reset: {e}")
 
@@ -181,7 +186,7 @@ async def _continue(ctx: CommandContext, args: List[str]) -> None:
             )
         return
     try:
-        await ctx.ui.restart()
+        await rpc_restart(ctx.rpc)
     except Exception as e:
         await ctx.out(f"Failed to continue: {e}")
 

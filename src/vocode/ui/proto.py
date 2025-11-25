@@ -2,7 +2,7 @@ from typing import Annotated, Optional, Union, Literal, Any, Dict, List
 from pydantic import BaseModel, Field
 
 from vocode.runner.models import RunEvent, RunInput
-from vocode.state import RunnerStatus, LogLevel
+from vocode.state import RunnerStatus, LogLevel, Message
 
 PACKET_RUN_EVENT = "run_event"
 PACKET_STATUS = "status"
@@ -19,6 +19,12 @@ PACKET_PROJECT_OP_START = "project_op_start"
 PACKET_PROJECT_OP_PROGRESS = "project_op_progress"
 PACKET_PROJECT_OP_FINISH = "project_op_finish"
 PACKET_LOG = "log"
+PACKET_UI_STOP_ACTION = "ui_stop_action"
+PACKET_UI_CANCEL_ACTION = "ui_cancel_action"
+PACKET_UI_USE_ACTION = "ui_use_action"
+PACKET_UI_RESET_RUN_ACTION = "ui_reset_run_action"
+PACKET_UI_RESTART_ACTION = "ui_restart_action"
+PACKET_REPLACE_USER_INPUT_ACTION = "replace_user_input_action"
 
 
 class UIPacketRunEvent(BaseModel):
@@ -92,6 +98,29 @@ class UIPacketAck(BaseModel):
 class UIPacketUIReload(BaseModel):
     kind: Literal["ui_reload"] = PACKET_UI_RELOAD
 
+class UIPacketUIStopAction(BaseModel):
+    kind: Literal["ui_stop_action"] = PACKET_UI_STOP_ACTION
+
+class UIPacketUICancelAction(BaseModel):
+    kind: Literal["ui_cancel_action"] = PACKET_UI_CANCEL_ACTION
+
+class UIPacketUIUseAction(BaseModel):
+    kind: Literal["ui_use_action"] = PACKET_UI_USE_ACTION
+    name: str
+
+class UIPacketUIResetRunAction(BaseModel):
+    kind: Literal["ui_reset_run_action"] = PACKET_UI_RESET_RUN_ACTION
+
+class UIPacketUIRestartAction(BaseModel):
+    kind: Literal["ui_restart_action"] = PACKET_UI_RESTART_ACTION
+
+class UIPacketReplaceUserInputAction(BaseModel):
+    kind: Literal["replace_user_input_action"] = PACKET_REPLACE_USER_INPUT_ACTION
+    # Exactly one of message/approved should be provided.
+    message: Optional[Message] = None
+    approved: Optional[bool] = None
+    n: Optional[int] = 1
+
 class UIPacketProjectOpStart(BaseModel):
     kind: Literal["project_op_start"] = PACKET_PROJECT_OP_START
     message: str
@@ -127,6 +156,12 @@ UIPacket = Annotated[
         UIPacketCommandResult,
         UIPacketAck,
         UIPacketUIReload,
+        UIPacketUIStopAction,
+        UIPacketUICancelAction,
+        UIPacketUIUseAction,
+        UIPacketUIResetRunAction,
+        UIPacketUIRestartAction,
+        UIPacketReplaceUserInputAction,
         UIPacketProjectOpStart,
         UIPacketProjectOpProgress,
         UIPacketProjectOpFinish,

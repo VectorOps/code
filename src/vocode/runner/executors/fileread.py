@@ -5,11 +5,26 @@ from vocode.runner.runner import Executor
 from vocode.models import Node
 from vocode.state import Message
 from vocode.runner.models import ReqPacket, ReqFinalMessage, ExecRunInput
+from pydantic import Field, field_validator
 
 
 class FileReadNode(Node):
     type: str = "file_read"
-    files: List[str]
+    # Allow a single string or a list of strings
+    files: list[str] | str
+    # Default template prepended before each file content; set to None to disable
+    prepend_template: Optional[str] = Field(
+        default="User provided {filename}:\n",
+        description="Template prepended before each file content; use None to disable.",
+    )
+
+    @field_validator("files", mode="after")
+    @classmethod
+    def _coerce_files(cls, v):
+        if isinstance(v, str):
+            return [v]
+        # Ensure list[str]
+        return list(v)
 
 
 class FileReadExecutor(Executor):
@@ -47,6 +62,10 @@ class FileReadExecutor(Executor):
                 text = full_path.read_text(encoding="utf-8", errors="replace")
             except Exception:
                 text = full_path.read_bytes().decode("utf-8", errors="replace")
+            # Optionally prepend a template with filename
+            if cfg.prepend_template is not None:
+                prefix = cfg.prepend_template.format(filename=full_path.name)
+                contents.append(prefix)
             contents.append(text)
 
         final = Message(role="agent", text="".join(contents))

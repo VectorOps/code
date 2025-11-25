@@ -83,6 +83,14 @@ from vocode.ui.terminal.helpers import (
     StreamThrottler,
 )
 from vocode import diagnostics
+from vocode.ui.terminal.rpc_helpers import (
+    rpc_stop,
+    rpc_cancel,
+    rpc_use,
+    rpc_reset,
+    rpc_restart,
+    rpc_replace_user_input,
+)
 
 LOG_LEVEL_ORDER = {
     LogLevel.debug: 0,
@@ -253,13 +261,13 @@ class TerminalApp:
                         loop = asyncio.get_running_loop()
                         loop.call_soon_threadsafe(
                             lambda: asyncio.create_task(
-                                self.ui.cancel() if self.ui else asyncio.sleep(0)
+                                (rpc_cancel(self.rpc) if self.rpc else asyncio.sleep(0))
                             )
                         )
                     except RuntimeError:
                         try:
                             asyncio.create_task(
-                                self.ui.cancel() if self.ui else asyncio.sleep(0)
+                                (rpc_cancel(self.rpc) if self.rpc else asyncio.sleep(0))
                             )
                         except Exception:
                             pass
@@ -285,8 +293,8 @@ class TerminalApp:
             if self.old_sigterm:
                 signal.signal(signal.SIGTERM, self.old_sigterm)
         await self._stop_toolbar_ticker()
-        if self.ui and self.ui.is_active():
-            await self.ui.stop()
+        if self.ui and self.ui.is_active() and self.rpc:
+            await rpc_stop(self.rpc)
         if self.consumer_task:
             self.consumer_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -310,11 +318,11 @@ class TerminalApp:
     async def stop_toggle(self) -> None:
         n = self.interrupt_count
         self.interrupt_count = n + 1
-        assert self.ui is not None
+        assert self.ui is not None and self.rpc is not None
         # Flush any active streaming before issuing stop to avoid lingering output.
         await self._flush_and_clear_stream()
         if n == 0:
-            await self.ui.stop()
+            await rpc_stop(self.rpc)
         else:
             # Subsequent Ctrl+C presses are ignored (no cancel).
             pass
@@ -600,6 +608,7 @@ class TerminalApp:
 
         loop = asyncio.get_running_loop()
         loop.set_exception_handler(self._unhandled_exception_handler)
+
         # 1) Print banner first (no dependency on UI/session)
         ui_cfg = self.project.settings.ui if self.project.settings else None
         pt_style = styles.get_pt_style()
@@ -786,10 +795,11 @@ class TerminalApp:
                 # No pending input and not a command.
                 if self.ui.status == RunnerStatus.stopped and text:
                     # If stopped, treat this as a replacement for the last user input.
-                    await self.ui.replace_user_input(
-                        RespMessage(message=Message(role="user", text=text))
+                    assert self.rpc is not None
+                    await rpc_replace_user_input(
+                        self.rpc, message=Message(role="user", text=text)
                     )
-                    await self.ui.restart()
+                    await rpc_restart(self.rpc)
                     continue
 
                 # Show contextual hints otherwise.

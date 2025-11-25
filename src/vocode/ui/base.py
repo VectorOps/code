@@ -6,74 +6,29 @@ import contextlib
 
 from vocode.logger import logger
 from vocode.runner.runner import Runner
-from vocode.runner.models import (
-    RunEvent,
-    RunInput,
-    RespPacket,
-    RespMessage,
-    RespApproval,
-    PACKET_TOKEN_USAGE,
-    PACKET_FINAL_MESSAGE,
-    PACKET_STATUS_CHANGE,
-    PACKET_START_WORKFLOW,
-)
-from vocode.state import (
-    Assignment,
-    Message,
-    RunnerStatus,
-    RunStatus,
-    Activity,
-    ActivityType,
-    LogLevel,
-)
-from vocode.models import Graph, Workflow
-from .proto import (
-    UIPacket,
-    UIPacketEnvelope,
-    UIPacketRunEvent,
-    UIPacketUIReset,
-    UIPacketStatus,
-    UIPacketRunInput,
-    UIPacketCustomCommands,
-    UIPacketCompletionRequest,
-    UIPacketCompletionResult,
-    UIPacketCommandResult,
-    UIPacketRunCommand,
-    UIPacketAck,
-    UICommand,
-    PACKET_RUN_INPUT,
-    PACKET_RUN_COMMAND,
-    PACKET_COMPLETION_REQUEST,
-    PACKET_COMPLETION_RESULT,
-    PACKET_UI_RELOAD,
-    PACKET_PROJECT_OP_START,
-    PACKET_PROJECT_OP_PROGRESS,
-    PACKET_PROJECT_OP_FINISH,
-    UIPacketProjectOpStart,
-    UIPacketProjectOpProgress,
-    UIPacketProjectOpFinish,
-    UIPacketLog,
-)
-from .rpc import RpcHelper
-from .rpc import IncomingPacketRouter
-from .logging import configure_stdlib_logging, attach_ui_interceptor
+import vocode.runner.models as rmodels
+import vocode.state as vstate
+import vocode.models as vmodels
+from . import proto
+from . import rpc as rpc
+from . import logging as ui_logging
 
 if TYPE_CHECKING:
     from vocode.project import Project
 
-
-from .autocomplete import AutoCompletionManager
+from . import autocomplete as autocomplete
 from . import autocomplete_providers as acp
 
 
 @dataclass
 class RunnerFrame:
     runner: Runner
-    workflow: Workflow
-    assignment: Assignment
+    workflow: vmodels.Workflow
+    assignment: vstate.Assignment
     agen: Any  # Async generator: AsyncIterator[RunEvent]
-    to_send: Optional[RunInput] = None
-    last_final: Optional[Message] = None
+    to_send: Optional[rmodels.RunInput] = None
+    last_final: Optional[vstate.Message] = None
+
 
 @dataclass
 class ProjectOpState:
@@ -91,16 +46,18 @@ class UIState:
     def __init__(self, project: "Project") -> None:
         self.project = project
         self.runner: Optional[Runner] = None
-        self.workflow: Optional[Workflow] = None
-        self.assignment: Optional[Assignment] = None
+        self.workflow: Optional[vmodels.Workflow] = None
+        self.assignment: Optional[vstate.Assignment] = None
         self.runner_stack: List[RunnerFrame] = []
-        self._initial_message: Optional[Message] = None
+        self._initial_message: Optional[vstate.Message] = None
 
-        self._outgoing: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
-        self._incoming: "asyncio.Queue[UIPacketEnvelope]" = asyncio.Queue()
-        self._rpc = RpcHelper(self._outgoing.put, "UIState", id_generator=self._next_msg_id)
-        self._router = IncomingPacketRouter(self._rpc, "UIState")
-        self.autocomplete = AutoCompletionManager(self)
+        self._outgoing: "asyncio.Queue[proto.UIPacketEnvelope]" = asyncio.Queue()
+        self._incoming: "asyncio.Queue[proto.UIPacketEnvelope]" = asyncio.Queue()
+        self._rpc = rpc.RpcHelper(
+            self._outgoing.put, "UIState", id_generator=self._next_msg_id
+        )
+        self._router = rpc.IncomingPacketRouter(self._rpc, "UIState")
+        self.autocomplete = autocomplete.AutoCompletionManager(self)
 
         self.autocomplete.register(acp.PROVIDER_WORKFLOW_LIST, acp.ac_workflow_list)
         self.autocomplete.register(acp.PROVIDER_FILELIST, acp.ac_filelist)
@@ -111,7 +68,7 @@ class UIState:
         self._incoming_router_task: Optional[asyncio.Task] = None
         self._msg_counter: int = 0
         self._client_msg_counter: int = 0
-        self._last_status: Optional[RunnerStatus] = None
+        self._last_status: Optional[vstate.RunnerStatus] = None
         self._selected_workflow_name: Optional[str] = None
         self._current_node_name: Optional[str] = None
         self._lock = asyncio.Lock()
@@ -138,12 +95,12 @@ class UIState:
 
     def _create_runner_frame(
         self,
-        workflow: Workflow,
+        workflow: vmodels.Workflow,
         *,
-        initial_message: Optional[Message] = None,
-        assignment: Optional[Assignment] = None,
+        initial_message: Optional[vstate.Message] = None,
+        assignment: Optional[vstate.Assignment] = None,
     ) -> RunnerFrame:
-        assign = assignment or Assignment()
+        assign = assignment or vstate.Assignment()
         runner = Runner(
             workflow=workflow, project=self.project, initial_message=initial_message
         )
@@ -178,13 +135,13 @@ class UIState:
     # Public protocol endpoints
     # ------------------------
 
-    async def recv(self) -> UIPacketEnvelope:
+    async def recv(self) -> proto.UIPacketEnvelope:
         """
         Await next request from UIState (to be handled by UI client).
         """
         return await self._outgoing.get()
 
-    async def send(self, envelope: UIPacketEnvelope) -> None:
+    async def send(self, envelope: proto.UIPacketEnvelope) -> None:
         """
         Send a response from UI client back to UIState.
         """
@@ -197,9 +154,9 @@ class UIState:
 
     async def start(
         self,
-        workflow: Workflow,
-        initial_message: Optional[Message] = None,
-        assignment: Optional[Assignment] = None,
+        workflow: vmodels.Workflow,
+        initial_message: Optional[vstate.Message] = None,
+        assignment: Optional[vstate.Assignment] = None,
     ) -> None:
         """
         Start a new runner for the given workflow. If a runner is already active, raises RuntimeError.
@@ -212,8 +169,8 @@ class UIState:
             if workflow.name:
                 self._selected_workflow_name = workflow.name
 
-            if assignment and assignment.status == RunStatus.finished:
-                assignment = Assignment()
+            if assignment and assignment.status == vstate.RunStatus.finished:
+                assignment = vstate.Assignment()
 
             self._initial_message = initial_message
             top_frame = self._create_runner_frame(
@@ -289,21 +246,18 @@ class UIState:
                 raise RuntimeError("No workflow available to restart")
 
             # If there's no runner, or it finished/canceled, create a new one
-            if top.runner.status in (RunnerStatus.finished, RunnerStatus.canceled):
+            if top.runner.status in (vstate.RunnerStatus.finished, vstate.RunnerStatus.canceled):
                 replacement = self._create_runner_frame(
                     top.workflow, initial_message=self._initial_message
                 )
                 # Preserve/refresh assignment if needed
-                if (
-                    top.assignment is None
-                    or top.assignment.status == RunStatus.finished
-                ):
+                if top.assignment is None or top.assignment.status == vstate.RunStatus.finished:
                     top.assignment = replacement.assignment
                 top.runner = replacement.runner
                 top.agen = replacement.agen
 
-            if top.assignment is None or top.assignment.status == RunStatus.finished:
-                top.assignment = Assignment()
+            if top.assignment is None or top.assignment.status == vstate.RunStatus.finished:
+                top.assignment = vstate.Assignment()
             self.assignment = top.assignment
             self.runner = top.runner
             self.workflow = top.workflow
@@ -331,7 +285,7 @@ class UIState:
         return list(self.project.settings.workflows.keys())
 
     async def start_by_name(
-        self, name: str, initial_message: Optional[Message] = None
+        self, name: str, initial_message: Optional[vstate.Message] = None
     ) -> None:
         # Clear project-level state when switching to a different workflow
         if (
@@ -347,8 +301,8 @@ class UIState:
             raise KeyError(f"Unknown workflow: {name}")
         wf_cfg = self.project.settings.workflows[name]
 
-        graph = Graph(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
-        wf = Workflow(name=name, graph=graph)
+        graph = vmodels.Graph(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
+        wf = vmodels.Workflow(name=name, graph=graph)
 
         self._selected_workflow_name = name
         await self.start(wf, initial_message=initial_message)
@@ -383,7 +337,7 @@ class UIState:
                     self._incoming.get_nowait()
 
     async def use(
-        self, name: str, *, initial_message: Optional[Message] = None
+        self, name: str, *, initial_message: Optional[vstate.Message] = None
     ) -> None:
         await self._shutdown_current_runner(cancel=False)
         await self.start_by_name(name, initial_message=initial_message)
@@ -402,18 +356,18 @@ class UIState:
 
     def is_active(self) -> bool:
         if self.status in (
-            RunnerStatus.idle,
-            RunnerStatus.finished,
-            RunnerStatus.stopped,
-            RunnerStatus.canceled,
+            vstate.RunnerStatus.idle,
+            vstate.RunnerStatus.finished,
+            vstate.RunnerStatus.stopped,
+            vstate.RunnerStatus.canceled,
         ):
             return False
         return self._drive_task is not None and not self._drive_task.done()
 
     @property
-    def status(self) -> RunnerStatus:
+    def status(self) -> vstate.RunnerStatus:
         top = self._top_frame()
-        return top.runner.status if top else RunnerStatus.idle
+        return top.runner.status if top else vstate.RunnerStatus.idle
 
     @property
     def current_node_name(self) -> Optional[str]:
@@ -450,14 +404,14 @@ class UIState:
             top = self._top_frame()
             if top is None:
                 raise RuntimeError("No runner/assignment to rewind")
-            if top.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
+            if top.runner.status in (vstate.RunnerStatus.running, vstate.RunnerStatus.waiting_input):
                 raise RuntimeError(
                     "Cannot rewind while runner is running or waiting for input"
                 )
             await top.runner.rewind(top.assignment, n)
 
     async def replace_user_input(
-        self, resp: Union[RespMessage, RespApproval], n: Optional[int] = 1
+        self, resp: Union[rmodels.RespMessage, rmodels.RespApproval], n: Optional[int] = 1
     ) -> None:
         """
         Replace a user input (final prompt/confirm or prior message_request) and prepare resume.
@@ -467,7 +421,7 @@ class UIState:
             top = self._top_frame()
             if top is None:
                 raise RuntimeError("No runner/assignment available")
-            if top.runner.status in (RunnerStatus.running, RunnerStatus.waiting_input):
+            if top.runner.status in (vstate.RunnerStatus.running, vstate.RunnerStatus.waiting_input):
                 raise RuntimeError(
                     "Cannot replace input while runner is running or waiting for input"
                 )
@@ -478,9 +432,9 @@ class UIState:
     # ------------------------
     async def _send_ui_reset(self) -> None:
         await self._outgoing.put(
-            UIPacketEnvelope(
+            proto.UIPacketEnvelope(
                 msg_id=self._next_msg_id(),
-                payload=UIPacketUIReset(),
+                payload=proto.UIPacketUIReset(),
             )
         )
 
@@ -488,9 +442,9 @@ class UIState:
         curr = runner.status
         if curr != self._last_status:
             await self._outgoing.put(
-                UIPacketEnvelope(
+                proto.UIPacketEnvelope(
                     msg_id=self._next_msg_id(),
-                    payload=UIPacketStatus(prev=self._last_status, curr=curr),
+                    payload=proto.UIPacketStatus(prev=self._last_status, curr=curr),
                 )
             )
             self._last_status = curr
@@ -526,14 +480,14 @@ class UIState:
                 to_send = frame.to_send
                 frame.to_send = None
                 try:
-                    req: RunEvent = await agen.asend(to_send)
+                    req: rmodels.RunEvent = await agen.asend(to_send)
                 except StopAsyncIteration:
                     # Done: bubble final message to previous frame (if any)
                     finished = self.runner_stack.pop()
                     parent = self._top_frame()
                     if parent is not None and finished.last_final is not None:
-                        parent.to_send = RunInput(
-                            response=RespMessage(message=finished.last_final)
+                        parent.to_send = rmodels.RunInput(
+                            response=rmodels.RespMessage(message=finished.last_final)
                         )
                         # Continue loop to drive parent
                         continue
@@ -546,7 +500,7 @@ class UIState:
                 await self._emit_status_if_changed()
 
                 # Convert runner status-change packets to UIPacketStatus
-                if req.event.kind == PACKET_STATUS_CHANGE:
+                if req.event.kind == rmodels.PACKET_STATUS_CHANGE:
                     sc = req.event
                     node_description = None
                     if sc.new_node and workflow:
@@ -555,9 +509,9 @@ class UIState:
                             node_description = node.description
 
                     await self._outgoing.put(
-                        UIPacketEnvelope(
+                        proto.UIPacketEnvelope(
                             msg_id=self._next_msg_id(),
-                            payload=UIPacketStatus(
+                            payload=proto.UIPacketStatus(
                                 prev=sc.old_status,
                                 curr=sc.new_status,
                                 prev_node=sc.old_node,
@@ -574,13 +528,13 @@ class UIState:
                 # Decide if this event should be forwarded to the UI client.
                 # Suppress node finals when hide_final_output is True and no input is requested.
                 suppress_event = False
-                if req.event.kind == PACKET_FINAL_MESSAGE and not req.input_requested:
+                if req.event.kind == rmodels.PACKET_FINAL_MESSAGE and not req.input_requested:
                     rn = runner.runtime_graph.get_runtime_node_by_name(req.node)
                     if rn is not None and rn.model.hide_final_output:
                         suppress_event = True
 
                 # Intercept start_workflow: push a child frame and continue
-                if req.event.kind == PACKET_START_WORKFLOW:
+                if req.event.kind == rmodels.PACKET_START_WORKFLOW:
                     sw = req.event
                     try:
                         if not self.project.settings or sw.workflow not in (
@@ -588,8 +542,8 @@ class UIState:
                         ):
                             raise KeyError(f"Unknown workflow: {sw.workflow}")
                         wf_cfg = self.project.settings.workflows[sw.workflow]
-                        child_graph = Graph(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
-                        child_wf = Workflow(name=sw.workflow, graph=child_graph)
+                        child_graph = vmodels.Graph(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
+                        child_wf = vmodels.Workflow(name=sw.workflow, graph=child_graph)
                         child_frame = self._create_runner_frame(
                             child_wf, initial_message=sw.initial_message
                         )
@@ -611,9 +565,9 @@ class UIState:
 
                         # Resume parent with a generic error response so the workflow can continue/finalize.
                         if frame is not None:
-                            frame.to_send = RunInput(
-                                response=RespMessage(
-                                    message=Message(
+                            frame.to_send = rmodels.RunInput(
+                                response=rmodels.RespMessage(
+                                    message=vstate.Message(
                                         role="agent",
                                         text="[error: child workflow failed to start]",
                                     )
@@ -626,10 +580,10 @@ class UIState:
                     self._current_node_name = req.node
                     # Disable timeout while waiting for user input: block indefinitely
                     response_payload = await self._rpc.call(
-                        UIPacketRunEvent(event=req), timeout=None
+                        proto.UIPacketRunEvent(event=req), timeout=None
                     )
 
-                    if response_payload and response_payload.kind == PACKET_RUN_INPUT:
+                    if response_payload and response_payload.kind == proto.PACKET_RUN_INPUT:
                         frame.to_send = response_payload.input
                     else:
                         if response_payload:
@@ -643,14 +597,14 @@ class UIState:
                         # Forward the run event to the UI client with a correlation id
                         self._current_node_name = req.node
                         await self._outgoing.put(
-                            UIPacketEnvelope(
+                            proto.UIPacketEnvelope(
                                 msg_id=self._next_msg_id(),
-                                payload=UIPacketRunEvent(event=req),
+                                payload=proto.UIPacketRunEvent(event=req),
                             )
                         )
 
                 # Record frame final messages for bubbling when generator exits
-                if req.event.kind == PACKET_FINAL_MESSAGE:
+                if req.event.kind == rmodels.PACKET_FINAL_MESSAGE:
                     frame.last_final = req.event.message
                     if runner is not None:
                         rn = runner.runtime_graph.get_runtime_node_by_name(req.node)
@@ -695,7 +649,7 @@ class UIState:
             while True:
                 delta = await q.get()
                 added = [
-                    UICommand(
+                    proto.UICommand(
                         name=c.name,
                         help=c.help,
                         usage=c.usage,
@@ -704,9 +658,9 @@ class UIState:
                     for c in delta.added
                 ]
                 await self._outgoing.put(
-                    UIPacketEnvelope(
+                    proto.UIPacketEnvelope(
                         msg_id=self._next_msg_id(),
-                        payload=UIPacketCustomCommands(
+                        payload=proto.UIPacketCustomCommands(
                             added=added, removed=delta.removed
                         ),
                     )
@@ -718,9 +672,18 @@ class UIState:
 
     def _register_router_handlers(self) -> None:
         # Register request handlers directly — methods already match the required signature.
-        self._router.register(PACKET_RUN_COMMAND, self._handle_run_command)
-        self._router.register(PACKET_COMPLETION_REQUEST, self._handle_completion_request)
-        self._router.register(PACKET_UI_RELOAD, self._handle_ui_reload)
+        self._router.register(proto.PACKET_RUN_COMMAND, self._handle_run_command)
+        self._router.register(
+            proto.PACKET_COMPLETION_REQUEST, self._handle_completion_request
+        )
+        self._router.register(proto.PACKET_UI_RELOAD, self._handle_ui_reload)
+        self._router.register(proto.PACKET_UI_STOP_ACTION, self._handle_ui_stop)
+        self._router.register(proto.PACKET_UI_CANCEL_ACTION, self._handle_ui_cancel)
+        self._router.register(proto.PACKET_UI_USE_ACTION, self._handle_ui_use)
+        self._router.register(proto.PACKET_UI_RESET_RUN_ACTION, self._handle_ui_reset_run)
+        self._router.register(
+            proto.PACKET_REPLACE_USER_INPUT_ACTION, self._handle_replace_user_input
+        )
 
     async def _route_incoming_packets(self) -> None:
         try:
@@ -738,37 +701,37 @@ class UIState:
         try:
             async for p in self.project.message_generator():
                 try:
-                    if p.kind == PACKET_PROJECT_OP_START:
+                    if p.kind == proto.PACKET_PROJECT_OP_START:
                         # Update UI state
                         self._project_op.message = getattr(p, "message", None)
                         self._project_op.progress = 0
                         self._project_op.total = None
                         await self._outgoing.put(
-                            UIPacketEnvelope(
+                            proto.UIPacketEnvelope(
                                 msg_id=self._next_msg_id(),
-                                payload=UIPacketProjectOpStart(message=p.message),
+                                payload=proto.UIPacketProjectOpStart(message=p.message),
                             )
                         )
-                    elif p.kind == PACKET_PROJECT_OP_PROGRESS:
+                    elif p.kind == proto.PACKET_PROJECT_OP_PROGRESS:
                         # Update UI state
                         self._project_op.progress = getattr(p, "progress", None)
                         self._project_op.total = getattr(p, "total", None)
                         await self._outgoing.put(
-                            UIPacketEnvelope(
+                            proto.UIPacketEnvelope(
                                 msg_id=self._next_msg_id(),
-                                payload=UIPacketProjectOpProgress(
+                                payload=proto.UIPacketProjectOpProgress(
                                     progress=p.progress,
                                     total=p.total,
                                 ),
                             )
                         )
-                    elif p.kind == PACKET_PROJECT_OP_FINISH:
+                    elif p.kind == proto.PACKET_PROJECT_OP_FINISH:
                         # Clear UI state
                         self._project_op = ProjectOpState()
                         await self._outgoing.put(
-                            UIPacketEnvelope(
+                            proto.UIPacketEnvelope(
                                 msg_id=self._next_msg_id(),
-                                payload=UIPacketProjectOpFinish(),
+                                payload=proto.UIPacketProjectOpFinish(),
                             )
                         )
                 except AttributeError:
@@ -778,11 +741,13 @@ class UIState:
         except Exception as e:
             logger.exception("UIState: project message forwarder failed: %s", e)
 
-    async def _handle_run_command(self, envelope: UIPacketEnvelope) -> Optional[UIPacket]:
+    async def _handle_run_command(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
         from vocode.commands import CommandContext as ExecCommandContext
 
         rc = envelope.payload
-        if rc.kind != PACKET_RUN_COMMAND:
+        if rc.kind != proto.PACKET_RUN_COMMAND:
             return None
 
         name = rc.name
@@ -798,28 +763,30 @@ class UIState:
             ok = False
             error = str(ex)
 
-        return UIPacketCommandResult(name=name, ok=ok, output=output, error=error)
+        return proto.UIPacketCommandResult(name=name, ok=ok, output=output, error=error)
 
-    async def _handle_completion_request(self, envelope: UIPacketEnvelope) -> Optional[UIPacket]:
+    async def _handle_completion_request(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
         req = envelope.payload
-        if req.kind != PACKET_COMPLETION_REQUEST:
+        if req.kind != proto.PACKET_COMPLETION_REQUEST:
             return None
 
         handler = self.autocomplete.get(req.name)
         if not handler:
-            resp = UIPacketCompletionResult(
+            resp = proto.UIPacketCompletionResult(
                 ok=False, suggestions=[], error=f"Unknown autocompleter '{req.name}'"
             )
         else:
             try:
                 suggestions = await handler(self, req.params or {})
-                resp = UIPacketCompletionResult(ok=True, suggestions=suggestions)
+                resp = proto.UIPacketCompletionResult(ok=True, suggestions=suggestions)
             except Exception as ex:
-                resp = UIPacketCompletionResult(ok=False, suggestions=[], error=str(ex))
+                resp = proto.UIPacketCompletionResult(ok=False, suggestions=[], error=str(ex))
 
         return resp
 
-    async def _handle_ui_reload(self, envelope: UIPacketEnvelope) -> Optional[UIPacket]:
+    async def _handle_ui_reload(self, envelope: proto.UIPacketEnvelope) -> Optional[proto.UIPacket]:
         """
         Force reload:
         - Cancel any current runner
@@ -871,7 +838,66 @@ class UIState:
         except Exception as e:
             logger.exception("UIState: project reload failed: %s", e)
         # Always ACK so the caller can proceed
-        return UIPacketAck()
+        return proto.UIPacketAck()
+
+    async def _handle_ui_stop(self, envelope: proto.UIPacketEnvelope) -> Optional[proto.UIPacket]:
+        try:
+            await self.stop()
+        except Exception as e:
+            logger.exception("UIState: stop failed: %s", e)
+        return proto.UIPacketAck()
+
+    async def _handle_ui_cancel(self, envelope: proto.UIPacketEnvelope) -> Optional[proto.UIPacket]:
+        try:
+            await self.cancel()
+        except Exception as e:
+            logger.exception("UIState: cancel failed: %s", e)
+        return proto.UIPacketAck()
+
+    async def _handle_ui_use(self, envelope: proto.UIPacketEnvelope) -> Optional[proto.UIPacket]:
+        req = envelope.payload
+        if req.kind != proto.PACKET_UI_USE_ACTION:
+            return None
+        try:
+            await self.use(req.name)
+        except Exception as e:
+            logger.exception("UIState: use('%s') failed: %s", req.name, e)
+        return proto.UIPacketAck()
+
+    async def _handle_ui_reset_run(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
+        try:
+            await self.reset()
+        except Exception as e:
+            logger.exception("UIState: reset failed: %s", e)
+        return proto.UIPacketAck()
+
+    async def _handle_ui_restart(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
+        try:
+            await self.restart()
+        except Exception as e:
+            logger.exception("UIState: restart failed: %s", e)
+        return proto.UIPacketAck()
+
+    async def _handle_replace_user_input(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
+        req = envelope.payload
+        if req.kind != proto.PACKET_REPLACE_USER_INPUT_ACTION:
+            return None
+        try:
+            if req.message is not None:
+                await self.replace_user_input(rmodels.RespMessage(message=req.message), n=req.n)
+            elif req.approved is not None:
+                await self.replace_user_input(
+                    rmodels.RespApproval(approved=req.approved), n=req.n
+                )
+        except Exception as e:
+            logger.exception("UIState: replace_user_input failed: %s", e)
+        return proto.UIPacketAck()
 
     # ------------------------
     # Stdlib logging integration
@@ -882,11 +908,11 @@ class UIState:
         loop = asyncio.get_running_loop()
         # Configure stdlib logging based on project settings.
         if self.project and self.project.settings:
-            configure_stdlib_logging(self.project.settings)
+            ui_logging.configure_stdlib_logging(self.project.settings)
         # Start forwarding and attach interceptor
         self._log_queue = asyncio.Queue()
         self._log_forwarder_task = asyncio.create_task(self._forward_logs())
-        self._log_handler = attach_ui_interceptor(loop, self._log_queue)  # type: ignore[arg-type]
+        self._log_handler = ui_logging.attach_ui_interceptor(loop, self._log_queue)  # type: ignore[arg-type]
 
     def _uninstall_logging_interceptor(self) -> None:
         # Remove handler from root logger
@@ -909,7 +935,7 @@ class UIState:
                 assert self._log_queue is not None
                 item = await self._log_queue.get()
                 try:
-                    payload = UIPacketLog(
+                    payload = proto.UIPacketLog(
                         level=item.get("level"),
                         message=item.get("message", ""),
                         logger=item.get("logger"),
@@ -918,7 +944,7 @@ class UIState:
                         exc_text=item.get("exc_text"),
                     )
                     await self._outgoing.put(
-                        UIPacketEnvelope(msg_id=self._next_msg_id(), payload=payload)
+                        proto.UIPacketEnvelope(msg_id=self._next_msg_id(), payload=payload)
                     )
                 except Exception as e:
                     logger.warning("UIState: failed to forward log item: %s", e)

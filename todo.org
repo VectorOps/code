@@ -71,7 +71,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Simple animations
 ** [ ] Format tool calls
 *** [ ] Add a way (tab?) to expand/collapse JSON
-*** [ ] Require all tool calls from LLM to have description (Key Objective)
+*** [ ] Add a way to show full diff for update file tool before confirming with formatting (custom formatter?)
 ** [X] We might have deadlock somewhere that does not break with ctrl+c
 ** [ ] Fix estimated cost calculation
 * [ ] Block parsers
@@ -83,6 +83,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Filters
 ** [ ] Adjust file filter to also inject filename into context
 * [ ] Nodes
+** [ ] Change Node tool configuration to accept wildcards
 ** [ ] Add a node that injects files in context. Add file manager.
 ** [ ] LLM node
 *** [X] If call does not have correct payload that's not JSON - should respond back with an error immediately
@@ -118,7 +119,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] PTY support
 *** [ ] Containerization / sandboxing
 *** [ ] Add timeout
-*** [ ] Add streaming output support
+*** [X] Add streaming output support
 ** [ ] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Ensure that cwd is passed correctly
