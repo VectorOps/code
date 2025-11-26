@@ -697,6 +697,7 @@ class UIState:
             proto.PACKET_COMPLETION_REQUEST, self._handle_completion_request
         )
         self._router.register(proto.PACKET_UI_RELOAD, self._handle_ui_reload)
+        self._router.register(proto.PACKET_UI_RESTART_ACTION, self._handle_ui_restart)
         self._router.register(proto.PACKET_UI_STOP_ACTION, self._handle_ui_stop)
         self._router.register(proto.PACKET_UI_CANCEL_ACTION, self._handle_ui_cancel)
         self._router.register(proto.PACKET_UI_USE_ACTION, self._handle_ui_use)
@@ -932,8 +933,8 @@ class UIState:
                 )
         except Exception as e:
             logger.exception("UIState: replace_user_input failed: %s", e)
-        finally:
-            return proto.UIPacketAck()
+
+        return proto.UIPacketAck()
 
     # ------------------------
     # Stdlib logging integration

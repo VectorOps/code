@@ -116,7 +116,7 @@ class IncomingPacketRouter:
         kind = envelope.payload.kind
         handler = self._handlers.get(kind)
         if not handler:
-            logger.debug("%s: no handler for request kind=%s", self._name, kind)
+            logger.error("%s: no handler for request kind=%s", self._name, kind)
             return False
 
         resp = await handler(envelope)
