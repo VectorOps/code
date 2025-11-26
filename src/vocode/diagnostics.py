@@ -109,7 +109,10 @@ def dump_async_tasks(loop: Optional[asyncio.AbstractEventLoop], fp: IO[str]) -> 
                 if not stack:
                     _write_line(fp, "    (no stack frames)")
                 else:
-                    for ln in traceback.format_list(stack):
+                    stack_summary = traceback.StackSummary.extract(
+                        (frame, frame.f_lineno) for frame in stack
+                    )
+                    for ln in stack_summary.format():
                         for l in ln.rstrip("\n").splitlines():
                             _write_line(fp, "      " + l)
         except Exception as e:
@@ -188,7 +191,10 @@ def _describe_waiters(
                     if not stack:
                         _write_line(fp, "          (no stack frames)")
                     else:
-                        for ln in traceback.format_list(stack):
+                        stack_summary = traceback.StackSummary.extract(
+                            (frame, frame.f_lineno) for frame in stack
+                        )
+                        for ln in stack_summary.format():
                             for l in ln.rstrip("\n").splitlines():
                                 _write_line(fp, "            " + l)
                 except Exception as e:
