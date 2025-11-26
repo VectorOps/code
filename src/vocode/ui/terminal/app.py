@@ -83,6 +83,7 @@ from vocode.ui.terminal.helpers import (
     StreamThrottler,
 )
 from vocode import diagnostics
+from vocode.ui import error_handling
 from vocode.ui.terminal.rpc_helpers import (
     rpc_stop,
     rpc_cancel,
@@ -219,15 +220,6 @@ class TerminalApp:
                 _dump()
 
         return kb
-
-    def _unhandled_exception_handler(
-        self, loop: asyncio.AbstractEventLoop, context: dict
-    ) -> None:
-        if self.should_exit:
-            return
-        msg = context.get("exception", context["message"])
-        coro = out(f"\n--- Unhandled exception in event loop ---\n{msg}\n")
-        asyncio.run_coroutine_threadsafe(coro, loop)
 
     def _setup_signal_handlers(self) -> None:
         try:
@@ -617,7 +609,11 @@ class TerminalApp:
         start_time = time.monotonic()
 
         loop = asyncio.get_running_loop()
-        loop.set_exception_handler(self._unhandled_exception_handler)
+        error_handling.install_unhandled_exception_logging(
+            loop,
+            should_exit_cb=lambda: self.should_exit,
+            log_coro=out,
+        )
 
         # 1) Print banner first (no dependency on UI/session)
         ui_cfg = self.project.settings.ui if self.project.settings else None
@@ -870,21 +866,8 @@ async def run_terminal(project: Project) -> None:
     "project_path", type=click.Path(exists=True, file_okay=False, path_type=str)
 )
 def main(project_path: str) -> None:
-    import faulthandler, signal, sys, warnings, logging
-
-    faulthandler.enable(sys.stderr)  # or just faulthandler.enable()
-    faulthandler.register(signal.SIGUSR1)
-
-    # Fix litellm warnings
-    from pydantic.warnings import (
-        PydanticDeprecatedSince211,
-        PydanticDeprecatedSince20,
-    )
-
-    warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince211)
-    warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince20)
-    warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince20)
-    warnings.filterwarnings(action="ignore", category=DeprecationWarning)
+    # Shared fault and warnings configuration for UI entrypoints.
+    error_handling.setup_fault_handlers()
 
     # Start project
     project = Project.from_base_path(project_path)

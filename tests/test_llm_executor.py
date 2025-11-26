@@ -740,8 +740,17 @@ def test_llm_node_reasoning_effort_validation_rejects_invalid():
     from vocode.runner.executors.llm import LLMNode
     from pydantic import ValidationError
 
+    # Plain invalid literal should fail validation.
     with pytest.raises(ValidationError):
         LLMNode(name="llm", model="test-model", reasoning_effort="ultra")
+
+    # Variable-style placeholder should be accepted; settings_loader resolves it later.
+    node = LLMNode(
+        name="llm",
+        model="test-model",
+        reasoning_effort="${LLM_REASONING_EFFORT}",
+    )
+    assert node.reasoning_effort == "${LLM_REASONING_EFFORT}"
 
 
 @pytest.mark.asyncio

@@ -23,7 +23,7 @@ from vocode.runner.models import (
     ExecRunInput,
 )
 
-from vocode.settings import ToolSpec
+from vocode.settings import ToolSpec, VAR_PATTERN
 
 
 class LLMNode(Node):
@@ -74,6 +74,12 @@ class LLMNode(Node):
     def _validate_reasoning_effort(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return value
+
+        # Allow unresolved variable placeholders like "${LLM_REASONING_EFFORT}".
+        # These are resolved by src/vocode/settings_loader.py before actual execution.
+        if VAR_PATTERN.search(value):
+            return value
+
         allowed = {"none", "minimal", "low", "medium", "high"}
         if value not in allowed:
             raise ValueError(

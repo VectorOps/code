@@ -1,5 +1,6 @@
 variables:
   LLM_ARCHITECT_MODEL: gpt-5
+  LLM_ARCHITECT_REASONING: medium
 name: analyst
 type: llm
 model: ${LLM_ARCHITECT_MODEL}
