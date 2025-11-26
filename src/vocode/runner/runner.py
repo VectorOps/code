@@ -773,11 +773,15 @@ class Runner:
 
         # Main loop
         while True:
-            current_agen = None  # track current executor generator for possible post-final drain
+            current_agen = (
+                None  # track current executor generator for possible post-final drain
+            )
             # If current node (or a chain) is skippable (skip=True or max_runs limit), bypass before creating a step.
             if current_runtime_node is not None:
-                next_node, pending_input_messages, skip_edge_policy = self._bypass_skipped_nodes(
-                    current_runtime_node, pending_input_messages
+                next_node, pending_input_messages, skip_edge_policy = (
+                    self._bypass_skipped_nodes(
+                        current_runtime_node, pending_input_messages
+                    )
                 )
                 if next_node is None:
                     self.status = RunnerStatus.finished
@@ -1125,7 +1129,9 @@ class Runner:
                                         ),
                                         is_complete=False,
                                         runner_state=RunnerState(
-                                            state=current_state, req=post_pkt, response=None
+                                            state=current_state,
+                                            req=post_pkt,
+                                            response=None,
                                         ),
                                         ephemeral=True,
                                     )

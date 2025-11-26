@@ -7,24 +7,15 @@ from vocode.ui.base import UIState
 from vocode.ui.proto import UIPacketCompletionRequest, PACKET_COMPLETION_RESULT
 from vocode.ui.rpc import RpcHelper
 from vocode.ui.terminal.ac_client import make_canned_provider
+from vocode.testing.ui import FakeProject
 
-
-class FakeProject:
-    def __init__(self, settings=None):
-        wf_cfg = SimpleNamespace(nodes=[], edges=[])
-        self.settings = settings or SimpleNamespace(
-            workflows={"wf1": wf_cfg, "wf2": wf_cfg}
-        )
-        self.commands = SimpleNamespace(clear=lambda: None)
-        self.project_state = SimpleNamespace(clear=lambda: None)
-        self.llm_usage = SimpleNamespace(
-            prompt_tokens=0, completion_tokens=0, cost_dollars=0.0
-        )
 
 
 @pytest.mark.asyncio
 async def test_workflow_list_completion_rpc():
-    ui = UIState(FakeProject())
+    wf_cfg = SimpleNamespace(nodes=[], edges=[])
+    project = FakeProject.with_workflows({"wf1": wf_cfg, "wf2": wf_cfg})
+    ui = UIState(project)
     rpc = RpcHelper(ui.send, "test-ac", id_generator=ui.next_client_msg_id)
 
     async def _pump_ui_to_rpc():

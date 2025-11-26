@@ -71,6 +71,8 @@ This repository implements a configurable, graph-driven workflow runner with LLM
 - Typing and constants:
   - Use `Final` for constants; `ClassVar` for registries.
   - Avoid `Any`; prefer exact models or TypedDict for structured config.
+- Comments:
+  - Do not add unnecessary comments that do not add value
 - Async:
   - Use asyncio primitives; propagate timeouts and cancellation.
 - Never import more than a three symbols. This is allowed:

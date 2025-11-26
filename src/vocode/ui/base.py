@@ -73,7 +73,7 @@ class UIState:
         self._current_node_name: Optional[str] = None
         self._lock = asyncio.Lock()
         self._stop_signal: asyncio.Event = asyncio.Event()
-        # UI logging forwarder state (installed when a run starts)
+        # UI logging forwarder state (installed once for this UIState)
         self._log_queue: Optional["asyncio.Queue[dict]"] = None
         self._log_forwarder_task: Optional[asyncio.Task] = None
         self._log_handler: Optional[logging.Handler] = None
@@ -89,6 +89,8 @@ class UIState:
         )
         # Project operation progress (UI-level state)
         self._project_op: ProjectOpState = ProjectOpState()
+        # Install stdlib logging interceptor once for this UIState instance
+        self._install_logging_interceptor()
 
     def _top_frame(self) -> Optional[RunnerFrame]:
         return self.runner_stack[-1] if self.runner_stack else None
@@ -183,8 +185,6 @@ class UIState:
             self._msg_counter = 0
             self._last_status = None
             self._stop_signal.clear()
-            # Install stdlib logging interceptor for the duration of the run
-            self._install_logging_interceptor()
             # Always instruct UI to reset when a runner starts.
             await self._send_ui_reset()
             self._drive_task = asyncio.create_task(self._drive_runner())
@@ -246,17 +246,26 @@ class UIState:
                 raise RuntimeError("No workflow available to restart")
 
             # If there's no runner, or it finished/canceled, create a new one
-            if top.runner.status in (vstate.RunnerStatus.finished, vstate.RunnerStatus.canceled):
+            if top.runner.status in (
+                vstate.RunnerStatus.finished,
+                vstate.RunnerStatus.canceled,
+            ):
                 replacement = self._create_runner_frame(
                     top.workflow, initial_message=self._initial_message
                 )
                 # Preserve/refresh assignment if needed
-                if top.assignment is None or top.assignment.status == vstate.RunStatus.finished:
+                if (
+                    top.assignment is None
+                    or top.assignment.status == vstate.RunStatus.finished
+                ):
                     top.assignment = replacement.assignment
                 top.runner = replacement.runner
                 top.agen = replacement.agen
 
-            if top.assignment is None or top.assignment.status == vstate.RunStatus.finished:
+            if (
+                top.assignment is None
+                or top.assignment.status == vstate.RunStatus.finished
+            ):
                 top.assignment = vstate.Assignment()
             self.assignment = top.assignment
             self.runner = top.runner
@@ -269,8 +278,6 @@ class UIState:
             self._msg_counter = 0
             self._last_status = None
             self._stop_signal.clear()
-            # Reinstall logging interceptor on restart
-            self._install_logging_interceptor()
             # Always instruct UI to reset when a runner restarts.
             await self._send_ui_reset()
             self._drive_task = asyncio.create_task(self._drive_runner())
@@ -404,14 +411,19 @@ class UIState:
             top = self._top_frame()
             if top is None:
                 raise RuntimeError("No runner/assignment to rewind")
-            if top.runner.status in (vstate.RunnerStatus.running, vstate.RunnerStatus.waiting_input):
+            if top.runner.status in (
+                vstate.RunnerStatus.running,
+                vstate.RunnerStatus.waiting_input,
+            ):
                 raise RuntimeError(
                     "Cannot rewind while runner is running or waiting for input"
                 )
             await top.runner.rewind(top.assignment, n)
 
     async def replace_user_input(
-        self, resp: Union[rmodels.RespMessage, rmodels.RespApproval], n: Optional[int] = 1
+        self,
+        resp: Union[rmodels.RespMessage, rmodels.RespApproval],
+        n: Optional[int] = 1,
     ) -> None:
         """
         Replace a user input (final prompt/confirm or prior message_request) and prepare resume.
@@ -421,7 +433,10 @@ class UIState:
             top = self._top_frame()
             if top is None:
                 raise RuntimeError("No runner/assignment available")
-            if top.runner.status in (vstate.RunnerStatus.running, vstate.RunnerStatus.waiting_input):
+            if top.runner.status in (
+                vstate.RunnerStatus.running,
+                vstate.RunnerStatus.waiting_input,
+            ):
                 raise RuntimeError(
                     "Cannot replace input while runner is running or waiting for input"
                 )
@@ -528,7 +543,10 @@ class UIState:
                 # Decide if this event should be forwarded to the UI client.
                 # Suppress node finals when hide_final_output is True and no input is requested.
                 suppress_event = False
-                if req.event.kind == rmodels.PACKET_FINAL_MESSAGE and not req.input_requested:
+                if (
+                    req.event.kind == rmodels.PACKET_FINAL_MESSAGE
+                    and not req.input_requested
+                ):
                     rn = runner.runtime_graph.get_runtime_node_by_name(req.node)
                     if rn is not None and rn.model.hide_final_output:
                         suppress_event = True
@@ -542,7 +560,9 @@ class UIState:
                         ):
                             raise KeyError(f"Unknown workflow: {sw.workflow}")
                         wf_cfg = self.project.settings.workflows[sw.workflow]
-                        child_graph = vmodels.Graph(nodes=wf_cfg.nodes, edges=wf_cfg.edges)
+                        child_graph = vmodels.Graph(
+                            nodes=wf_cfg.nodes, edges=wf_cfg.edges
+                        )
                         child_wf = vmodels.Workflow(name=sw.workflow, graph=child_graph)
                         child_frame = self._create_runner_frame(
                             child_wf, initial_message=sw.initial_message
@@ -583,7 +603,10 @@ class UIState:
                         proto.UIPacketRunEvent(event=req), timeout=None
                     )
 
-                    if response_payload and response_payload.kind == proto.PACKET_RUN_INPUT:
+                    if (
+                        response_payload
+                        and response_payload.kind == proto.PACKET_RUN_INPUT
+                    ):
                         frame.to_send = response_payload.input
                     else:
                         if response_payload:
@@ -624,9 +647,6 @@ class UIState:
         except Exception as e:
             logger.exception("UIState: runner driver failed: %s", e)
         finally:
-            # Remove logging interceptor when the driver exits
-            with contextlib.suppress(Exception):
-                self._uninstall_logging_interceptor()
             # Cancel watcher task if it's still running
             if self._stop_watcher_task:
                 self._stop_watcher_task.cancel()
@@ -680,7 +700,9 @@ class UIState:
         self._router.register(proto.PACKET_UI_STOP_ACTION, self._handle_ui_stop)
         self._router.register(proto.PACKET_UI_CANCEL_ACTION, self._handle_ui_cancel)
         self._router.register(proto.PACKET_UI_USE_ACTION, self._handle_ui_use)
-        self._router.register(proto.PACKET_UI_RESET_RUN_ACTION, self._handle_ui_reset_run)
+        self._router.register(
+            proto.PACKET_UI_RESET_RUN_ACTION, self._handle_ui_reset_run
+        )
         self._router.register(
             proto.PACKET_REPLACE_USER_INPUT_ACTION, self._handle_replace_user_input
         )
@@ -782,11 +804,15 @@ class UIState:
                 suggestions = await handler(self, req.params or {})
                 resp = proto.UIPacketCompletionResult(ok=True, suggestions=suggestions)
             except Exception as ex:
-                resp = proto.UIPacketCompletionResult(ok=False, suggestions=[], error=str(ex))
+                resp = proto.UIPacketCompletionResult(
+                    ok=False, suggestions=[], error=str(ex)
+                )
 
         return resp
 
-    async def _handle_ui_reload(self, envelope: proto.UIPacketEnvelope) -> Optional[proto.UIPacket]:
+    async def _handle_ui_reload(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
         """
         Force reload:
         - Cancel any current runner
@@ -840,21 +866,27 @@ class UIState:
         # Always ACK so the caller can proceed
         return proto.UIPacketAck()
 
-    async def _handle_ui_stop(self, envelope: proto.UIPacketEnvelope) -> Optional[proto.UIPacket]:
+    async def _handle_ui_stop(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
         try:
             await self.stop()
         except Exception as e:
             logger.exception("UIState: stop failed: %s", e)
         return proto.UIPacketAck()
 
-    async def _handle_ui_cancel(self, envelope: proto.UIPacketEnvelope) -> Optional[proto.UIPacket]:
+    async def _handle_ui_cancel(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
         try:
             await self.cancel()
         except Exception as e:
             logger.exception("UIState: cancel failed: %s", e)
         return proto.UIPacketAck()
 
-    async def _handle_ui_use(self, envelope: proto.UIPacketEnvelope) -> Optional[proto.UIPacket]:
+    async def _handle_ui_use(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
         req = envelope.payload
         if req.kind != proto.PACKET_UI_USE_ACTION:
             return None
@@ -885,19 +917,23 @@ class UIState:
     async def _handle_replace_user_input(
         self, envelope: proto.UIPacketEnvelope
     ) -> Optional[proto.UIPacket]:
-        req = envelope.payload
-        if req.kind != proto.PACKET_REPLACE_USER_INPUT_ACTION:
-            return None
         try:
+            req = envelope.payload
+            if req.kind != proto.PACKET_REPLACE_USER_INPUT_ACTION:
+                return None
+
             if req.message is not None:
-                await self.replace_user_input(rmodels.RespMessage(message=req.message), n=req.n)
+                await self.replace_user_input(
+                    rmodels.RespMessage(message=req.message), n=req.n
+                )
             elif req.approved is not None:
                 await self.replace_user_input(
                     rmodels.RespApproval(approved=req.approved), n=req.n
                 )
         except Exception as e:
             logger.exception("UIState: replace_user_input failed: %s", e)
-        return proto.UIPacketAck()
+        finally:
+            return proto.UIPacketAck()
 
     # ------------------------
     # Stdlib logging integration
@@ -944,7 +980,9 @@ class UIState:
                         exc_text=item.get("exc_text"),
                     )
                     await self._outgoing.put(
-                        proto.UIPacketEnvelope(msg_id=self._next_msg_id(), payload=payload)
+                        proto.UIPacketEnvelope(
+                            msg_id=self._next_msg_id(), payload=payload
+                        )
                     )
                 except Exception as e:
                     logger.warning("UIState: failed to forward log item: %s", e)

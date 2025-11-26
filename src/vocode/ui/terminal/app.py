@@ -83,7 +83,6 @@ from vocode.ui.terminal.helpers import (
     StreamThrottler,
 )
 from vocode import diagnostics
-from vocode.ui import error_handling
 from vocode.ui.terminal.rpc_helpers import (
     rpc_stop,
     rpc_cancel,
@@ -609,7 +608,7 @@ class TerminalApp:
         start_time = time.monotonic()
 
         loop = asyncio.get_running_loop()
-        error_handling.install_unhandled_exception_logging(
+        diagnostics.install_unhandled_exception_logging(
             loop,
             should_exit_cb=lambda: self.should_exit,
             log_coro=out,
@@ -867,7 +866,7 @@ async def run_terminal(project: Project) -> None:
 )
 def main(project_path: str) -> None:
     # Shared fault and warnings configuration for UI entrypoints.
-    error_handling.setup_fault_handlers()
+    diagnostics.setup_fault_handlers()
 
     # Start project
     project = Project.from_base_path(project_path)
