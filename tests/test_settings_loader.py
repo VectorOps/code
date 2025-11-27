@@ -816,22 +816,34 @@ def test_tool_call_formatter_rule_validation_valid(tmp_path: Path):
 tool_call_formatters:
   mytool:
     title: "MyTool"
-    rule: "$.a[0].b"
+    formatter: "generic"
+    show_output: true
+    options:
+      field: "$.a[0].b"
 """
     path = _w(tmp_path, "fmt_valid.yaml", cfg)
     settings = load_settings(str(path))
     assert "mytool" in settings.tool_call_formatters
-    assert settings.tool_call_formatters["mytool"].rule == "$.a[0].b"
+    fmt = settings.tool_call_formatters["mytool"]
+    assert fmt.title == "MyTool"
+    assert fmt.formatter == "generic"
+    assert fmt.show_output is True
+    assert fmt.options["field"] == "$.a[0].b"
 
 
 def test_tool_call_formatter_rule_validation_allows_any_string(tmp_path: Path):
-    # Previously-invalid JSONPath should be accepted as a plain string.
     cfg = """
 tool_call_formatters:
   badtool:
     title: "BadTool"
-    rule: "$.a["
+    options:
+      field: "$.a["
 """
     path = _w(tmp_path, "fmt_any.yaml", cfg)
     settings = load_settings(str(path))
-    assert settings.tool_call_formatters["badtool"].rule == "$.a["
+    fmt = settings.tool_call_formatters["badtool"]
+    assert fmt.title == "BadTool"
+    # Defaults from model
+    assert fmt.formatter == "generic"
+    assert fmt.show_output is False
+    assert fmt.options["field"] == "$.a["

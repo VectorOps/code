@@ -13,13 +13,59 @@ from prompt_toolkit.formatted_text.utils import fragment_list_width
 from vocode.ui.terminal import colors
 from vocode.settings import ToolCallFormatter  # type: ignore
 
+# Formatter base class and registry
+class BaseToolCallFormatter:
+    def format_input(
+        self,
+        tool_name: str,
+        arguments: Any,
+        config: Optional[ToolCallFormatter],
+        *,
+        terminal_width: int,
+        print_source: bool,
+    ) -> AnyFormattedText:
+        raise NotImplementedError
+
+    def format_output(
+        self,
+        tool_name: str,
+        result: Any,
+        config: Optional[ToolCallFormatter],
+        *,
+        terminal_width: int,
+    ) -> AnyFormattedText:
+        raise NotImplementedError
+
+
+_FORMATTER_REGISTRY: Dict[str, type[BaseToolCallFormatter]] = {}
+
+
+def register_formatter(name: str, formatter_cls: type[BaseToolCallFormatter]) -> None:
+    _FORMATTER_REGISTRY[name] = formatter_cls
+
 
 # Defaults can be extended over time. Users can override/extend via Settings.tool_call_formatters.
 DEFAULT_TOOL_CALL_FORMATTERS: Dict[str, "ToolCallFormatter"] = {
-    "search_project": ToolCallFormatter(title="SymbolSearch", rule="query"),
-    "read_files": ToolCallFormatter(title="ReadFile", rule="path"),
-    "summarize_files": ToolCallFormatter(title="FileSummary", rule="paths"),
-    "list_files": ToolCallFormatter(title="ListFiles", rule="patterns"),
+    "search_project": ToolCallFormatter(
+        title="SymbolSearch",
+        formatter="generic",
+        options={"field": "query"},
+    ),
+    "read_files": ToolCallFormatter(
+        title="ReadFile",
+        formatter="generic",
+        options={"field": "path"},
+    ),
+    "summarize_files": ToolCallFormatter(
+        title="FileSummary",
+        formatter="generic",
+        options={"field": "paths"},
+    ),
+    "list_files": ToolCallFormatter(
+        title="ListFiles",
+        formatter="generic",
+        options={"field": "patterns"},
+    ),
 }
 
 
@@ -112,6 +158,73 @@ def _truncate_params_to_width(
     return list(prefix) + acc + list(suffix)
 
 
+class GenericToolCallFormatter(BaseToolCallFormatter):
+    """
+    Default formatter that renders:
+
+        <title>(<params>)
+
+    where params come from a single argument field configured via
+    config.options["field"], matching the previous render_tool_call behavior.
+    """
+
+    def format_input(
+        self,
+        tool_name: str,
+        arguments: Any,
+        config: Optional[ToolCallFormatter],
+        *,
+        terminal_width: int,
+        print_source: bool,
+    ) -> AnyFormattedText:
+        max_total = max(0, terminal_width - 10)
+
+        title = tool_name if config is None else config.title
+        field_name: Optional[str] = None
+        if config is not None and "field" in config.options:
+            field_name = str(config.options["field"])
+
+        prefix: FormattedText = [
+            ("class:toolcall.name", title),
+            ("class:toolcall.separator", "("),
+        ]
+
+        extracted: List[Any] = []
+        if field_name:
+            extracted = _extract_field_value(arguments, field_name)
+
+        if not extracted:
+            params: FormattedText = [("class:toolcall.parameter", "...")]
+            suffix: FormattedText = [("class:toolcall.separator", ")")]
+            preview = _truncate_params_to_width(prefix, params, suffix, max_total)
+            if not print_source:
+                return preview
+            return merge_formatted_text([preview, "\n", colors.render_json(arguments), "\n"])
+
+        param_strings = _flatten_params(extracted)
+        param_fragments = _build_param_fragments(param_strings)
+        suffix: FormattedText = [("class:toolcall.separator", ")")]
+        preview = _truncate_params_to_width(prefix, param_fragments, suffix, max_total)
+
+        if not print_source:
+            return preview
+        return merge_formatted_text([preview, "\n", colors.render_json(arguments), "\n"])
+
+    def format_output(
+        self,
+        tool_name: str,
+        result: Any,
+        config: Optional[ToolCallFormatter],
+        *,
+        terminal_width: int,
+    ) -> AnyFormattedText:
+        # Simple default: pretty-print JSON result.
+        return colors.render_json(result)
+
+
+register_formatter("generic", GenericToolCallFormatter)
+
+
 def render_tool_call(
     tool_name: str,
     arguments: Any,
@@ -121,69 +234,30 @@ def render_tool_call(
     print_source: bool = False,
 ) -> AnyFormattedText:
     """
-    Returns formatted fragments for a function-call-like preview:
-    <title>(<params>)
-     - <title> styled toolcall.name
-     - parentheses and commas styled toolcall.separator
-     - each parameter styled toolcall.parameter
-    Truncates parameters so total width <= (terminal_width - 10).
-    Fallback when no formatter is available: title is the tool name and parameters are "...".
-    When print_source is True, append a newline and a pretty-printed JSON rendering
-    of the tool arguments using colors.render_json.
+    Render a tool call preview by resolving a ToolCallFormatter config and
+    dispatching to the configured formatter implementation.
     """
     effective_width = (
         terminal_width
         if terminal_width is not None
         else shutil.get_terminal_size(fallback=(80, 24)).columns
     )
-    max_total = max(0, effective_width - 10)
 
-    fmts: Dict[str, "ToolCallFormatter"] = {}
+    fmts: Dict[str, ToolCallFormatter] = {}
     fmts.update(DEFAULT_TOOL_CALL_FORMATTERS)
     if formatter_map:
         fmts.update(dict(formatter_map))
 
     cfg = fmts.get(tool_name)
 
-    if cfg is None:
-        # Fallback: title is the tool name; params are three dots.
-        prefix: FormattedText = [
-            ("class:toolcall.name", tool_name),
-            ("class:toolcall.separator", "("),
-        ]
-        params: FormattedText = [("class:toolcall.parameter", "...")]
-        suffix: FormattedText = [("class:toolcall.separator", ")")]
-        preview = _truncate_params_to_width(prefix, params, suffix, max_total)
-        if not print_source:
-            return preview
-        # Append formatted JSON on a new line.
-        return merge_formatted_text(
-            [preview, "\n", colors.render_json(arguments), "\n"]
-        )
-    # Extract params by field name. If field is absent, show ellipsis.
-    extracted = _extract_field_value(arguments, cfg.rule)
-    if not extracted:
-        prefix: FormattedText = [
-            ("class:toolcall.name", cfg.title),
-            ("class:toolcall.separator", "("),
-        ]
-        params: FormattedText = [("class:toolcall.parameter", "...")]
-        suffix: FormattedText = [("class:toolcall.separator", ")")]
-        preview = _truncate_params_to_width(prefix, params, suffix, max_total)
-        if not print_source:
-            return preview
-        return merge_formatted_text(
-            [preview, "\n", colors.render_json(arguments), "\n"]
-        )
-    param_strings = _flatten_params(extracted)
-    param_fragments = _build_param_fragments(param_strings)
+    formatter_key = cfg.formatter if cfg is not None and cfg.formatter else "generic"
+    formatter_cls = _FORMATTER_REGISTRY.get(formatter_key, GenericToolCallFormatter)
+    formatter = formatter_cls()
 
-    prefix: FormattedText = [
-        ("class:toolcall.name", cfg.title),
-        ("class:toolcall.separator", "("),
-    ]
-    suffix: FormattedText = [("class:toolcall.separator", ")")]
-    preview = _truncate_params_to_width(prefix, param_fragments, suffix, max_total)
-    if not print_source:
-        return preview
-    return merge_formatted_text([preview, "\n", colors.render_json(arguments), "\n"])
+    return formatter.format_input(
+        tool_name=tool_name,
+        arguments=arguments,
+        config=cfg,
+        terminal_width=effective_width,
+        print_source=print_source,
+    )

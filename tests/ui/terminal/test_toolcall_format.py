@@ -3,6 +3,7 @@ import pytest
 from prompt_toolkit.formatted_text import to_formatted_text
 
 from vocode.ui.terminal import toolcall_format as tcf
+from vocode.settings import ToolCallFormatter
 
 
 def test_stringify_value_quotes_strings():
@@ -74,15 +75,18 @@ def test_render_tool_call_fallback_no_formatter():
 
 
 def test_render_tool_call_with_formatter_and_stub_jsonpath(monkeypatch):
-    # Field-name extraction: use 'values' field directly.
-    class DummyFormatter:
-        def __init__(self, title, rule):
-            self.title = title
-            self.rule = rule
-    formatter_map = {"mytool": DummyFormatter(title="Run It", rule="values")}
+    formatter_map = {
+        "mytool": ToolCallFormatter(
+            title="Run It",
+            formatter="generic",
+            options={"field": "values"},
+        )
+    }
     args = {"values": ["foo", 42]}
 
-    frags = tcf.render_tool_call("mytool", args, formatter_map=formatter_map, terminal_width=100)
+    frags = tcf.render_tool_call(
+        "mytool", args, formatter_map=formatter_map, terminal_width=100
+    )
     assert frags == [
         ("class:toolcall.name", "Run It"),
         ("class:toolcall.separator", "("),
@@ -94,17 +98,21 @@ def test_render_tool_call_with_formatter_and_stub_jsonpath(monkeypatch):
 
 
 def test_render_tool_call_truncates_params(monkeypatch):
-    class DummyFormatter:
-        def __init__(self, title, rule):
-            self.title = title
-            self.rule = rule
-    formatter_map = {"mytool": DummyFormatter(title="Run It", rule="values")}
+    formatter_map = {
+        "mytool": ToolCallFormatter(
+            title="Run It",
+            formatter="generic",
+            options={"field": "values"},
+        )
+    }
     args = {"values": ["abcdefghij", "xyz"]}
     # terminal_width=20 -> max_total = 10
     # prefix width: "Run It" (6) + "(" (1) = 7
     # suffix width: 1
     # remaining_for_params = 0 -> immediate ellipsis
-    frags = tcf.render_tool_call("mytool", args, formatter_map=formatter_map, terminal_width=20)
+    frags = tcf.render_tool_call(
+        "mytool", args, formatter_map=formatter_map, terminal_width=20
+    )
     assert frags == [
         ("class:toolcall.name", "Run It"),
         ("class:toolcall.separator", "("),
@@ -112,14 +120,18 @@ def test_render_tool_call_truncates_params(monkeypatch):
         ("class:toolcall.separator", ")"),
     ]
 def test_render_tool_call_missing_field_shows_ellipsis():
-    class DummyFormatter:
-        def __init__(self, title, rule):
-            self.title = title
-            self.rule = rule
-    formatter_map = {"mytool": DummyFormatter(title="Run It", rule="values")}
+    formatter_map = {
+        "mytool": ToolCallFormatter(
+            title="Run It",
+            formatter="generic",
+            options={"field": "values"},
+        )
+    }
     # 'values' absent -> expect "..."
     args = {"other": 1}
-    frags = tcf.render_tool_call("mytool", args, formatter_map=formatter_map, terminal_width=100)
+    frags = tcf.render_tool_call(
+        "mytool", args, formatter_map=formatter_map, terminal_width=100
+    )
     assert frags == [
         ("class:toolcall.name", "Run It"),
         ("class:toolcall.separator", "("),
@@ -128,11 +140,13 @@ def test_render_tool_call_missing_field_shows_ellipsis():
     ]
 
 def test_render_tool_call_print_source_appends_json():
-    class DummyFormatter:
-        def __init__(self, title, rule):
-            self.title = title
-            self.rule = rule
-    formatter_map = {"mytool": DummyFormatter(title="Run It", rule="values")}
+    formatter_map = {
+        "mytool": ToolCallFormatter(
+            title="Run It",
+            formatter="generic",
+            options={"field": "values"},
+        )
+    }
     args = {"values": ["foo", 42], "extra": {"a": 1}}
     frags = tcf.render_tool_call(
         "mytool",
@@ -141,11 +155,8 @@ def test_render_tool_call_print_source_appends_json():
         terminal_width=100,
         print_source=True,
     )
-    # Convert to plain fragments to assert rendered JSON substrings.
     flat = to_formatted_text(frags)
-    # Ensure preview part exists.
     assert ("class:toolcall.name", "Run It") in flat
-    # Ensure JSON content appears somewhere after the preview.
     joined = "".join(text for _, text in flat)
     assert '"values"' in joined
     assert '"extra"' in joined

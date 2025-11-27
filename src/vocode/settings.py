@@ -90,16 +90,15 @@ class ToolCallFormatter(BaseModel):
     """
     Configures how to display a tool call in the terminal.
     - title: what to display as the function name
-    - rule: field name in the tool request arguments to extract for display
+    - formatter: registered formatter implementation name (e.g. "generic")
+    - show_output: whether to show tool output details by default
+    - options: free-form formatter-specific configuration
     """
 
     title: str
-    rule: str
-
-    @model_validator(mode="after")
-    def _validate_rule(self) -> "ToolCallFormatter":
-        # No-op: allow any string as the field name.
-        return self
+    formatter: str = "generic"
+    show_output: bool = False
+    options: Dict[str, Any] = Field(default_factory=dict)
 
 
 class UISettings(BaseModel):
