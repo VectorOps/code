@@ -85,6 +85,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Nodes
 ** [ ] Change Node tool configuration to accept wildcards
 ** [ ] Add a node that injects files in context. Add file manager.
+** [ ] Figure out a node that takes diff, finds changed files and runs a tool for each added or modified file
+(linter, etc)
 ** [ ] LLM node
 *** [X] If call does not have correct payload that's not JSON - should respond back with an error immediately
 *** [ ] Report tool token usage
@@ -104,6 +106,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Need comprehensive tests
 *** [ ] Use containerization / sandboxing framework when available
 * [ ] Tools
+** [ ] Allow tools to inject system or user prompts
+** [ ] Update tool result formatter to, optionally, print tool calling results
 ** [ ] Integrate Know
 *** [ ] Figure out how to express 3rd party dependencies and give access
 *** [X] Disable warnings
@@ -120,6 +124,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Containerization / sandboxing
 *** [ ] Add timeout
 *** [X] Add streaming output support
+*** [ ] Prevent access to files in .gitignore
 ** [ ] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Ensure that cwd is passed correctly
