@@ -21,7 +21,7 @@ from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.output import ColorDepth
 from vocode.ui.terminal import colors, styles
-from vocode.ui.terminal.toolcall_format import render_tool_call
+from vocode.ui.terminal.toolcall_format import render_tool_call, render_tool_result
 from vocode.ui.terminal.completer import TerminalCompleter
 from vocode.ui.terminal.ac_client import (
     make_canned_provider,
@@ -56,6 +56,7 @@ from vocode.runner.models import (
     RespApproval,
     PACKET_MESSAGE_REQUEST,
     PACKET_TOOL_CALL,
+     PACKET_TOOL_RESULT,
     PACKET_MESSAGE,
     PACKET_FINAL_MESSAGE,
     RunInput,
@@ -504,6 +505,47 @@ class TerminalApp:
         await self._update_toolbar_ticker()
         return
 
+    async def _runner_tool_result(self, envelope: UIPacketEnvelope) -> None:
+        assert self.ui is not None
+        req_payload = envelope.payload
+        assert req_payload.kind == PACKET_RUN_EVENT
+        ev = req_payload.event.event
+        # Ensure any prior stream is flushed before printing results
+        if self.stream_throttler:
+            await self._flush_and_clear_stream()
+        self.last_streamed_text = None
+
+        fmt_map = (
+            self.ui.project.settings.tool_call_formatters
+            if (self.ui and self.ui.project.settings)
+            else None
+        )
+        term_width = shutil.get_terminal_size(fallback=(80, 24)).columns
+
+        for tc in ev.tool_calls:
+            fragments = render_tool_result(
+                tc.name,
+                tc.result,
+                fmt_map,
+                terminal_width=term_width,
+            )
+            if not fragments:
+                continue
+            # Prefix each tool result with chevrons in star color
+            print_formatted_text(
+                to_formatted_text([("class:system.star", ">>> ")]),
+                style=styles.get_pt_style(),
+                end="",
+            )
+            print_formatted_text(
+                to_formatted_text(fragments),
+                style=styles.get_pt_style(),
+            )
+        if self.session:
+            self.session.app.invalidate()
+        await self._update_toolbar_ticker()
+        return
+
     async def _runner_tool_call(self, envelope: UIPacketEnvelope) -> None:
         assert self.ui is not None
         req_payload = envelope.payload
@@ -587,6 +629,9 @@ class TerminalApp:
             return
         if ev.kind == PACKET_TOOL_CALL:
             await self._runner_tool_call(envelope)
+            return
+        if ev.kind == PACKET_TOOL_RESULT:
+            await self._runner_tool_result(envelope)
             return
         if ev.kind == PACKET_FINAL_MESSAGE:
             await self._runner_final_message(envelope)

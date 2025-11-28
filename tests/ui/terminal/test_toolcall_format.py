@@ -160,3 +160,41 @@ def test_render_tool_call_print_source_appends_json():
     joined = "".join(text for _, text in flat)
     assert '"values"' in joined
     assert '"extra"' in joined
+
+
+def test_render_tool_result_suppressed_when_show_output_false():
+    formatter_map = {
+        "mytool": ToolCallFormatter(
+            title="Run It",
+            formatter="generic",
+            show_output=False,
+        )
+    }
+    frags = tcf.render_tool_result(
+        "mytool",
+        {"x": 1},
+        formatter_map=formatter_map,
+        terminal_width=80,
+    )
+    assert frags is None
+
+
+def test_render_tool_result_shown_when_show_output_true():
+    formatter_map = {
+        "mytool": ToolCallFormatter(
+            title="Run It",
+            formatter="generic",
+            show_output=True,
+        )
+    }
+    frags = tcf.render_tool_result(
+        "mytool",
+        {"x": 1},
+        formatter_map=formatter_map,
+        terminal_width=80,
+    )
+    assert frags is not None
+    flat = to_formatted_text(frags)
+    joined = "".join(text for _, text in flat)
+    # Generic formatter prints JSON-ish result; ensure key appears.
+    assert '"x"' in joined

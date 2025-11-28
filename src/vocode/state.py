@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import List, Optional, Annotated, Dict, Any, Union
 from pydantic import BaseModel, Field, StringConstraints
+from pydantic import model_validator
 from uuid import UUID, uuid4
 
 
@@ -156,3 +157,42 @@ class Assignment(BaseModel):
         description="Current status of this assignment",
     )
     steps: List[Step] = Field(default_factory=list)
+
+
+class TaskStatus(str, Enum):
+    pending = "pending"
+    in_progress = "in_progress"
+    completed = "completed"
+
+
+class Task(BaseModel):
+    id: str = Field(
+        ...,
+        description="Stable identifier for this task (e.g. 'step-1').",
+    )
+    title: str = Field(
+        ...,
+        description="Short human-readable description of this task.",
+    )
+    status: TaskStatus = Field(
+        default=TaskStatus.pending,
+        description="Current status of this task.",
+    )
+
+
+class TaskList(BaseModel):
+    todos: List[Task] = Field(
+        default_factory=list,
+        description="Current ordered list of tasks for this run.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_single_in_progress(self) -> "TaskList":
+        in_progress_count = sum(
+            1 for task in self.todos if task.status == TaskStatus.in_progress
+        )
+        if in_progress_count > 1:
+            raise ValueError(
+                "At most one task may have status 'in_progress' in the task list."
+            )
+        return self

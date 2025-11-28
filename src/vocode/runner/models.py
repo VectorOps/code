@@ -6,6 +6,7 @@ from vocode.state import Message, ToolCall, Activity, RunnerStatus
 
 PACKET_MESSAGE_REQUEST = "message_request"
 PACKET_TOOL_CALL = "tool_call"
+PACKET_TOOL_RESULT = "tool_result"
 PACKET_MESSAGE = "message"
 PACKET_FINAL_MESSAGE = "final_message"
 PACKET_APPROVAL = "approval"
@@ -48,6 +49,15 @@ class ReqToolCall(BaseModel):
     """
 
     kind: Literal["tool_call"] = PACKET_TOOL_CALL
+    tool_calls: List[ToolCall]
+
+
+class ReqToolResult(BaseModel):
+    """
+    Tool call result notifications emitted by the runner for UI consumption.
+    """
+
+    kind: Literal["tool_result"] = PACKET_TOOL_RESULT
     tool_calls: List[ToolCall]
 
 
@@ -116,6 +126,7 @@ ReqPacket = Annotated[
     Union[
         ReqMessageRequest,
         ReqToolCall,
+        ReqToolResult,
         ReqInterimMessage,
         ReqFinalMessage,
         ReqTokenUsage,

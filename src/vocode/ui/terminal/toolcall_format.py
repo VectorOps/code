@@ -261,3 +261,42 @@ def render_tool_call(
         terminal_width=effective_width,
         print_source=print_source,
     )
+
+
+def render_tool_result(
+    tool_name: str,
+    result: Any,
+    formatter_map: Optional[Mapping[str, "ToolCallFormatter"]] = None,
+    *,
+    terminal_width: Optional[int] = None,
+) -> Optional[AnyFormattedText]:
+    """
+    Render a tool call result by resolving ToolCallFormatter and dispatching to
+    the configured formatter implementation. Returns None when the tool is not
+    configured to show output (show_output=False).
+    """
+    effective_width = (
+        terminal_width
+        if terminal_width is not None
+        else shutil.get_terminal_size(fallback=(80, 24)).columns
+    )
+
+    fmts: Dict[str, ToolCallFormatter] = {}
+    fmts.update(DEFAULT_TOOL_CALL_FORMATTERS)
+    if formatter_map:
+        fmts.update(dict(formatter_map))
+
+    cfg = fmts.get(tool_name)
+    if cfg is None or not cfg.show_output:
+        return None
+
+    formatter_key = cfg.formatter if cfg.formatter else "generic"
+    formatter_cls = _FORMATTER_REGISTRY.get(formatter_key, GenericToolCallFormatter)
+    formatter = formatter_cls()
+
+    return formatter.format_output(
+        tool_name=tool_name,
+        result=result,
+        config=cfg,
+        terminal_width=effective_width,
+    )

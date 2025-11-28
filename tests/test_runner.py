@@ -28,6 +28,7 @@ from vocode.ui.proto import UIPacketRunEvent, UIPacketStatus
 from vocode.runner.models import PACKET_FINAL_MESSAGE
 from vocode.runner.executors.file_state import FileStateNode
 from vocode.commands import CommandContext
+from vocode.tools import BaseTool
 from typing import Any, Dict
 from .fakes import FakeMCPClient, make_fake_mcp_client_creator
 
@@ -155,8 +156,12 @@ async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
         ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "tool_call"
         assert ev1.input_requested is False  # auto-approved => no prompt
-        ev2 = await asend_wrap(it, RunInput(response=None))  # no approval needed
-        assert ev2.event.kind == "final_message"
+        # No approval needed; tools are executed and a tool_result event is emitted
+        ev2 = await asend_wrap(it, RunInput(response=None))
+        assert ev2.event.kind == "tool_result"
+        # Next event is the node's final message
+        ev3 = await asend_wrap(it, None)
+        assert ev3.event.kind == "final_message"
 
 
 @pytest.mark.asyncio
@@ -1107,24 +1112,28 @@ async def test_tool_call_approved_and_rejected(tmp_path: Path):
         # First tool call (approve)
         ev1 = await next_event_wrap(it)
         assert ev1.event.kind == "tool_call"
-        # Respond and capture the next event (this returns the next yielded request)
+        # Respond and capture the next event (tool_result for "one")
         ev2 = await asend_wrap(it, RunInput(response=RespApproval(approved=True)))
-        # After approval the first req object should be updated
+        assert ev2.event.kind == "tool_result"
+        # After tools complete, the original request object should be updated
         assert ev1.event.tool_calls[0].status == ToolCallStatus.rejected
         err = ev1.event.tool_calls[0].result
         assert isinstance(err, str)
         assert "Tool 'one'" in err
 
-        # Second tool call (reject)
-        assert ev2.event.kind == "tool_call"
-        ev3 = await asend_wrap(it, RunInput(response=RespApproval(approved=False)))
-        assert ev2.event.tool_calls[0].status == ToolCallStatus.rejected
-        err2 = ev2.event.tool_calls[0].result
+        # Second tool call (reject) comes after the first tool_result
+        ev3 = await asend_wrap(it, None)
+        assert ev3.event.kind == "tool_call"
+        ev4 = await asend_wrap(it, RunInput(response=RespApproval(approved=False)))
+        assert ev3.event.tool_calls[0].status == ToolCallStatus.rejected
+        err2 = ev3.event.tool_calls[0].result
         assert isinstance(err2, str)
         assert "rejected by user" in err2
 
-        # Finalize (returned by the previous asend)
-        assert ev3.event.kind == "final_message"
+        # Second tool_result, then final_message
+        assert ev4.event.kind == "tool_result"
+        ev5 = await asend_wrap(it, None)
+        assert ev5.event.kind == "final_message"
         with pytest.raises(StopAsyncIteration):
             await asend_wrap(it, None)
 
@@ -2045,7 +2054,10 @@ tools:
         assert ev1.event.kind == "tool_call"
         # Respond without explicit approval; runner should execute tool
         ev2 = await asend_wrap(it, RunInput(response=None))
-        assert ev2.event.kind == "final_message"
+        assert ev2.event.kind == "tool_result"
+        # Final message comes after tool_result
+        ev3 = await asend_wrap(it, None)
+        assert ev3.event.kind == "final_message"
         # Validate that the tool call was updated to completed with a result
         # (ev1 contains the original ReqToolCall object mutated by runner)
         assert ev1.event.tool_calls[0].status.name == "completed"

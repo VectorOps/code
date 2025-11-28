@@ -19,3 +19,6 @@ from .exec_tool import ExecTool  # noqa: F401
 
 # Re-export ApplyPatchTool
 from .apply_patch_tool import ApplyPatchTool  # noqa: F401
+#
+# Re-export UpdatePlanTool
+from .task_tool import UpdatePlanTool  # noqa: F401

@@ -37,6 +37,7 @@ from vocode.runner.models import (
     RespToolCall,
     ReqMessageRequest,
     ReqToolCall,
+    ReqToolResult,
     ReqInterimMessage,
     ReqFinalMessage,
     RespMessage,
@@ -501,10 +502,18 @@ class Runner:
                 continue
             # Use resolved ToolSpec from the ToolCall
             spec = tc.tool_spec
-            # Execute tool; it returns a ToolResponse
-            result: Optional[ToolResponse] = await tool.run(
-                self.project, spec, tc.arguments
-            )
+            # Execute tool; it returns a ToolResponse. Guard against tool crashes
+            # so that callers always receive a structured JSON error payload.
+            try:
+                result: Optional[ToolResponse] = await tool.run(
+                    self.project, spec, tc.arguments
+                )
+            except Exception as e:
+                tc.status = ToolCallStatus.rejected
+                # Error payload is a simple JSON object with the exception text.
+                tc.result = json.dumps({"error": str(e)})
+                yield (ToolResultType.final, idx, tc.model_copy(deep=True))
+                continue
             # Route by enum discriminator
             if result is None:
                 tc.status = ToolCallStatus.rejected
@@ -1239,6 +1248,17 @@ class Runner:
                             tc.result = f"Tool '{tc.name}' did not produce a result."
                             upd = tc
                         ordered.append(upd)
+
+                    # Notify UI of completed tool call results (no input requested)
+                    tool_result_req = ReqToolResult(tool_calls=ordered)
+                    run_event = RunEvent(
+                        node=current_runtime_node.name,
+                        execution=resp_activity,
+                        event=tool_result_req,
+                        input_requested=False,
+                    )
+                    _ = yield run_event
+
                     resp = RespToolCall(tool_calls=ordered)
                     continue
 
