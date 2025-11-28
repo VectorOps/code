@@ -106,7 +106,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Need comprehensive tests
 *** [ ] Use containerization / sandboxing framework when available
 * [ ] Tools
-** [ ] Allow tools to inject system or user prompts
+** [ ] Allow tools to inject system or user prompts. Prompt should be configurable/overridable.
 ** [ ] Update tool result formatter to, optionally, print tool calling results
 ** [ ] Integrate Know
 *** [ ] Figure out how to express 3rd party dependencies and give access
@@ -125,6 +125,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Add timeout
 *** [X] Add streaming output support
 *** [ ] Prevent access to files in .gitignore
+** [ ] Task management tool
+*** [X] Create output formatter
 ** [ ] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Ensure that cwd is passed correctly
@@ -132,4 +134,4 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Figure out sandboxing
 *** [ ] Wrap stdio MCP servers in sandbox
 *** [ ] Wrap shell tool in sandbox
-** [ ] Apply patch tool - useful for fully-agentic loops
+** [X] Apply patch tool - useful for fully-agentic loops
