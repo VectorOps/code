@@ -1,5 +1,5 @@
 #+title: Code TODO
-* [ ] Add a way to pass final output to a different workflow as an input
+* [ ] Add a way to pass final output to a different workflow as an input in the UI
 * [ ] Cleanup and optimizations
 ** [X] Autocompleters needs consts at model level
 * [ ] Documentation

@@ -82,6 +82,32 @@ workflows:
       - apply.fail -> coder:keep_state
       - test.success -> prompt
       - test.fail -> architect:keep_state
+  # Agent
+  agent:
+    description: "End-to-end development loop: discover requirements, design a plan, write code, apply patches, and run tests with retries."
+    nodes:
+      - name: prompt
+        type: input
+        message: What are we coding today?
+        confirmation: auto
+        hide_final_output: true
+        outcomes:
+          - name: done
+      - $include:
+          template: nodes/agent.yaml
+        confirmation: prompt_approve
+        tools:
+          - summarize_files
+          - read_files
+          - list_files
+          - search_project
+          - exec
+          - apply_patch
+          - name: update_plan
+            auto_approve: true
+    edges:
+      - prompt.done -> agent
+  # Diff test tool
   diff:
     description: "Create a high-level plan/diff for the request without applying changes."
     nodes:
