@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from vocode.ui.base import UIState
 from vocode.ui.proto import UIPacketEnvelope, UIPacketRunEvent, UIPacketStatus, UIPacketRunInput, UIPacketUIReset
-from vocode.runner.models import ReqMessageRequest, RunInput, RespMessage
+from vocode.runner.models import ReqMessageRequest, ReqFinalMessage, RunInput, RespMessage
 from vocode.state import RunnerStatus, Message
 from vocode.testing.ui import (
     FakeProject,
@@ -106,6 +106,49 @@ def test_ui_state_basic_flow(monkeypatch):
         run_input = ui.runner.received_inputs[0]
         assert isinstance(run_input, RunInput)
         assert run_input.response is not None
+
+    asyncio.run(scenario())
+
+
+def test_last_final_message_and_handoff(monkeypatch):
+    async def scenario():
+        from vocode.ui import base as ui_base
+
+        monkeypatch.setattr(ui_base, "Runner", FakeRunner)
+
+        # One interim, then a final
+        script = [
+            ("node1", mk_interim("hello"), False, RunnerStatus.running),
+            ("node2", mk_final("done"), False, RunnerStatus.running),
+        ]
+        wf = SimpleNamespace(name="wf-final", script=script)
+        project = FakeProject()
+        ui = UIState(project)
+
+        await ui.start(wf)
+
+        # Drain reset and first status, interim event and second status
+        # Drain reset and first status
+        await _recv_skip_node_status(ui)  # UIPacketUIReset
+        await _recv_skip_node_status(ui)  # status running
+
+        # Consume events until runner finishes; last_final_message should be
+        # updated when the final_message event is processed.
+        seen_final = False
+        while True:
+            env = await _recv_skip_node_status(ui)
+            if isinstance(env.payload, UIPacketStatus) and env.payload.curr == RunnerStatus.finished:
+                break
+            if isinstance(env.payload, UIPacketRunEvent):
+                ev = env.payload.event.event
+                if isinstance(ev, ReqFinalMessage):
+                    assert ev.message is not None
+                    assert ev.message.text == "done"
+                    seen_final = True
+
+        assert seen_final
+        assert ui.last_final_message is not None
+        assert ui.last_final_message.text == "done"
 
     asyncio.run(scenario())
 

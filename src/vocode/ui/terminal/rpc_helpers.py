@@ -9,6 +9,7 @@ from vocode.ui.proto import (
     UIPacketUIResetRunAction,
     UIPacketUIRestartAction,
     UIPacketReplaceUserInputAction,
+    UIPacketUIUseWithInputAction,
 )
 from vocode.state import Message
 
@@ -25,6 +26,14 @@ async def rpc_cancel(rpc: RpcHelper) -> None:
 
 async def rpc_use(rpc: RpcHelper, name: str) -> None:
     await rpc.call(UIPacketUIUseAction(name=name), timeout=None)
+
+
+async def rpc_use_with_input(
+    rpc: RpcHelper, name: str, message: Optional[Message]
+) -> None:
+    await rpc.call(
+        UIPacketUIUseWithInputAction(name=name, message=message), timeout=None
+    )
 
 
 async def rpc_reset(rpc: RpcHelper) -> None:

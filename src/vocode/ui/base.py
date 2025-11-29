@@ -89,6 +89,8 @@ class UIState:
         )
         # Project operation progress (UI-level state)
         self._project_op: ProjectOpState = ProjectOpState()
+        # Last final message for the top-level workflow (for UI handoff helpers)
+        self._last_final: Optional[vstate.Message] = None
         # Install stdlib logging interceptor once for this UIState instance
         self._install_logging_interceptor()
 
@@ -170,6 +172,7 @@ class UIState:
             self.workflow = workflow
             if workflow.name:
                 self._selected_workflow_name = workflow.name
+            self._last_final = None
 
             if assignment and assignment.status == vstate.RunStatus.finished:
                 assignment = vstate.Assignment()
@@ -357,6 +360,7 @@ class UIState:
         self.project.project_state.clear()
         with contextlib.suppress(Exception):
             self.project.commands.clear()
+        self._last_final = None
         await self.start_by_name(
             self._selected_workflow_name, initial_message=self._initial_message
         )
@@ -383,6 +387,10 @@ class UIState:
     @property
     def selected_workflow_name(self) -> Optional[str]:
         return self._selected_workflow_name
+
+    @property
+    def last_final_message(self) -> Optional[vstate.Message]:
+        return self._last_final
 
     @property
     def acc_prompt_tokens(self) -> int:
@@ -629,6 +637,9 @@ class UIState:
                 # Record frame final messages for bubbling when generator exits
                 if req.event.kind == rmodels.PACKET_FINAL_MESSAGE:
                     frame.last_final = req.event.message
+                    # Update cached top-level last_final when the bottom of the stack finishes a node
+                    if len(self.runner_stack) == 1:
+                        self._last_final = req.event.message
                     if runner is not None:
                         rn = runner.runtime_graph.get_runtime_node_by_name(req.node)
                         if rn is not None and rn.model.hide_final_output:
@@ -701,6 +712,9 @@ class UIState:
         self._router.register(proto.PACKET_UI_STOP_ACTION, self._handle_ui_stop)
         self._router.register(proto.PACKET_UI_CANCEL_ACTION, self._handle_ui_cancel)
         self._router.register(proto.PACKET_UI_USE_ACTION, self._handle_ui_use)
+        self._router.register(
+            proto.PACKET_UI_USE_WITH_INPUT_ACTION, self._handle_ui_use_with_input
+        )
         self._router.register(
             proto.PACKET_UI_RESET_RUN_ACTION, self._handle_ui_reset_run
         )
@@ -895,6 +909,20 @@ class UIState:
             await self.use(req.name)
         except Exception as e:
             logger.exception("UIState: use('%s') failed: %s", req.name, e)
+        return proto.UIPacketAck()
+
+    async def _handle_ui_use_with_input(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
+        req = envelope.payload
+        if req.kind != proto.PACKET_UI_USE_WITH_INPUT_ACTION:
+            return None
+        try:
+            await self.use(req.name, initial_message=req.message)
+        except Exception as e:
+            logger.exception(
+                "UIState: use_with_input('%s') failed: %s", req.name, e
+            )
         return proto.UIPacketAck()
 
     async def _handle_ui_reset_run(

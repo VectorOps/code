@@ -23,6 +23,7 @@ from vocode.ui.terminal.rpc_helpers import (
     rpc_use,
     rpc_reset,
     rpc_restart,
+    rpc_use_with_input,
 )
 
 if TYPE_CHECKING:
@@ -147,6 +148,23 @@ async def _use(ctx: CommandContext, args: List[str]) -> None:
         await ctx.out(f"Failed to start workflow '{name}': {e}")
 
 
+async def _handoff(ctx: CommandContext, args: List[str]) -> None:
+    if not args:
+        await ctx.out("Usage: /handoff <workflow>")
+        return
+    name = args[0]
+
+    # Use the last final message from the current run as the initial input.
+    msg = getattr(ctx.ui, "last_final_message", None)
+    if msg is None:
+        await ctx.out("No final output is available to hand off.")
+        return
+    try:
+        await rpc_use_with_input(ctx.rpc, name, msg)
+    except Exception as e:
+        await ctx.out(f"Failed to hand off to workflow '{name}': {e}")
+
+
 async def _run(ctx: CommandContext, args: List[str]) -> None:
     if not args:
         await ctx.out("Usage: /run <workflow>")
@@ -245,5 +263,12 @@ def register_default_commands(
         "<workflow>",
         completer=(ac_factory("workflow_list") if ac_factory else None),
     )(_run)
+
+    commands.register(
+        "/handoff",
+        "Start a workflow using the last final output as its initial input",
+        "<workflow>",
+        completer=(ac_factory("workflow_list") if ac_factory else None),
+    )(_handoff)
 
     return commands

@@ -25,6 +25,7 @@ PACKET_UI_USE_ACTION = "ui_use_action"
 PACKET_UI_RESET_RUN_ACTION = "ui_reset_run_action"
 PACKET_UI_RESTART_ACTION = "ui_restart_action"
 PACKET_REPLACE_USER_INPUT_ACTION = "replace_user_input_action"
+PACKET_UI_USE_WITH_INPUT_ACTION = "ui_use_with_input_action"
 
 
 class UIPacketRunEvent(BaseModel):
@@ -114,6 +115,12 @@ class UIPacketUIResetRunAction(BaseModel):
 class UIPacketUIRestartAction(BaseModel):
     kind: Literal["ui_restart_action"] = PACKET_UI_RESTART_ACTION
 
+
+class UIPacketUIUseWithInputAction(BaseModel):
+    kind: Literal["ui_use_with_input_action"] = PACKET_UI_USE_WITH_INPUT_ACTION
+    name: str
+    message: Optional[Message] = None
+
 class UIPacketReplaceUserInputAction(BaseModel):
     kind: Literal["replace_user_input_action"] = PACKET_REPLACE_USER_INPUT_ACTION
     # Exactly one of message/approved should be provided.
@@ -162,6 +169,7 @@ UIPacket = Annotated[
         UIPacketUIResetRunAction,
         UIPacketUIRestartAction,
         UIPacketReplaceUserInputAction,
+        UIPacketUIUseWithInputAction,
         UIPacketProjectOpStart,
         UIPacketProjectOpProgress,
         UIPacketProjectOpFinish,
