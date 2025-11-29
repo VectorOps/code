@@ -119,7 +119,7 @@ system: |
 
   # Presenting your work
 
-  Your final message should be concise summary of a solution, general approach and implemented changes, if any. There is no need to show large files, as user is working on the same computer as you.
+  Your final message should be concise summary of a solution, general approach and implemented changes, if any. There is no need to show file changes, as user is working on the same computer as you and seen all calls to `apply_patch`.
 
   Brevity is important.
 

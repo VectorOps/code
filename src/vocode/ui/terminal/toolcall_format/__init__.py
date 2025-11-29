@@ -10,6 +10,7 @@ from vocode.settings import ToolCallFormatter  # type: ignore
 from . import base as _base
 from . import generic as _generic  # noqa: F401  # ensure registration
 from . import task as _task  # noqa: F401  # ensure registration
+from . import patch as _patch  # noqa: F401  # ensure registration
 from . import utils as _utils
 
 # Re-export public API for callers/tests that import vocode.ui.terminal.toolcall_format

@@ -35,20 +35,19 @@ class TaskToolFormatter(BaseToolCallFormatter):
         terminal_width: int,
         print_source: bool,
     ) -> AnyFormattedText:
-        title = tool_name if config is None else config.title
-        tasks = self._parse_tasks_from_arguments(arguments)
-        if not tasks:
-            # Fall back to generic behavior when we cannot extract tasks.
-            from .generic import GenericToolCallFormatter
+        # Input formatting is intentionally a no-op for the task tool.
+        # The final task plan is rendered from the tool *output* only,
+        # so we delegate to the generic formatter to avoid duplicating
+        # the task list in the input preview.
+        from .generic import GenericToolCallFormatter
 
-            return GenericToolCallFormatter().format_input(
-                tool_name=tool_name,
-                arguments=arguments,
-                config=config,
-                terminal_width=terminal_width,
-                print_source=print_source,
-            )
-        return self._format_tasks(tasks, title)
+        return GenericToolCallFormatter().format_input(
+            tool_name=tool_name,
+            arguments=arguments,
+            config=config,
+            terminal_width=terminal_width,
+            print_source=print_source,
+        )
 
     def format_output(
         self,

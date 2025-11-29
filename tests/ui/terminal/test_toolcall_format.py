@@ -198,3 +198,17 @@ def test_render_tool_result_shown_when_show_output_true():
     joined = "".join(text for _, text in flat)
     # Generic formatter prints JSON-ish result; ensure key appears.
     assert '"x"' in joined
+
+
+def test_apply_patch_formatter_renders_patch_body():
+    args = {"text": "*** Begin Patch\n*** End Patch"}
+
+    frags = tcf.render_tool_call(
+        "apply_patch", args, formatter_map=None, terminal_width=80
+    )
+    flat = to_formatted_text(frags)
+    joined = "".join(text for _, text in flat)
+    # Title header present
+    assert "ApplyPatch" in joined
+    # Patch body content present
+    assert "*** Begin Patch" in joined
