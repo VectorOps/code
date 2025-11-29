@@ -75,6 +75,8 @@ def _input_hint(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> str:
             return "(approve? [Y/N])"
         if conf == Confirmation.prompt_approve:
             return "(type '/approve' to accept, or reply to modify)"
+        if conf == Confirmation.loop:
+            return "(your message)"
         return "(Enter to continue, or type a reply)"
     return ""
 

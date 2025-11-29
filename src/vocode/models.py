@@ -18,6 +18,7 @@ class Confirmation(str, Enum):
     auto = "auto"
     confirm = "confirm"  # require explicit Y/N approval
     prompt_approve = "prompt_approve"  # explicit approval or modified reply required
+    loop = "loop"  # always require user message; never accept approval
 
 
 class ResetPolicy(str, Enum):
@@ -126,7 +127,7 @@ class Node(BaseModel):
         default=Confirmation.prompt,
         description=(
             "How to handle node final confirmation "
-            "('prompt', 'auto', 'confirm', or 'prompt_approve')."
+            "('prompt', 'auto', 'confirm', 'prompt_approve', or 'loop')."
         ),
     )
     hide_final_output: bool = Field(

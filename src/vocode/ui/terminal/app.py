@@ -858,6 +858,17 @@ class TerminalApp:
                             await self._update_toolbar_ticker()
                             continue
 
+                        if conf == Confirmation.loop:
+                            # Always treat input as a user reply; approvals are never used.
+                            await respond_message(
+                                self.ui,
+                                msg_id,
+                                Message(role="user", text=text),
+                            )
+                            self.pending_req_env = None
+                            await self._update_toolbar_ticker()
+                            continue
+
                         # Default 'prompt' semantics: Enter = approve, otherwise reply.
                         if stripped == "":
                             await respond_approval(self.ui, msg_id, True)

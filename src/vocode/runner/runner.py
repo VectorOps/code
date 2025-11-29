@@ -464,6 +464,7 @@ class Runner:
                 Confirmation.prompt,
                 Confirmation.confirm,
                 Confirmation.prompt_approve,
+                Confirmation.loop,
             )
         return False
 
@@ -1062,8 +1063,23 @@ class Runner:
                 if req.kind == PACKET_FINAL_MESSAGE:
                     node_conf = current_runtime_node.model.confirmation
 
-                    # confirm: require explicit approval
-                    if node_conf == Confirmation.confirm:
+                    # prompt / prompt_approve: if user provided a follow-up message,
+                    # run another executor cycle with that message instead of accepting final.
+                    if node_conf in (
+                        Confirmation.prompt,
+                        Confirmation.prompt_approve,
+                        Confirmation.loop,
+                    ):
+                        if (
+                            resp_packet is not None
+                            and resp_packet.kind == PACKET_MESSAGE
+                        ):
+                            resp_activity.message = resp_packet.message
+                            resp = resp_packet
+                            continue
+
+                    # confirm require explicit approval to accept final.
+                    if node_conf is Confirmation.confirm:
                         # Re-prompt until approval or stop on reject
                         while True:
                             if (
@@ -1076,7 +1092,6 @@ class Runner:
                                 # Rejected: stop runner
                                 self.status = RunnerStatus.stopped
                                 step.status = RunStatus.stopped
-                                # consume resume marker
                                 return
 
                             # Ask again
@@ -1092,18 +1107,7 @@ class Runner:
                                 run_input.response if run_input is not None else None
                             )
 
-                    # prompt: allow one more user message; if provided, run another cycle
-                    elif node_conf == Confirmation.prompt:
-                        if (
-                            resp_packet is not None
-                            and resp_packet.kind == PACKET_MESSAGE
-                        ):
-                            resp_activity.message = resp_packet.message
-                            resp = resp_packet
-                            continue
-                    else:
-                        # No confirmation/prompt: accept final
-                        pass
+                    # For auto (or prompt without a reply), fall through and accept final.
 
                     # Final accepted: finish step and transition
                     step.status = RunStatus.finished

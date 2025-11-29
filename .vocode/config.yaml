@@ -95,7 +95,12 @@ workflows:
           - name: done
       - $include:
           template: nodes/agent.yaml
-        confirmation: prompt_approve
+        confirmation: loop
+        preprocessors:
+          - name: file_read
+            options:
+              paths:
+                - AGENTS.md
         tools:
           - summarize_files
           - read_files
