@@ -137,3 +137,7 @@ system: |
   Rules:
   - Always prefer specialized tool over shell-based tools. For example, use search tool instead of grep or rip grep.
   - Never make changes to project files via shell-based tools.
+
+  ## `search_project`
+
+  This is a semantic text search tool. Avoid using it to search for special characters or similar. It does not support logical conditions either, as it is powered by a full text search engine behind the scenes.

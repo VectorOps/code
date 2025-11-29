@@ -107,7 +107,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Use containerization / sandboxing framework when available
 * [ ] Tools
 ** [ ] Allow tools to inject system or user prompts. Prompt should be configurable/overridable.
-** [ ] Update tool result formatter to, optionally, print tool calling results
+** [X] Update tool result formatter to, optionally, print tool calling results
 ** [ ] Integrate Know
 *** [ ] Figure out how to express 3rd party dependencies and give access
 *** [X] Disable warnings

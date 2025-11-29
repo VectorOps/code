@@ -570,14 +570,17 @@ class TerminalApp:
                 terminal_width=term_width,
                 print_source=print_source,
             )
+            if not fragments:
+                continue
+            # Prefix each rendered tool call with chevrons in star color.
             print_formatted_text(
-                # Always prefix each tool call with chevrons in star color
                 to_formatted_text([("class:system.star", "<<< ")]),
                 style=styles.get_pt_style(),
                 end="",
             )
             print_formatted_text(
-                to_formatted_text(fragments), style=styles.get_pt_style()
+                to_formatted_text(fragments),
+                style=styles.get_pt_style(),
             )
         print_formatted_text("")
         self.pending_req_env = envelope if req_payload.event.input_requested else None
