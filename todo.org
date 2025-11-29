@@ -127,7 +127,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Prevent access to files in .gitignore
 ** [ ] Task management tool
 *** [X] Create output formatter
-*** [ ] Do not show response plan
+*** [X] Do not show input parameters
 ** [ ] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Ensure that cwd is passed correctly
