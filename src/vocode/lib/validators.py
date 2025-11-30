@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 import re
 
 
@@ -26,3 +26,22 @@ def regex_matches_value(pattern: str, value: Any) -> bool:
 
     text = str(value)
     return re.search(pattern, text) is not None
+
+
+def tool_auto_approve_matches(
+    rules: List["ToolAutoApproveRule"], arguments: Dict[str, Any]
+) -> bool:
+    """Return True if any auto-approve rule matches the provided arguments.
+
+    A rule matches when the dotted ``key`` resolves to a non-None value in
+    ``arguments`` and the compiled regular expression ``pattern`` finds a
+    match in ``str(value)``.
+    """
+
+    for rule in rules:
+        value = get_value_by_dotted_key(arguments, rule.key)
+        if value is None:
+            continue
+        if regex_matches_value(rule.pattern, value):
+            return True
+    return False

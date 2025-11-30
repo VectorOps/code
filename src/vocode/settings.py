@@ -68,7 +68,9 @@ class ToolAutoApproveRule(BaseModel):
         """Validate that 'pattern' is a syntactically correct regular expression."""
         try:
             re.compile(v)
-        except re.error as exc:  # pragma: no cover - exact message is implementation detail
+        except (
+            re.error
+        ) as exc:  # pragma: no cover - exact message is implementation detail
             raise ValueError(f"Invalid regex pattern {v!r}: {exc}") from exc
         return v
 
@@ -111,23 +113,6 @@ class ToolSpec(BaseModel):
             }
             return out
         return v
-def tool_auto_approve_matches(
-    rules: List[ToolAutoApproveRule], arguments: Dict[str, Any]
-) -> bool:
-    """Return True if any auto-approve rule matches the provided arguments.
-
-    A rule matches when the dotted ``key`` resolves to a non-None value in
-    ``arguments`` and the compiled regular expression ``pattern`` finds a
-    match in ``str(value)``.
-    """
-
-    for rule in rules:
-        value = get_value_by_dotted_key(arguments, rule.key)
-        if value is None:
-            continue
-        if regex_matches_value(rule.pattern, value):
-            return True
-    return False
 
 
 class ToolCallFormatter(BaseModel):

@@ -60,7 +60,8 @@ from vocode.runner.models import (
 )
 
 from vocode.tools import ToolResponse, ToolResponseType
-from vocode.settings import ToolSpec, tool_auto_approve_matches
+from vocode.settings import ToolSpec
+from vocode.lib.validators import tool_auto_approve_matches
 
 
 # Yield kind for tool processing results

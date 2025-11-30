@@ -2,8 +2,8 @@ import pytest
 
 from vocode.settings import (
     ToolAutoApproveRule,
-    tool_auto_approve_matches,
 )
+from vocode.lib.validators import tool_auto_approve_matches
 
 
 def test_tool_auto_approve_rule_valid_regex():
