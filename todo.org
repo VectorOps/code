@@ -78,7 +78,17 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Diff parsers
 *** [ ] Patch format
 **** [ ] Fix scenario when multiple similar blocks are being updated one after another
-*** [ ] Better error reporting for unmatched blocks. Currently it's too verbose.
+@@
+-                tc.status = ToolCallStatus.rejected
++                tc.status = v_state.ToolCallStatus.rejected
+@@
+-                tc.status = ToolCallStatus.rejected
++                tc.status = v_state.ToolCallStatus.rejected
+@@
+-                tc.status = ToolCallStatus.rejected
++                tc.status = v_state.ToolCallStatus.rejected
+@@
+*** [ ] Better error reporting for unmatched blocks. Currently it's too verbose. For out of order blocks - it does not return enough information.
 *** [ ] Unified Diff format
 * [ ] Filters
 ** [X] Adjust file filter to also inject filename into context
@@ -112,12 +122,13 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Figure out how to express 3rd party dependencies and give access
 *** [X] Disable warnings
 *** [ ] Add a way to fully disable know so project is not parsed.
-** [ ] Add pattern matching rules to auto-approve rule calls
+** [X] Add pattern matching rules to auto-approve rule calls
 ** [ ] Skills
 *** [ ] Skill parsers
 *** [ ] Generate tool stubs for skills
 ** [ ] Web client tool
 ** [ ] Shell tool
+*** [ ] Limit how many lines are returned back to LLM
 *** [ ] Add a way to approve similar tool calls within a session
 *** [ ] Windows shell support
 *** [ ] Non-POSIX shell support

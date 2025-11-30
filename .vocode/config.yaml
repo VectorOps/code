@@ -106,7 +106,12 @@ workflows:
           - read_files
           - list_files
           - search_project
-          - exec
+          - name: exec
+            auto_approve_rules:
+              - key: command
+                pattern: "^uv run pytest"
+              - key: command
+                pattern: "^uv run black"
           - apply_patch
           - name: update_plan
             auto_approve: true

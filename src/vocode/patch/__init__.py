@@ -39,6 +39,7 @@ def get_system_instruction(fmt: str) -> str:
         raise ValueError(f"Unsupported patch format: {fmt}")
     return entry["system_prompt"]  # type: ignore[return-value]
 
+
 class PatchFileOps(ABC):
     """
     Abstract contract for file operations used by patch processors.
@@ -46,16 +47,13 @@ class PatchFileOps(ABC):
     """
 
     @abstractmethod
-    def open(self, rel: str) -> str:
-        ...
+    def open(self, rel: str) -> str: ...
 
     @abstractmethod
-    def write(self, rel: str, content: str) -> None:
-        ...
+    def write(self, rel: str, content: str) -> None: ...
 
     @abstractmethod
-    def delete(self, rel: str) -> None:
-        ...
+    def delete(self, rel: str) -> None: ...
 
     @property
     @abstractmethod
@@ -144,8 +142,12 @@ def apply_patch(
 
     # Summarize
     created = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Create])
-    updated_full = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Update])
-    updated_partial = sorted([f for f, s in statuses.items() if s == FileApplyStatus.PartialUpdate])
+    updated_full = sorted(
+        [f for f, s in statuses.items() if s == FileApplyStatus.Update]
+    )
+    updated_partial = sorted(
+        [f for f, s in statuses.items() if s == FileApplyStatus.PartialUpdate]
+    )
     deleted = sorted([f for f, s in statuses.items() if s == FileApplyStatus.Delete])
 
     outcome = "success"
@@ -156,7 +158,9 @@ def apply_patch(
         applied_any = bool(applied_files)
         applied_created = sorted([f for f in created if f in applied_files])
         applied_updated_full = sorted([f for f in updated_full if f in applied_files])
-        applied_updated_partial = sorted([f for f in updated_partial if f in applied_files])
+        applied_updated_partial = sorted(
+            [f for f in updated_partial if f in applied_files]
+        )
         applied_deleted = sorted([f for f in deleted if f in applied_files])
         failed_files = sorted({e.filename for e in errs if e.filename})  # type: ignore[attr-defined]
         not_applied_failed = sorted([f for f in failed_files if f not in applied_files])
@@ -184,11 +188,13 @@ def apply_patch(
 
         targets_for_fix = sorted(set(applied_updated_partial) | set(not_applied_failed))
         if targets_for_fix:
-            lines.append("Please regenerate patch chunks for the failed parts in these files:")
+            lines.append(
+                "Please regenerate patch chunks for the failed parts in these files:"
+            )
             for f in targets_for_fix:
                 lines.append(f"* {f}")
             lines.append(
-                "If there were other files that were not mentioned in this response, regenerate chunks for them as well. Make sure you read the files."
+                "If there were other files that were not mentioned in this response, regenerate chunks for them as well. You might want to re-read the source files."
             )
 
         lines.append("Errors:")

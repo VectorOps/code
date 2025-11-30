@@ -7,7 +7,12 @@ from pydantic import model_validator
 from vocode.runner.runner import Executor
 from vocode.models import Node
 from vocode.state import Message
-from vocode.runner.models import ReqPacket, ReqInterimMessage, ReqFinalMessage, ExecRunInput
+from vocode.runner.models import (
+    ReqPacket,
+    ReqInterimMessage,
+    ReqFinalMessage,
+    ExecRunInput,
+)
 from vocode.proc.manager import ProcessManager
 
 
@@ -110,12 +115,16 @@ class ExecExecutor(Executor):
                 # Decide when to start streaming: after debounce window and if process is still running
                 if not streaming_started:
                     pending_chunks.append(chunk)
-                    if (loop.time() - start_time) >= STREAM_DEBOUNCE_S and not wait_task.done():
+                    if (
+                        loop.time() - start_time
+                    ) >= STREAM_DEBOUNCE_S and not wait_task.done():
                         streaming_started = True
                         # Emit header first, then any pending chunks accumulated so far
                         _ = yield (
                             ReqInterimMessage(
-                                message=Message(role="agent", text=header, node=cfg.name)
+                                message=Message(
+                                    role="agent", text=header, node=cfg.name
+                                )
                             ),
                             None,
                         )
@@ -139,7 +148,12 @@ class ExecExecutor(Executor):
                 pass
 
             # Exit condition: process finished, pumps done, and queue drained
-            if wait_task.done() and pump_out.done() and pump_err.done() and queue.empty():
+            if (
+                wait_task.done()
+                and pump_out.done()
+                and pump_err.done()
+                and queue.empty()
+            ):
                 break
 
         # Ensure pumps finished

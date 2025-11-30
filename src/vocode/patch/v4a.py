@@ -961,16 +961,6 @@ def build_commits(
                 any_failed = True
                 # Do not break; collect all failures for better reporting
                 continue
-            # Order check: ensure non-decreasing positions
-            if last_start_idx is not None and start_idx < last_start_idx:
-                add_error(
-                    f"Out-of-order change block in {path}",
-                    line=ch.start_line,
-                    hint="Ensure blocks are ordered top-to-bottom as they appear in the file, or add @@ anchors to disambiguate.",
-                    filename=path,
-                )
-                any_failed = True
-                continue
             # If this match would overlap the previous match, attempt to find a non-overlapping
             # occurrence starting at the end of the previous match. This disambiguates duplicate
             # identical blocks that legitimately occur twice.
@@ -980,6 +970,16 @@ def build_commits(
                 )
                 if start2 is not None and end2 is not None and replacement2 is not None:
                     start_idx, end_idx, replacement = start2, end2, replacement2
+            # Order check: ensure non-decreasing positions (after any overlap disambiguation)
+            if last_start_idx is not None and start_idx < last_start_idx:
+                add_error(
+                    f"Out-of-order change block in {path}",
+                    line=ch.start_line,
+                    hint="Ensure blocks are ordered top-to-bottom as they appear in the file, or add @@ anchors to disambiguate.",
+                    filename=path,
+                )
+                any_failed = True
+                continue
             last_start_idx = start_idx
             last_end_idx = end_idx
             located.append((start_idx, end_idx, replacement, ch.start_line))

@@ -796,3 +796,41 @@ def test_duplicate_identical_blocks_apply_to_both_occurrences():
     assert statuses == {
         "src/vocode/runner/executors/llm/__init__.py": FileApplyStatus.Update
     }
+
+
+def test_triple_identical_blocks_apply_to_all_occurrences():
+    """
+    When three identical change chunks target the same single-line pattern
+    that appears three times in a row, all three should be applied without
+    reporting an out-of-order error.
+    """
+    patch_text = """*** Begin Patch
+*** Update File: src/repeated.py
+@@
+-tc.status = ToolCallStatus.rejected
++tc.status = v_state.ToolCallStatus.rejected
+@@
+-tc.status = ToolCallStatus.rejected
++tc.status = v_state.ToolCallStatus.rejected
+@@
+-tc.status = ToolCallStatus.rejected
++tc.status = v_state.ToolCallStatus.rejected
+*** End Patch"""
+    initial = {
+        "src/repeated.py": "tc.status = ToolCallStatus.rejected\n"
+        "tc.status = ToolCallStatus.rejected\n"
+        "tc.status = ToolCallStatus.rejected\n"
+    }
+    statuses, errs, writes, deletes, opened = run_patch(
+        patch_text, initial_files=initial
+    )
+    assert errs == []
+    assert deletes == []
+    assert opened == ["src/repeated.py"]
+    assert (
+        writes["src/repeated.py"]
+        == "tc.status = v_state.ToolCallStatus.rejected\n"
+        "tc.status = v_state.ToolCallStatus.rejected\n"
+        "tc.status = v_state.ToolCallStatus.rejected\n"
+    )
+    assert statuses == {"src/repeated.py": FileApplyStatus.Update}

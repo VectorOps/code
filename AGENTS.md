@@ -75,6 +75,7 @@ This repository implements a configurable, graph-driven workflow runner with LLM
   - Do not add unnecessary comments that do not add value
 - Async:
   - Use asyncio primitives; propagate timeouts and cancellation.
+- Use `black` to format files after changing them.
 - Never import more than a three symbols. This is allowed:
 ```
 from .proto import UIPacket, UIPacketEnvelope, UIPacketRunEvent
