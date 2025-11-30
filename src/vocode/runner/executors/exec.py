@@ -123,7 +123,7 @@ class ExecExecutor(Executor):
                         _ = yield (
                             ReqInterimMessage(
                                 message=Message(
-                                    role="agent", text=header, node=cfg.name
+                                    role="agent", text=f"{header}\n", node=cfg.name
                                 )
                             ),
                             None,
@@ -172,7 +172,7 @@ class ExecExecutor(Executor):
         # If we streamed, the terminal already saw 'header' and all chunks exactly as they arrived.
         # Avoid printing twice by matching the streamed text exactly (no extra newline).
         if streaming_started:
-            final_text = f"{header}{output}"
+            final_text = f"{header}\n{output}" if output else header
         else:
             # No streaming: include a newline between header and output for readability
             if output:

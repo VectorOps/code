@@ -35,7 +35,9 @@ def map_message_to_llm_dict(m: Message, cfg: LLMNode) -> Dict[str, Any]:
     return {"role": role, "content": m.text}
 
 
-def build_base_messages(cfg: LLMNode, history: List[Message], project: Any) -> List[Dict[str, Any]]:
+def build_base_messages(
+    cfg: LLMNode, history: List[Message], project: Any
+) -> List[Dict[str, Any]]:
     system_prompt_parts: List[str] = []
     if cfg.system:
         system_prompt_parts.append(cfg.system)
@@ -45,7 +47,9 @@ def build_base_messages(cfg: LLMNode, history: List[Message], project: Any) -> L
 
     base_messages = list(history)
     if system_prompt:
-        base_messages.insert(0, Message(role="system", text=system_prompt, node=cfg.name))
+        base_messages.insert(
+            0, Message(role="system", text=system_prompt, node=cfg.name)
+        )
 
     if cfg.preprocessors:
         base_messages = apply_preprocessors(cfg.preprocessors, project, base_messages)
@@ -65,7 +69,9 @@ def parse_outcome_from_text(text: str, valid_outcomes: List[str]) -> Optional[st
 
 
 def strip_outcome_line(text: str) -> str:
-    return "\n".join([ln for ln in text.splitlines() if not OUTCOME_LINE_PREFIX_RE.match(ln.strip())]).rstrip()
+    return "\n".join(
+        [ln for ln in text.splitlines() if not OUTCOME_LINE_PREFIX_RE.match(ln.strip())]
+    ).rstrip()
 
 
 def build_choose_outcome_tool(
@@ -77,7 +83,8 @@ def build_choose_outcome_tool(
         "type": "function",
         "function": {
             "name": CHOOSE_OUTCOME_TOOL_NAME,
-            "description": "Selects the conversation outcome to take next. Available outcomes:\n" + outcome_desc_bullets,
+            "description": "Selects the conversation outcome to take next. Available outcomes:\n"
+            + outcome_desc_bullets,
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -127,12 +134,16 @@ def get_outcome_choice_desc(cfg: LLMNode, outcome_desc_bullets: str) -> str:
 # Pricing/model helpers
 def get_input_cost_per_1k(cfg: LLMNode) -> float:
     extra = cfg.extra or {}
-    return float(extra.get("input_cost_per_1k") or extra.get("prompt_cost_per_1k") or 0.0)
+    return float(
+        extra.get("input_cost_per_1k") or extra.get("prompt_cost_per_1k") or 0.0
+    )
 
 
 def get_output_cost_per_1k(cfg: LLMNode) -> float:
     extra = cfg.extra or {}
-    return float(extra.get("output_cost_per_1k") or extra.get("completion_cost_per_1k") or 0.0)
+    return float(
+        extra.get("output_cost_per_1k") or extra.get("completion_cost_per_1k") or 0.0
+    )
 
 
 def _safe_get(obj: Any, key: str) -> Any:
@@ -157,7 +168,9 @@ def _get_model_info_value(model: str, key: str) -> Optional[Any]:
     return _safe_get(mi, key)
 
 
-def calc_cost_from_model_info(model: str, prompt_tokens: int, completion_tokens: int) -> Optional[float]:
+def calc_cost_from_model_info(
+    model: str, prompt_tokens: int, completion_tokens: int
+) -> Optional[float]:
     try:
         mi = _get_model_info(model)
         if mi is None:
@@ -184,7 +197,9 @@ def get_round_cost(
 
     if round_cost == 0.0:
         model_info_cost = calc_cost_from_model_info(
-            model=model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )
         if model_info_cost is not None:
             round_cost = float(model_info_cost)
@@ -193,19 +208,31 @@ def get_round_cost(
         in_per_1k = get_input_cost_per_1k(cfg)
         out_per_1k = get_output_cost_per_1k(cfg)
         if in_per_1k > 0.0 or out_per_1k > 0.0:
-            round_cost = (prompt_tokens / 1000.0) * in_per_1k + (completion_tokens / 1000.0) * out_per_1k
+            round_cost = (prompt_tokens / 1000.0) * in_per_1k + (
+                completion_tokens / 1000.0
+            ) * out_per_1k
     return round_cost
 
 
 def build_effective_tool_specs(project: Any, cfg: LLMNode) -> Dict[str, ToolSpec]:
-    """
-    Merge node-level ToolSpec with project-level (global) ToolSpec by name.
-    Precedence: global overrides node. Config is merged: node.config, then global.config.
+    """Merge node-level ToolSpec with project-level (global) ToolSpec by name.
+
+    Precedence rules:
+    - Global .enabled overrides node .enabled when provided.
+    - Global .auto_approve overrides node .auto_approve when non-None.
+    - Global .auto_approve_rules extend node .auto_approve_rules.
+    - .config is merged shallowly: node.config first, then global.config.
+
+    This helper constructs the effective ToolSpec via model_copy/update so new
+    fields added to ToolSpec are preserved by default and do not need special
+    handling here.
     Only returns specs for tools listed on this node.
     """
     global_specs: Dict[str, ToolSpec] = {}
     try:
-        settings_tools = ((project.settings.tools or []) if project and project.settings else [])
+        settings_tools = (
+            (project.settings.tools or []) if project and project.settings else []
+        )
         for ts in settings_tools:
             global_specs[ts.name] = ts
     except Exception:
@@ -214,18 +241,34 @@ def build_effective_tool_specs(project: Any, cfg: LLMNode) -> Dict[str, ToolSpec
     effective: Dict[str, ToolSpec] = {}
     for node_spec in cfg.tools or []:
         gspec = global_specs.get(node_spec.name)
-        enabled = gspec.enabled if gspec is not None else node_spec.enabled
-        auto = (gspec.auto_approve if (gspec is not None and gspec.auto_approve is not None) else node_spec.auto_approve)
-        merged_cfg: Dict[str, Any] = {}
-        merged_cfg.update(node_spec.config or {})
-        if gspec is not None and gspec.config:
-            merged_cfg.update(gspec.config)
-        effective[node_spec.name] = ToolSpec(
-            name=node_spec.name,
-            enabled=enabled,
-            auto_approve=auto,
-            config=merged_cfg,
-        )
+
+        # Start from a shallow copy of the node spec so any future fields on
+        # ToolSpec are preserved automatically.
+        base = node_spec.model_copy(deep=True)
+
+        if gspec is not None:
+            # enabled: global overrides node when provided
+            if isinstance(gspec.enabled, bool):
+                base.enabled = gspec.enabled
+
+            # auto_approve: global wins when explicitly set
+            if gspec.auto_approve is not None:
+                base.auto_approve = gspec.auto_approve
+
+            # auto_approve_rules: concatenate node + global so that both
+            # scopes can contribute matchers.
+            if getattr(gspec, "auto_approve_rules", None):
+                # Ensure list exists on base
+                base.auto_approve_rules = list(base.auto_approve_rules or [])
+                base.auto_approve_rules.extend(gspec.auto_approve_rules)
+
+            # config: node first, then global (global overrides on conflicts)
+            merged_cfg: Dict[str, Any] = {}
+            merged_cfg.update(node_spec.config or {})
+            merged_cfg.update(gspec.config or {})
+            base.config = merged_cfg
+
+        effective[node_spec.name] = base
     return effective
 
 
@@ -256,7 +299,9 @@ def resolve_model_token_limit(cfg: LLMNode) -> Optional[int]:
 
 
 # Usage/token helpers
-def extract_usage_tokens(stream: Any, last_chunk_usage: Optional[Any]) -> Tuple[int, int]:
+def extract_usage_tokens(
+    stream: Any, last_chunk_usage: Optional[Any]
+) -> Tuple[int, int]:
     prompt_tokens = 0
     completion_tokens = 0
     try:
@@ -283,7 +328,9 @@ def extract_usage_tokens(stream: Any, last_chunk_usage: Optional[Any]) -> Tuple[
                     completion_tokens = int(usage_obj.get("completion_tokens") or 0)
                 else:
                     prompt_tokens = int(getattr(usage_obj, "prompt_tokens", 0) or 0)
-                    completion_tokens = int(getattr(usage_obj, "completion_tokens", 0) or 0)
+                    completion_tokens = int(
+                        getattr(usage_obj, "completion_tokens", 0) or 0
+                    )
         except Exception:
             pass
 
@@ -291,14 +338,20 @@ def extract_usage_tokens(stream: Any, last_chunk_usage: Optional[Any]) -> Tuple[
         try:
             resp = getattr(stream, "response", None)
             if resp is not None:
-                usage_obj = resp.get("usage") if isinstance(resp, dict) else getattr(resp, "usage", None)
+                usage_obj = (
+                    resp.get("usage")
+                    if isinstance(resp, dict)
+                    else getattr(resp, "usage", None)
+                )
                 if usage_obj:
                     if isinstance(usage_obj, dict):
                         prompt_tokens = int(usage_obj.get("prompt_tokens") or 0)
                         completion_tokens = int(usage_obj.get("completion_tokens") or 0)
                     else:
                         prompt_tokens = int(getattr(usage_obj, "prompt_tokens", 0) or 0)
-                        completion_tokens = int(getattr(usage_obj, "completion_tokens", 0) or 0)
+                        completion_tokens = int(
+                            getattr(usage_obj, "completion_tokens", 0) or 0
+                        )
         except Exception:
             pass
     return prompt_tokens, completion_tokens

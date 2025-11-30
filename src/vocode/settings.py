@@ -86,6 +86,9 @@ class ToolSpec(BaseModel):
     - config: free-form configuration for tool implementations
     Accepts shorthand string form: "tool_name".
     Extra fields are ignored.
+
+    When updating the model, make sure that build_effective_tool_specs helper function
+    is also updated.
     """
 
     name: str
