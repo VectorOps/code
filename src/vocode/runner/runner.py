@@ -60,7 +60,7 @@ from vocode.runner.models import (
 )
 
 from vocode.tools import ToolResponse, ToolResponseType
-from vocode.settings import ToolSpec
+from vocode.settings import ToolSpec, tool_auto_approve_matches
 
 
 # Yield kind for tool processing results
@@ -457,8 +457,18 @@ class Runner:
             for tc in req.tool_calls:
                 if tc.tool_spec is None:
                     return True
-            # Otherwise, request input unless all are explicitly auto-approved
-            return any((tc.tool_spec.auto_approve is not True) for tc in req.tool_calls)
+            # Otherwise, request input unless all are auto-approved either via
+            # explicit flag or rule-based configuration.
+            for tc in req.tool_calls:
+                spec = tc.tool_spec
+                if not isinstance(spec, ToolSpec):
+                    return True
+                if spec.auto_approve is True:
+                    continue
+                if tool_auto_approve_matches(spec.auto_approve_rules, tc.arguments):
+                    continue
+                return True
+            return False
         if req.kind == PACKET_FINAL_MESSAGE:
             return node_conf in (
                 Confirmation.prompt,

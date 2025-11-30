@@ -97,3 +97,4 @@ Instead, import a module and reference symbols via the module name or alias.
 
 ## Shell tools
 - If you need to run python-based tools, always run them via `uv run`.
+- Format changed files by running `uv run black ...`.

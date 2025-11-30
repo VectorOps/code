@@ -165,6 +165,57 @@ async def test_tool_call_auto_approved_no_prompt(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_tool_call_auto_approved_by_rules(tmp_path: Path):
+    # Executor emits a tool call with auto_approve_rules that match arguments;
+    # runner should not prompt for approval.
+    nodes = [{"name": "Tool", "type": "tool_rules", "outcomes": []}]
+    g = Graph(nodes=nodes, edges=[])
+    workflow = Workflow(name="workflow", graph=g)
+
+    class ToolRulesExec(Executor):
+        type = "tool_rules"
+
+        async def run(self, inp):
+            if inp.response is None:
+                from vocode.settings import ToolSpec, ToolAutoApproveRule
+
+                spec = ToolSpec(
+                    name="nonexistent",
+                    enabled=True,
+                    auto_approve=None,
+                    auto_approve_rules=[
+                        ToolAutoApproveRule(key="resource.name", pattern=r"^prod-")
+                    ],
+                )
+                tc = ToolCall(
+                    name="nonexistent",
+                    arguments={"resource": {"name": "prod-api"}},
+                    tool_spec=spec,
+                )
+                yield (ReqToolCall(tool_calls=[tc]), None)
+                return
+            # After tool response, finish
+            yield (ReqFinalMessage(message=msg("agent", "done")), None)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        runner = Runner(workflow, project)
+        task = Assignment()
+        it = runner.run(task)
+
+        ev1 = await next_event_wrap(it)
+        assert ev1.event.kind == "tool_call"
+        # Should be auto-approved via rules => no prompt
+        assert ev1.input_requested is False
+
+        # Tools are still rejected by the default project (nonexistent), but
+        # this happens without user approval.
+        ev2 = await asend_wrap(it, RunInput(response=None))
+        assert ev2.event.kind == "tool_result"
+        ev3 = await asend_wrap(it, None)
+        assert ev3.event.kind == "final_message"
+
+
+@pytest.mark.asyncio
 async def test_message_request_reprompt_and_finish(tmp_path: Path):
     # Single-node graph with type 'ask'
     nodes = [{"name": "Ask", "type": "ask", "outcomes": [], "confirmation": "confirm"}]

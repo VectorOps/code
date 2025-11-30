@@ -1,5 +1,5 @@
 #+title: Code TODO
-* [ ] Add a way to pass final output to a different workflow as an input in the UI
+* [X] Add a way to pass final output to a different workflow as an input in the UI
 * [ ] Cleanup and optimizations
 ** [X] Autocompleters needs consts at model level
 * [ ] Documentation
@@ -118,6 +118,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Generate tool stubs for skills
 ** [ ] Web client tool
 ** [ ] Shell tool
+*** [ ] Add a way to approve similar tool calls within a session
 *** [ ] Windows shell support
 *** [ ] Non-POSIX shell support
 *** [ ] PTY support

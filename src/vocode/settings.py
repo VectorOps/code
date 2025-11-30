@@ -4,11 +4,13 @@ from pathlib import Path
 from os import PathLike
 import os
 import json
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
+from pydantic import model_validator, field_validator
 import yaml
 import json5  # type: ignore
 from .models import Node, Edge
 from .state import LogLevel
+from .lib.validators import get_value_by_dotted_key, regex_matches_value
 
 
 from knowlt.settings import ProjectSettings as KnowProjectSettings
@@ -50,12 +52,35 @@ class WorkflowConfig(BaseModel):
         return data
 
 
+class ToolAutoApproveRule(BaseModel):
+    """Rule for automatically approving a tool call based on its JSON arguments.
+
+    - key: dot-separated path inside the arguments dict (e.g. "resource.action").
+    - pattern: regular expression applied to the stringified value at that key.
+    """
+
+    key: str
+    pattern: str
+
+    @field_validator("pattern")
+    @classmethod
+    def _validate_pattern(cls, v: str) -> str:
+        """Validate that 'pattern' is a syntactically correct regular expression."""
+        try:
+            re.compile(v)
+        except re.error as exc:  # pragma: no cover - exact message is implementation detail
+            raise ValueError(f"Invalid regex pattern {v!r}: {exc}") from exc
+        return v
+
+
 class ToolSpec(BaseModel):
     """
     Tool specification usable both globally (Settings.tools) and per-node (LLMNode.tools).
     - name: required tool name
     - enabled: global enable/disable (ignored for node-local specs)
     - auto_approve: optional auto-approval flag for UI behavior
+    - auto_approve_rules: optional list of rules that allow auto-approval when
+      any rule matches the tool call arguments
     - config: free-form configuration for tool implementations
     Accepts shorthand string form: "tool_name".
     Extra fields are ignored.
@@ -64,6 +89,7 @@ class ToolSpec(BaseModel):
     name: str
     enabled: bool = True
     auto_approve: Optional[bool] = None
+    auto_approve_rules: List[ToolAutoApproveRule] = Field(default_factory=list)
     config: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
@@ -80,10 +106,28 @@ class ToolSpec(BaseModel):
                 "name": name,
                 "enabled": v.get("enabled", True),
                 "auto_approve": v.get("auto_approve", None),
+                "auto_approve_rules": v.get("auto_approve_rules", []) or [],
                 "config": v.get("config", {}) or {},
             }
             return out
         return v
+def tool_auto_approve_matches(
+    rules: List[ToolAutoApproveRule], arguments: Dict[str, Any]
+) -> bool:
+    """Return True if any auto-approve rule matches the provided arguments.
+
+    A rule matches when the dotted ``key`` resolves to a non-None value in
+    ``arguments`` and the compiled regular expression ``pattern`` finds a
+    match in ``str(value)``.
+    """
+
+    for rule in rules:
+        value = get_value_by_dotted_key(arguments, rule.key)
+        if value is None:
+            continue
+        if regex_matches_value(rule.pattern, value):
+            return True
+    return False
 
 
 class ToolCallFormatter(BaseModel):
