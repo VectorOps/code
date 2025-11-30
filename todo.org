@@ -118,7 +118,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Generate tool stubs for skills
 ** [ ] Web client tool
 ** [ ] Shell tool
-*** [ ] Limit how many lines are returned back to LLM
+*** [X] Limit how many lines are returned back to LLM
 *** [ ] Refresh know after shell command (could be slow)
 *** [ ] Add a way to approve similar tool calls within a session
 *** [ ] Windows shell support
@@ -131,7 +131,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Task management tool
 *** [X] Create output formatter
 *** [X] Do not show input parameters
-** [ ] Parallel tool calling support
+** [X] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Ensure that cwd is passed correctly
 ** [ ] Add a way to reject tool calling automatically if tools with same parameters were already called

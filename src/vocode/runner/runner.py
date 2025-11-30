@@ -490,73 +490,106 @@ class Runner:
         if resp_packet is not None and resp_packet.kind == PACKET_APPROVAL:
             approved = resp_packet.approved
 
-        for idx, tc in enumerate(req.tool_calls):
-            if not approved:
+        # Fast path: if rejected up-front, do not attempt any execution.
+        if not approved:
+            for idx, tc in enumerate(req.tool_calls):
                 tc.status = ToolCallStatus.rejected
                 tc.result = f"Tool '{tc.name}' rejected by user."
                 yield (ToolResultType.final, idx, tc.model_copy(deep=True))
-                continue
+            return
 
-            tool = self.project.tools.get(tc.name)
-            if tool is None:
-                tc.status = ToolCallStatus.rejected
-                tc.result = f"Tool '{tc.name}' is not available."
-                yield (ToolResultType.final, idx, tc.model_copy(deep=True))
-                continue
-            # If spec is not resolved, reject gracefully
-            if tc.tool_spec is None:
-                tc.status = ToolCallStatus.rejected
-                tc.result = (
-                    f"Tool '{tc.name}' could not be executed because its configuration "
-                    f"was not resolved."
-                )
-                yield (ToolResultType.final, idx, tc.model_copy(deep=True))
-                continue
-            # Use resolved ToolSpec from the ToolCall
-            spec = tc.tool_spec
-            # Execute tool; it returns a ToolResponse. Guard against tool crashes
-            # so that callers always receive a structured JSON error payload.
-            try:
-                result: Optional[ToolResponse] = await tool.run(
-                    self.project, spec, tc.arguments
-                )
-            except Exception as e:
-                tc.status = ToolCallStatus.rejected
-                # Error payload is a simple JSON object with the exception text.
-                tc.result = json.dumps({"error": str(e)})
-                yield (ToolResultType.final, idx, tc.model_copy(deep=True))
-                continue
-            # Route by enum discriminator
-            if result is None:
-                tc.status = ToolCallStatus.rejected
-                tc.result = f"Tool '{tc.name}' did not produce a result."
-                yield (ToolResultType.final, idx, tc.model_copy(deep=True))
-                continue
-            if result.type == ToolResponseType.text:
-                text = result.text  # type: ignore[union-attr]
-                tc.status = ToolCallStatus.completed
-                tc.result = text
-                yield (ToolResultType.final, idx, tc.model_copy(deep=True))
-            elif result.type == ToolResponseType.start_workflow:
-                # Request a nested workflow via UI
-                init_msg = result.initial_message
-                if init_msg is None and result.initial_text:
-                    init_msg = Message(role="user", text=result.initial_text)  # type: ignore[attr-defined]
-                req_sw = ReqStartWorkflow(
-                    workflow=result.workflow,  # type: ignore[union-attr]
-                    initial_message=init_msg,
-                )
-                # Emit start_workflow to caller with a template to finalize later
-                yield (
-                    ToolResultType.start_workflow,
-                    idx,
-                    (req_sw, tc.model_copy(deep=True)),
-                )
-            else:
-                # Unknown response shape; treat as error
-                tc.status = ToolCallStatus.rejected
-                tc.result = json.dumps({"error": "Unsupported tool response"})
-                yield (ToolResultType.final, idx, tc.model_copy(deep=True))
+        # Determine per-call concurrency limit from settings. None / <= 0 => unlimited.
+        max_concurrent: Optional[int] = None
+        settings = getattr(self.project, "settings", None)
+        if (
+            settings is not None
+            and getattr(settings, "tools_runtime", None) is not None
+        ):
+            max_concurrent = settings.tools_runtime.max_concurrent
+        semaphore: Optional[asyncio.Semaphore]
+        if max_concurrent is not None and max_concurrent > 0:
+            semaphore = asyncio.Semaphore(max_concurrent)
+        else:
+            semaphore = None
+
+        async def _run_single_tool(
+            index: int, tool_call
+        ) -> tuple[ToolResultType, int, Any]:
+            tc = tool_call
+
+            # Respect concurrency limiter when configured
+            if semaphore is not None:
+                async with semaphore:
+                    return await self._execute_single_tool(index, tc)
+            return await self._execute_single_tool(index, tc)
+
+        # Launch all tools concurrently and yield results as they complete.
+        tasks: List[asyncio.Task[tuple[ToolResultType, int, Any]]] = []
+        for idx, tc in enumerate(req.tool_calls):
+            tasks.append(asyncio.create_task(_run_single_tool(idx, tc)))
+
+        for fut in asyncio.as_completed(tasks):
+            kind, idx, payload = await fut
+            yield kind, idx, payload
+
+    async def _execute_single_tool(
+        self, index: int, tc
+    ) -> tuple[ToolResultType, int, Any]:
+        tool = self.project.tools.get(tc.name)
+        if tool is None:
+            tc.status = ToolCallStatus.rejected
+            tc.result = f"Tool '{tc.name}' is not available."
+            return ToolResultType.final, index, tc.model_copy(deep=True)
+        # If spec is not resolved, reject gracefully
+        if tc.tool_spec is None:
+            tc.status = ToolCallStatus.rejected
+            tc.result = (
+                f"Tool '{tc.name}' could not be executed because its configuration "
+                f"was not resolved."
+            )
+            return ToolResultType.final, index, tc.model_copy(deep=True)
+        # Use resolved ToolSpec from the ToolCall
+        spec = tc.tool_spec
+        # Execute tool; it returns a ToolResponse. Guard against tool crashes
+        # so that callers always receive a structured JSON error payload.
+        try:
+            result: Optional[ToolResponse] = await tool.run(
+                self.project, spec, tc.arguments
+            )
+        except Exception as e:
+            tc.status = ToolCallStatus.rejected
+            # Error payload is a simple JSON object with the exception text.
+            tc.result = json.dumps({"error": str(e)})
+            return ToolResultType.final, index, tc.model_copy(deep=True)
+        # Route by enum discriminator
+        if result is None:
+            tc.status = ToolCallStatus.rejected
+            tc.result = f"Tool '{tc.name}' did not produce a result."
+            return ToolResultType.final, index, tc.model_copy(deep=True)
+        if result.type == ToolResponseType.text:
+            text = result.text  # type: ignore[union-attr]
+            tc.status = ToolCallStatus.completed
+            tc.result = text
+            return ToolResultType.final, index, tc.model_copy(deep=True)
+        if result.type == ToolResponseType.start_workflow:
+            # Request a nested workflow via UI
+            init_msg = result.initial_message
+            if init_msg is None and result.initial_text:
+                init_msg = Message(role="user", text=result.initial_text)  # type: ignore[attr-defined]
+            req_sw = ReqStartWorkflow(
+                workflow=result.workflow,  # type: ignore[union-attr]
+                initial_message=init_msg,
+            )
+            # Emit start_workflow to caller with a template to finalize later
+            return (
+                ToolResultType.start_workflow,
+                index,
+                (req_sw, tc.model_copy(deep=True)),
+            )
+        # Unknown response shape; treat as error
+        tc.status = ToolCallStatus.rejected
+        tc.result = json.dumps({"error": "Unsupported tool response"})
+        return ToolResultType.final, index, tc.model_copy(deep=True)
 
     def _iter_retriable_activities_backward(
         self, task: Assignment, start_step_index: Optional[int] = None

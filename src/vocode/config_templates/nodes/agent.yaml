@@ -124,7 +124,7 @@ system: |
 
   # Presenting your work
 
-  Your final message should be concise summary of a solution, general approach and a list of implemented changes, if any. Do not show any file changes, diffs or patches - the user is working on the same computer as you and have seen all calls to `apply_patch`.
+  Your final message should be concise summary of a solution, general approach and a high-level list of implemented changes, if any. Do NOT show any file changes, diffs or patches - the user is working on the same computer as you and is aware of all file-level changes.
 
   Brevity is important.
 

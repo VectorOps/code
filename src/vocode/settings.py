@@ -203,6 +203,16 @@ class ExecToolSettings(BaseModel):
     max_output_chars: int = EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT
 
 
+class ToolRuntimeSettings(BaseModel):
+    """Runtime configuration for tool execution.
+
+    - max_concurrent: maximum number of tools to execute concurrently for a
+      single PACKET_TOOL_CALL. None or <= 0 means unlimited concurrency.
+    """
+
+    max_concurrent: Optional[int] = None
+
+
 class Settings(BaseModel):
     workflows: Dict[str, WorkflowConfig] = Field(default_factory=dict)
     # Optional name of the workflow to auto-start in interactive UIs
@@ -218,6 +228,8 @@ class Settings(BaseModel):
     process: Optional[ProcessSettings] = Field(default=None)
     # Optional global exec tool configuration
     exec_tool: Optional[ExecToolSettings] = Field(default=None)
+    # Optional runtime behavior for tool execution
+    tools_runtime: Optional[ToolRuntimeSettings] = Field(default=None)
     # Mapping of tool name -> formatter configuration
     tool_call_formatters: Dict[str, ToolCallFormatter] = Field(default_factory=dict)
 
