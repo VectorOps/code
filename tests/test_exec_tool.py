@@ -7,7 +7,12 @@ import pytest
 
 from vocode.proc.manager import ProcessManager
 from vocode.tools.exec_tool import ExecTool
-from vocode.settings import ToolSpec
+from vocode.settings import (
+    EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT,
+    ExecToolSettings,
+    Settings,
+    ToolSpec,
+)
 
 pytestmark = [
     pytest.mark.skipif(os.name != "posix", reason="POSIX-only tests"),
@@ -17,7 +22,7 @@ pytestmark = [
 class _DummyProject:
     def __init__(self, pm: ProcessManager):
         self.processes = pm
-        self.settings = None
+        self.settings = Settings(exec_tool=ExecToolSettings())
 
 
 def test_exec_tool_basic_stderr_and_timeout(tmp_path: Path):
@@ -56,6 +61,55 @@ def test_exec_tool_basic_stderr_and_timeout(tmp_path: Path):
         assert data4["timed_out"] is True
         assert data4["exit_code"] is None
         assert data4["output"] == ""
+
+        await pm.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_exec_tool_output_truncation(tmp_path: Path):
+    async def scenario():
+        pm = ProcessManager(backend_name="local", default_cwd=tmp_path)
+        proj = _DummyProject(pm)
+        tool = ExecTool()
+        spec = ToolSpec(name="exec", config={"timeout_s": 1})
+
+        # Generate output larger than the 10KB cap (trailing newline is fine).
+        # 12000 characters ensures truncation.
+        resp = await tool.run(
+            proj, spec, {"command": "python - << 'EOF'\nprint('x' * 12000)\nEOF"}
+        )
+        data = json.loads(resp.text or "{}")
+
+        assert data["timed_out"] is False
+        assert data["exit_code"] == 0
+        assert isinstance(data["output"], str)
+        assert len(data["output"]) <= EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT
+
+        await pm.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_exec_tool_output_truncation_respects_settings(tmp_path: Path):
+    async def scenario():
+        pm = ProcessManager(backend_name="local", default_cwd=tmp_path)
+        # Override project-level max_output_chars to a small value
+        proj = _DummyProject(pm)
+        proj.settings.exec_tool.max_output_chars = 100
+
+        tool = ExecTool()
+        spec = ToolSpec(name="exec", config={"timeout_s": 1})
+
+        resp = await tool.run(
+            proj, spec, {"command": "python - << 'EOF'\nprint('y' * 1000)\nEOF"}
+        )
+        data = json.loads(resp.text or "{}")
+
+        assert data["timed_out"] is False
+        assert data["exit_code"] == 0
+        assert isinstance(data["output"], str)
+        assert len(data["output"]) <= 100
 
         await pm.shutdown()
 

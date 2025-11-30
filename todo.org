@@ -77,17 +77,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Block parsers
 ** [ ] Diff parsers
 *** [ ] Patch format
-**** [ ] Fix scenario when multiple similar blocks are being updated one after another
-@@
--                tc.status = ToolCallStatus.rejected
-+                tc.status = v_state.ToolCallStatus.rejected
-@@
--                tc.status = ToolCallStatus.rejected
-+                tc.status = v_state.ToolCallStatus.rejected
-@@
--                tc.status = ToolCallStatus.rejected
-+                tc.status = v_state.ToolCallStatus.rejected
-@@
+**** [X] Fix scenario when multiple similar blocks are being updated one after another
 *** [ ] Better error reporting for unmatched blocks. Currently it's too verbose. For out of order blocks - it does not return enough information.
 *** [ ] Unified Diff format
 * [ ] Filters
@@ -129,6 +119,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Web client tool
 ** [ ] Shell tool
 *** [ ] Limit how many lines are returned back to LLM
+*** [ ] Refresh know after shell command (could be slow)
 *** [ ] Add a way to approve similar tool calls within a session
 *** [ ] Windows shell support
 *** [ ] Non-POSIX shell support

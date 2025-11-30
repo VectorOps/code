@@ -7,13 +7,45 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from vocode.proc.manager import ProcessManager
 from vocode.tools.base import BaseTool, ToolTextResponse
-from vocode.settings import ToolSpec
+from vocode.settings import EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT, ToolSpec
 
 if TYPE_CHECKING:
     from vocode.project import Project
+
 # Default timeout for exec tool invocations (seconds).
 # Can be overridden per-tool via ToolSpec.config["timeout_s"].
 EXEC_TOOL_TIMEOUT_S: float = 60.0
+
+
+def _get_max_output_chars(project: "Project", spec: ToolSpec) -> int:
+    """Determine max output size for this exec tool invocation.
+
+    Priority:
+    1) Per-tool override via ToolSpec.config["max_output_chars"] if provided and valid.
+    2) Project-level Settings.exec_tool.max_output_chars if configured.
+    3) Repository default constant.
+    """
+
+    # 1) Per-tool override
+    cfg = spec.config or {}
+    max_chars_cfg = cfg.get("max_output_chars")
+    if isinstance(max_chars_cfg, (int, float)) and max_chars_cfg > 0:
+        return int(max_chars_cfg)
+
+    # 2) Project-level setting
+    settings = getattr(project, "settings", None)
+    if settings is not None:
+        exec_cfg = getattr(settings, "exec_tool", None)
+        if exec_cfg is not None:
+            try:
+                max_chars = int(exec_cfg.max_output_chars)
+                if max_chars > 0:
+                    return max_chars
+            except (TypeError, ValueError):  # pragma: no cover - defensive
+                pass
+
+    # 3) Fallback to default
+    return EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT
 
 
 class ExecTool(BaseTool):
@@ -60,6 +92,7 @@ class ExecTool(BaseTool):
         async def _read_stderr():
             async for chunk in handle.iter_stderr():
                 stderr_parts.append(chunk)
+
         # Determine timeout: allow override via tool spec config
         cfg = spec.config or {}
         try:
@@ -88,6 +121,9 @@ class ExecTool(BaseTool):
             await asyncio.gather(*readers, return_exceptions=True)
 
         output = "".join(stdout_parts) + "".join(stderr_parts)
+        max_output_chars = _get_max_output_chars(project, spec)
+        if len(output) > max_output_chars:
+            output = output[:max_output_chars]
         payload = {
             "output": output,
             "exit_code": rc,
@@ -100,7 +136,8 @@ class ExecTool(BaseTool):
             "name": self.name,
             "description": (
                 "Execute a shell command and return combined stdout/stderr, exit code, and timeout status. "
-                f"Timeout is configurable via tool config (timeout_s) and defaults to {EXEC_TOOL_TIMEOUT_S} seconds."
+                f"Timeout is configurable via tool config (timeout_s) and defaults to {EXEC_TOOL_TIMEOUT_S} seconds. "
+                "Output is truncated to ~10KB."
             ),
             "parameters": {
                 "type": "object",

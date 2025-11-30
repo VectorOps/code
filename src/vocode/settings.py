@@ -27,6 +27,10 @@ VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 INCLUDE_KEY: Final[str] = "$include"
 
+# Default maximum combined stdout/stderr characters returned by the exec tool.
+# Individual projects can override this via Settings.exec_tool.max_output_chars.
+EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT: Final[int] = 10 * 1024
+
 
 class WorkflowConfig(BaseModel):
     name: Optional[str] = None
@@ -193,6 +197,12 @@ class ProcessSettings(BaseModel):
     shell: ShellSettings = Field(default_factory=ShellSettings)
 
 
+class ExecToolSettings(BaseModel):
+    # Maximum characters of combined stdout/stderr returned by the exec tool.
+    # This guards against excessive subprocess output overwhelming callers.
+    max_output_chars: int = EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT
+
+
 class Settings(BaseModel):
     workflows: Dict[str, WorkflowConfig] = Field(default_factory=dict)
     # Optional name of the workflow to auto-start in interactive UIs
@@ -206,6 +216,8 @@ class Settings(BaseModel):
     mcp: Optional[MCPSettings] = Field(default=None)
     # Optional process subsystem settings
     process: Optional[ProcessSettings] = Field(default=None)
+    # Optional global exec tool configuration
+    exec_tool: Optional[ExecToolSettings] = Field(default=None)
     # Mapping of tool name -> formatter configuration
     tool_call_formatters: Dict[str, ToolCallFormatter] = Field(default_factory=dict)
 
