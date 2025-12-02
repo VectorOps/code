@@ -1,4 +1,10 @@
 #+title: Code TODO
+* [ ] Figure out why exec node returns same result twice
+* [ ] Add multi-repo support
+** [ ] Work with default repo with ability to specify repo id (or a virtual path) to see files
+from other repos? Or just boost default repository results? (knowlt)
+** [ ] Commands to add/list/remove repos from the project
+** [ ] Figure out a way to list files in repos and/or push main repo files up (knowlt)
 * [X] Add a way to pass final output to a different workflow as an input in the UI
 * [ ] Cleanup and optimizations
 ** [X] Autocompleters needs consts at model level
@@ -27,7 +33,7 @@
 Concrete example: files that were read and already in context.
 ** [ ] Rewrite system prompt for analyst node
 * [ ] UI protocol
-** [ ] Remove direct calls from app to UIState
+** [X] Remove direct calls from app to UIState
 ** [ ] Debug stopping and continuing, sometimes it does not start after stop?
 ** [ ] Add syntax name hint to apply formatting
 * [ ] [#A] Nested workflows support

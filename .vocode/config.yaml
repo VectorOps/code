@@ -283,6 +283,23 @@ workflows:
       - prompt.done -> apply
       - apply.success -> prompt
       - apply.fail -> prompt
+  exec:
+    nodes:
+      - name: prompt
+        type: input
+        message: Enter your request
+        confirmation: auto
+        hide_final_output: true
+        outcomes:
+          - name: done
+      - name: test
+        type: exec
+        command: uv run pytest -q -rf ./tests/
+        timeout_s: 300
+        message: "Tests results below:"
+        confirmation: auto
+    edges:
+      - prompt.done -> test
   chat:
     description: "General chat assistant that can also browse and read repository files when needed."
     nodes:

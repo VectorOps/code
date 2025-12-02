@@ -68,8 +68,7 @@ class ExecExecutor(Executor):
         )
 
         # Prepare streaming buffers and pumps
-        stdout_parts: List[str] = []
-        stderr_parts: List[str] = []
+        parts: List[str] = []
         queue: asyncio.Queue[Tuple[str, str]] = asyncio.Queue()
         pending_chunks: List[str] = []
 
@@ -107,14 +106,13 @@ class ExecExecutor(Executor):
 
             # Drain available output
             try:
-                src, chunk = await asyncio.wait_for(queue.get(), timeout=0.1)
-                if src == "stdout":
-                    stdout_parts.append(chunk)
-                else:
-                    stderr_parts.append(chunk)
+                _, chunk = await asyncio.wait_for(queue.get(), timeout=0.1)
+                parts.append(chunk)
+
                 # Decide when to start streaming: after debounce window and if process is still running
                 if not streaming_started:
                     pending_chunks.append(chunk)
+
                     if (
                         loop.time() - start_time
                     ) >= STREAM_DEBOUNCE_S and not wait_task.done():
@@ -168,7 +166,7 @@ class ExecExecutor(Executor):
             except Exception:
                 rc = None
 
-        output = "".join(stdout_parts) + "".join(stderr_parts)
+        output = "".join(parts)
         # If we streamed, the terminal already saw 'header' and all chunks exactly as they arrived.
         # Avoid printing twice by matching the streamed text exactly (no extra newline).
         if streaming_started:
