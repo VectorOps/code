@@ -112,7 +112,9 @@ workflows:
                 pattern: "^uv run pytest"
               - key: command
                 pattern: "^uv run black"
-          - apply_patch
+          - name: apply_patch
+            config:
+              format: ${LLM_DIFF_FORMAT}
           - name: update_plan
             auto_approve: true
     edges:
