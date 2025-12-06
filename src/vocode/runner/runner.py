@@ -553,9 +553,7 @@ class Runner:
         # Execute tool; it returns a ToolResponse. Guard against tool crashes
         # so that callers always receive a structured JSON error payload.
         try:
-            result: Optional[ToolResponse] = await tool.run(
-                self.project, spec, tc.arguments
-            )
+            result: Optional[ToolResponse] = await tool.run(spec, tc.arguments)
         except Exception as e:
             tc.status = ToolCallStatus.rejected
             # Error payload is a simple JSON object with the exception text.

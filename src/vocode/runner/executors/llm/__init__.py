@@ -113,9 +113,7 @@ class LLMExecutor(Executor):
                 external_tools.append(
                     {
                         "type": "function",
-                        "function": await tool.openapi_spec(
-                            self.project, eff_specs[tool_name]
-                        ),
+                        "function": await tool.openapi_spec(eff_specs[tool_name]),
                     }
                 )
 

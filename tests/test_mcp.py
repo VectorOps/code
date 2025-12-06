@@ -61,7 +61,7 @@ async def test_mcp_manager_registers_and_cleans_tools(tmp_path: Path, monkeypatc
         raising=True,
     )
     # Isolate registry
-    monkeypatch.setattr("vocode.tools._registry", {}, raising=False)
+    monkeypatch.setattr("vocode.tools.base._registry", {}, raising=False)
 
     _write_cfg(
         tmp_path,
@@ -87,7 +87,7 @@ tools:
         assert "mcp_echo" in project.tools
         tool = project.tools["mcp_echo"]
         # Run the tool with empty args (tools accept Any; dict preferred)
-        res = await tool.run(project, ToolSpec(name="mcp_echo"), {})
+        res = await tool.run(ToolSpec(name="mcp_echo"), {})
         # Support both legacy str and new ToolTextResponse
         res_text = res.text if hasattr(res, "text") else res
         assert res_text == ""
@@ -158,7 +158,7 @@ tools:
 
         # Invoke the MCP tool through the proxy
         res = await project.tools["mcp_echo"].run(
-            project, ToolSpec(name="mcp_echo"), {"text": "hello"}
+            ToolSpec(name="mcp_echo"), {"text": "hello"}
         )
         # Support both legacy str and new ToolTextResponse
         res_text = res.text if hasattr(res, "text") else res

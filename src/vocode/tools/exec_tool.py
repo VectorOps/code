@@ -56,15 +56,13 @@ class ExecTool(BaseTool):
 
     name = "exec"
 
-    async def run(self, project: "Project", spec: ToolSpec, args: Any):
+    async def run(self, spec: ToolSpec, args: Any):
         if not isinstance(spec, ToolSpec):
             raise TypeError("ExecTool requires a resolved ToolSpec")
-        if project is None:
-            raise RuntimeError("ExecTool requires a project")
-        if project.processes is None:
+        if self.prj.processes is None:
             raise RuntimeError("ExecTool requires project.processes (ProcessManager)")
 
-        pm: ProcessManager = project.processes
+        pm: ProcessManager = self.prj.processes
 
         # Parse args
         command: Optional[str] = None
@@ -121,7 +119,7 @@ class ExecTool(BaseTool):
             await asyncio.gather(*readers, return_exceptions=True)
 
         output = "".join(stdout_parts) + "".join(stderr_parts)
-        max_output_chars = _get_max_output_chars(project, spec)
+        max_output_chars = _get_max_output_chars(self.prj, spec)
         if len(output) > max_output_chars:
             output = output[:max_output_chars]
         payload = {
@@ -131,7 +129,7 @@ class ExecTool(BaseTool):
         }
         return ToolTextResponse(text=json.dumps(payload))
 
-    async def openapi_spec(self, project: "Project", spec: ToolSpec) -> Dict[str, Any]:
+    async def openapi_spec(self, spec: ToolSpec) -> Dict[str, Any]:
         return {
             "name": self.name,
             "description": (
@@ -157,6 +155,6 @@ class ExecTool(BaseTool):
 try:
     from .base import register_tool
 
-    register_tool(ExecTool.name, ExecTool())
+    register_tool(ExecTool.name, ExecTool)
 except Exception:
     pass

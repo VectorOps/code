@@ -10,14 +10,16 @@ if TYPE_CHECKING:
 
 
 class MCPToolProxy(BaseTool):
-    """
-    Proxy BaseTool that forwards calls to an MCP manager/client.
-    """
+    """Proxy BaseTool that forwards calls to an MCP manager/client."""
 
     def __init__(
-        self, *, name: str, parameters_schema: Dict[str, Any], manager: "MCPManager"
-    ):
-        super().__init__()
+        self,
+        prj: "Project",
+        name: str,
+        parameters_schema: Dict[str, Any],
+        manager: "MCPManager",
+    ) -> None:
+        super().__init__(prj)
         self.name = name
         self._parameters_schema = parameters_schema or {
             "type": "object",
@@ -26,7 +28,7 @@ class MCPToolProxy(BaseTool):
         self._manager = manager
         # Tools accept Any/dict directly; no dynamic Pydantic model is constructed.
 
-    async def openapi_spec(self, project: "Project", spec: ToolSpec) -> Dict[str, Any]:
+    async def openapi_spec(self, spec: ToolSpec) -> Dict[str, Any]:
         return {
             "name": self.name,
             "description": "",
@@ -34,9 +36,7 @@ class MCPToolProxy(BaseTool):
             or {"type": "object", "properties": {}},
         }
 
-    async def run(
-        self, project: "Project", spec: ToolSpec, args: Any
-    ) -> ToolTextResponse:
+    async def run(self, spec: ToolSpec, args: Any) -> ToolTextResponse:
         """
         Accept parsed arguments (typically a dict) and forward to MCP manager.
         Falls back to empty dict for unsupported types/None.

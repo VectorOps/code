@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, TYPE_CHECKING, Optional, Annotated, Union
+from typing import Any, Type, Dict, TYPE_CHECKING, Optional, Annotated, Union
 from enum import Enum
 from pydantic import BaseModel, Field
 from vocode.state import Message
 from vocode.settings import ToolSpec
 
 if TYPE_CHECKING:
-    from .project import Project
+    from vocode.project import Project
 
 
 # Models
@@ -35,10 +35,10 @@ ToolResponse = Annotated[
 ]
 
 # Global registry of tool name -> tool instance
-_registry: Dict[str, "BaseTool"] = {}
+_registry: Dict[str, Type["BaseTool"]] = {}
 
 
-def register_tool(name: str, tool: "BaseTool") -> None:
+def register_tool(name: str, tool: Type["BaseTool"]) -> None:
     """Registers a tool instance."""
     if name in _registry:
         raise ValueError(f"Tool with name '{name}' already registered.")
@@ -50,12 +50,12 @@ def unregister_tool(name: str) -> bool:
     return _registry.pop(name, None) is not None
 
 
-def get_tool(name: str) -> Optional["BaseTool"]:
+def get_tool(name: str) -> Optional[Type["BaseTool"]]:
     """Gets a tool instance by name."""
     return _registry.get(name)
 
 
-def get_all_tools() -> Dict[str, "BaseTool"]:
+def get_all_tools() -> Dict[str, Type["BaseTool"]]:
     """Returns a copy of the tool registry."""
     return dict(_registry)
 
@@ -64,13 +64,11 @@ class BaseTool(ABC):
     # Subclasses must set this to a unique string
     name: str
 
-    def __init__(self) -> None:
-        pass
+    def __init__(self, prj: "Project") -> None:
+        self.prj = prj
 
     @abstractmethod
-    async def run(
-        self, project: "Project", spec: ToolSpec, args: Any
-    ) -> Optional[ToolResponse]:
+    async def run(self, spec: ToolSpec, args: Any) -> Optional[ToolResponse]:
         """
         Execute this tool within the context of the given Project.
         Args:
@@ -83,7 +81,7 @@ class BaseTool(ABC):
         pass
 
     @abstractmethod
-    async def openapi_spec(self, project: "Project", spec: ToolSpec) -> Dict[str, Any]:
+    async def openapi_spec(self, spec: ToolSpec) -> Dict[str, Any]:
         """
         Return this tool's definition in OpenAI 'function' tool format,
         using JSON Schema for parameters.

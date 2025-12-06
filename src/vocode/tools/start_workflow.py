@@ -14,9 +14,10 @@ class StartWorkflowTool(BaseTool):
 
     name = "start_workflow"
 
-    async def run(self, project, spec: ToolSpec, args: Any):
+    async def run(self, spec: ToolSpec, args: Any):
         if not isinstance(spec, ToolSpec):
             raise TypeError("StartWorkflowTool requires a resolved ToolSpec")
+
         workflow = (spec.config or {}).get("workflow")
         if not workflow or not isinstance(workflow, str):
             raise ValueError(
@@ -33,12 +34,12 @@ class StartWorkflowTool(BaseTool):
 
         return ToolStartWorkflowResponse(workflow=workflow, initial_text=initial_text)
 
-    async def openapi_spec(self, project, spec: ToolSpec) -> Dict[str, Any]:
+    async def openapi_spec(self, spec: ToolSpec) -> Dict[str, Any]:
         workflow_name = (spec.config or {}).get("workflow")
         wf_desc: Optional[str] = None
         try:
-            if project and getattr(project, "settings", None) and workflow_name:
-                wf = project.settings.workflows.get(workflow_name)
+            if self.prj and workflow_name:
+                wf = self.prj.settings.workflows.get(workflow_name)
                 wf_desc = getattr(wf, "description", None) if wf else None
         except Exception:
             wf_desc = None

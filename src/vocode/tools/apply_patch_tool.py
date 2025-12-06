@@ -20,11 +20,9 @@ class ApplyPatchTool(BaseTool):
 
     name = "apply_patch"
 
-    async def run(self, project: "Project", spec: ToolSpec, args: Any):
+    async def run(self, spec: ToolSpec, args: Any):
         if not isinstance(spec, ToolSpec):
             raise TypeError("ApplyPatchTool requires a resolved ToolSpec")
-        if project is None:
-            raise RuntimeError("ApplyPatchTool requires a project")
 
         # Read patch content from args
         text: Optional[str] = None
@@ -48,7 +46,7 @@ class ApplyPatchTool(BaseTool):
             )
 
         try:
-            base_path = project.base_path  # type: ignore[attr-defined]
+            base_path = self.prj.base_path  # type: ignore[attr-defined]
         except Exception:
             raise RuntimeError("ApplyPatchTool requires project.base_path")
 
@@ -72,7 +70,7 @@ class ApplyPatchTool(BaseTool):
                     if kind in change_type_map
                 ]
                 if changed_files:
-                    asyncio.create_task(project.refresh(files=changed_files))  # type: ignore[attr-defined]
+                    asyncio.create_task(self.prj.refresh(files=changed_files))  # type: ignore[attr-defined]
             except Exception:
                 # Best-effort: ignore refresh errors in tool execution path
                 pass
@@ -81,7 +79,7 @@ class ApplyPatchTool(BaseTool):
         except Exception as e:
             return ToolTextResponse(text=f"Error applying patch: {e}")
 
-    async def openapi_spec(self, project: "Project", spec: ToolSpec) -> Dict[str, Any]:
+    async def openapi_spec(self, spec: ToolSpec) -> Dict[str, Any]:
         fmts = sorted(get_supported_formats())
         return {
             "name": self.name,
@@ -109,6 +107,6 @@ class ApplyPatchTool(BaseTool):
 try:
     from .base import register_tool
 
-    register_tool(ApplyPatchTool.name, ApplyPatchTool())
+    register_tool(ApplyPatchTool.name, ApplyPatchTool)
 except Exception:
     pass

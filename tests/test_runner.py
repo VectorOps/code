@@ -2047,7 +2047,7 @@ async def test_mcp_tool_invocation_and_cleanup(tmp_path: Path, monkeypatch):
         raising=True,
     )
     # Isolate registry for this test
-    monkeypatch.setattr("vocode.tools._registry", {}, raising=False)
+    monkeypatch.setattr("vocode.tools.base._registry", {}, raising=False)
 
     # Config with MCP enabled and tool allow-list via Tools settings
     from vocode.project import init_project

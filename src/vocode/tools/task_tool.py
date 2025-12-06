@@ -1,5 +1,5 @@
 from __future__ import annotations
- 
+
 import json
 from typing import Any, Dict, List, TYPE_CHECKING
 
@@ -22,10 +22,10 @@ class UpdatePlanTool(BaseTool):
 
     name = "update_plan"
 
-    async def run(self, project: "Project", spec: ToolSpec, args: Any):
+    async def run(self, spec: ToolSpec, args: Any):
         if not isinstance(spec, ToolSpec):
             raise TypeError("update_plan requires a resolved ToolSpec")
-        if project is None:
+        if self.prj is None:
             raise RuntimeError("update_plan requires a project")
 
         if not isinstance(args, dict):
@@ -37,12 +37,14 @@ class UpdatePlanTool(BaseTool):
         if not isinstance(raw_todos, list) or not raw_todos:
             raise ValueError("update_plan requires a non-empty 'todos' list")
 
-        current = get_task_list(project)
+        current = get_task_list(self.prj)
 
         todos: List[Task] = []
         for item in raw_todos:
             if not isinstance(item, dict):
-                raise TypeError("Each todo must be an object with id, status, and optional title")
+                raise TypeError(
+                    "Each todo must be an object with id, status, and optional title"
+                )
 
             raw_id = item.get("id")
             if not isinstance(raw_id, str) or not raw_id:
@@ -97,7 +99,7 @@ class UpdatePlanTool(BaseTool):
                 "Only one task can have status 'in_progress' at a time in the task plan."
             )
 
-        save_task_list(project, updated)
+        save_task_list(self.prj, updated)
 
         # Return structured JSON so the LLM can reason about the plan.
         payload = {
@@ -113,9 +115,7 @@ class UpdatePlanTool(BaseTool):
 
         return ToolTextResponse(text=json.dumps(payload))
 
-    async def openapi_spec(
-        self, project: "Project", spec: ToolSpec
-    ) -> Dict[str, Any]:
+    async def openapi_spec(self, spec: ToolSpec) -> Dict[str, Any]:
         return {
             "name": self.name,
             "description": (
@@ -188,7 +188,7 @@ class UpdatePlanTool(BaseTool):
 try:
     from .base import register_tool
 
-    register_tool(UpdatePlanTool.name, UpdatePlanTool())
+    register_tool(UpdatePlanTool.name, UpdatePlanTool)
 except Exception:
     # Avoid import-time failures if the registry is not available.
     pass

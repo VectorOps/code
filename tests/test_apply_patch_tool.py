@@ -35,12 +35,14 @@ async def test_apply_patch_tool_success(tmp_path: Path):
             self.refresh_calls.append(list(files))
 
     project = FakeProject(tmp_path)
-    tool = get_tool("apply_patch")
-    assert tool is not None, "apply_patch tool should be registered"
+    ToolClass = get_tool("apply_patch")
+    assert ToolClass is not None, "apply_patch tool should be registered"
+
+    tool = ToolClass(project)  # type: ignore[call-arg]
 
     # Act: format comes from tool config, not args
     spec = ToolSpec(name="apply_patch", config={"format": "v4a"})
-    resp = await tool.run(project, spec, {"text": patch_text})  # type: ignore
+    resp = await tool.run(spec, {"text": patch_text})
     # Allow background refresh task to run
     await asyncio.sleep(0)
 
@@ -68,12 +70,14 @@ async def test_apply_patch_tool_unsupported_format(tmp_path: Path):
             pass
 
     project = FakeProject(tmp_path)
-    tool = get_tool("apply_patch")
-    assert tool is not None
+    ToolClass = get_tool("apply_patch")
+    assert ToolClass is not None
+
+    tool = ToolClass(project)  # type: ignore[call-arg]
 
     # Format provided via tool config; args only include text
     spec = ToolSpec(name="apply_patch", config={"format": "unknown"})
-    resp = await tool.run(project, spec, {"text": "*** Begin Patch\n*** End Patch"})  # type: ignore
+    resp = await tool.run(spec, {"text": "*** Begin Patch\n*** End Patch"})
     assert resp is not None
     assert resp.type.value == "text"
     assert "Unsupported patch format" in (resp.text or "")

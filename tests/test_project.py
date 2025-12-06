@@ -21,6 +21,13 @@ def _write_config(base: Path, content: str) -> Path:
 
 
 class DummyKnow:
+    def __init__(self):
+        class _PM:
+            def get_enabled_tools(self):
+                return []
+
+        self.pm = _PM()
+
     async def start(self, *_args, **_kwargs):
         return None
 
@@ -40,39 +47,39 @@ def patch_know(monkeypatch):
 
 def test_project_loads_settings_and_instantiates_enabled_tools(tmp_path, monkeypatch):
     # Isolate tool registry for this test
-    monkeypatch.setattr("vocode.tools._registry", {}, raising=False)
+    monkeypatch.setattr("vocode.tools.base._registry", {}, raising=False)
 
     # Define simple tools
     class EchoTool(BaseTool):
         name = "echo"
 
-        async def run(self, project: "Project", spec, args: BaseModel):
+        async def run(self, spec, args: BaseModel):
             pass
 
-        async def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
+        async def openapi_spec(self, spec) -> Dict[str, Any]:
             return {}
 
     class NeedsTool(BaseTool):
         name = "needs"
 
-        async def run(self, project: "Project", spec, args: BaseModel):
+        async def run(self, spec, args: BaseModel):
             pass
 
-        async def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
+        async def openapi_spec(self, spec) -> Dict[str, Any]:
             return {}
 
     class DisabledTool(BaseTool):
         name = "disabled"
 
-        async def run(self, project: "Project", spec, args: BaseModel):
+        async def run(self, spec, args: BaseModel):
             pass
 
-        async def openapi_spec(self, project: "Project", spec) -> Dict[str, Any]:
+        async def openapi_spec(self, spec) -> Dict[str, Any]:
             return {}
 
-    register_tool("echo", EchoTool())
-    register_tool("needs", NeedsTool())
-    register_tool("disabled", DisabledTool())
+    register_tool("echo", EchoTool)
+    register_tool("needs", NeedsTool)
+    register_tool("disabled", DisabledTool)
 
     # Write project config
     _write_config(
@@ -94,6 +101,9 @@ tools:
 
     proj = init_project(tmp_path)
 
+    # Instantiate tools from the global registry based on Settings.tools
+    proj.refresh_tools_from_registry()
+
     # Workflows loaded
     assert "t" in proj.settings.workflows
     assert proj.settings.workflows["t"].nodes == []
@@ -112,7 +122,7 @@ tools:
 @pytest.mark.asyncio
 async def test_project_parses_mcp_settings_and_starts_manager(tmp_path, monkeypatch):
     # Isolate tool registry
-    monkeypatch.setattr("vocode.tools._registry", {}, raising=False)
+    monkeypatch.setattr("vocode.tools.base._registry", {}, raising=False)
 
     # Configure the fake client
     fake_client = FakeMCPClient(

@@ -15,15 +15,16 @@ from vocode.tools import BaseTool, ToolTextResponse
 class _ConcurrencyTool(BaseTool):
     name = "concurrency_tool"
 
-    def __init__(self, counter: "_Counter") -> None:
+    def __init__(self, project, counter: "_Counter") -> None:
+        super().__init__(project)
         self._counter = counter
 
-    async def run(self, project, spec: ToolSpec, args: Any) -> ToolTextResponse:
+    async def run(self, spec: ToolSpec, args: Any) -> ToolTextResponse:
         async with self._counter.track():
             await asyncio.sleep(args.get("delay", 0.01))
         return ToolTextResponse(text="ok")
-
-    async def openapi_spec(self) -> dict:
+    
+    async def openapi_spec(self, spec: ToolSpec) -> dict:
         return {
             "name": self.name,
             "description": "Test concurrency tool",
@@ -102,7 +103,6 @@ class _DummyProject:
 @pytest.mark.asyncio
 async def test_runner_tool_concurrency_respects_setting():
     counter = _Counter()
-    tool = _ConcurrencyTool(counter)
 
     wf_nodes = [_ToolExecNode(name="root", outcomes=[])]
     graph = Graph(nodes=wf_nodes, edges=[])
@@ -112,7 +112,7 @@ async def test_runner_tool_concurrency_respects_setting():
         tools_runtime=ToolRuntimeSettings(max_concurrent=2),
     )
 
-    project = _DummyProject(settings=settings, tool=tool)
+    project = _DummyProject(settings=settings, tool=_ConcurrencyTool(None, counter))
 
     class _WF:
         def __init__(self, g):

@@ -15,22 +15,20 @@ if TYPE_CHECKING:
 class _KnowToolWrapper(BaseTool):
     """A wrapper to make a know tool compatible with the vocode tool system."""
 
-    def __init__(self, know_tool: KnowBaseTool):
-        super().__init__()
+    def __init__(self, prj: "Project", know_tool: KnowBaseTool):
+        super().__init__(prj)
         self._know_tool = know_tool
         self.name = self._know_tool.tool_name
         # Propagate input/output model types from the Know tool
         self.input_model = self._know_tool.tool_input
 
-    async def openapi_spec(self, project: "Project", spec: ToolSpec) -> dict[str, Any]:
+    async def openapi_spec(self, spec: ToolSpec) -> dict[str, Any]:
         return await self._know_tool.get_openai_schema()
 
-    async def run(
-        self, project: "Project", spec: ToolSpec, args: Any
-    ) -> ToolTextResponse:
+    async def run(self, spec: ToolSpec, args: Any) -> ToolTextResponse:
         try:
             # Execute the knowlt tool directly (async).
-            result = await self._know_tool.execute(project.know.pm, args)
+            result = await self._know_tool.execute(args)
             return ToolTextResponse(text=result if result is not None else None)
         except Exception as e:
             # Return a structured error instead of propagating.
@@ -39,24 +37,5 @@ class _KnowToolWrapper(BaseTool):
             )
 
 
-_know_tools_registered = False
-
-
-def register_know_tools() -> None:
-    """
-    Registers all 'know' tools with the vocode tool registry.
-    This is idempotent.
-    """
-    global _know_tools_registered
-    if _know_tools_registered:
-        return
-
-    for tool_instance in KnowToolRegistry._tools.values():
-        wrapper = _KnowToolWrapper(tool_instance)
-        try:
-            register_tool(wrapper.name, wrapper)
-        except ValueError:
-            # Tool with this name is already registered, skipping.
-            pass
-
-    _know_tools_registered = True
+def convert_know_tool(prj: "Project", tool: KnowBaseTool):
+    return _KnowToolWrapper(prj, tool)

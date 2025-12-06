@@ -115,14 +115,14 @@ async def test_tool_start_workflow_initiates_child_and_returns_result():
     class StartChildTool(BaseTool):
         name = "start_child_tool"
 
-        async def run(self, project, spec, args):
+        async def run(self, spec, args):
             # Forward initial text from args, if present
             initial_text = args.get("text") if isinstance(args, dict) else None
             return ToolStartWorkflowResponse(
                 workflow="child", initial_text=initial_text
             )
 
-        async def openapi_spec(self):
+        async def openapi_spec(self, spec):
             return {
                 "name": self.name,
                 "description": "Starts a child workflow",
@@ -193,7 +193,7 @@ async def test_tool_start_workflow_initiates_child_and_returns_result():
         {"parent": WF(parent_nodes, []), "child": WF(child_nodes, [])}
     )
     # Provide the tool via the project's tool registry
-    project.tools = {"start_child_tool": StartChildTool()}
+    project.tools = {"start_child_tool": StartChildTool(project)}
 
     ui = UIState(project)
     await ui.start_by_name("parent")

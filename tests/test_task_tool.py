@@ -81,9 +81,10 @@ async def test_tasklist_persistence_helpers(tmp_path):
 async def test_update_plan_tool_run_and_persist(tmp_path):
     async with ProjectSandbox.create(tmp_path) as project:
         project.refresh_tools_from_registry()
-        tool = get_tool("update_plan")
-        assert tool is not None
+        ToolClass = get_tool("update_plan")
+        assert ToolClass is not None
 
+        tool = ToolClass(project)
         spec = ToolSpec(name="update_plan")
         args = {
             "merge": True,
@@ -101,7 +102,7 @@ async def test_update_plan_tool_run_and_persist(tmp_path):
             ],
         }
 
-        response = await tool.run(project, spec, args)
+        response = await tool.run(spec, args)
         assert isinstance(response, ToolTextResponse)
         assert response.type is ToolResponseType.text
 
@@ -124,11 +125,12 @@ async def test_update_plan_tool_run_and_persist(tmp_path):
 async def test_update_plan_openapi_spec(tmp_path):
     async with ProjectSandbox.create(tmp_path) as project:
         project.refresh_tools_from_registry()
-        tool = get_tool("update_plan")
-        assert tool is not None
+        ToolClass = get_tool("update_plan")
+        assert ToolClass is not None
 
+        tool = ToolClass(project)
         spec = ToolSpec(name="update_plan")
-        schema = await tool.openapi_spec(project, spec)
+        schema = await tool.openapi_spec(spec)
 
         assert schema["name"] == "update_plan"
         params = schema["parameters"]
@@ -156,9 +158,10 @@ async def test_update_plan_openapi_spec(tmp_path):
 async def test_single_in_progress_enforced_on_replace(tmp_path):
     async with ProjectSandbox.create(tmp_path) as project:
         project.refresh_tools_from_registry()
-        tool = get_tool("update_plan")
-        assert tool is not None
+        ToolClass = get_tool("update_plan")
+        assert ToolClass is not None
 
+        tool = ToolClass(project)
         spec = ToolSpec(name="update_plan")
         args = {
             "merge": False,
@@ -169,7 +172,7 @@ async def test_single_in_progress_enforced_on_replace(tmp_path):
         }
 
         with pytest.raises(ValueError):
-            await tool.run(project, spec, args)
+            await tool.run(spec, args)
 
 
 @pytest.mark.asyncio
@@ -185,9 +188,10 @@ async def test_single_in_progress_enforced_on_merge(tmp_path):
         save_task_list(project, initial)
 
         project.refresh_tools_from_registry()
-        tool = get_tool("update_plan")
-        assert tool is not None
+        ToolClass = get_tool("update_plan")
+        assert ToolClass is not None
 
+        tool = ToolClass(project)
         spec = ToolSpec(name="update_plan")
         # Try to mark another task as in_progress without updating the first one.
         args = {
@@ -202,7 +206,7 @@ async def test_single_in_progress_enforced_on_merge(tmp_path):
         }
 
         with pytest.raises(ValueError):
-            await tool.run(project, spec, args)
+            await tool.run(spec, args)
 
 
 @pytest.mark.asyncio
@@ -216,9 +220,10 @@ async def test_merge_without_title_uses_existing_title(tmp_path):
         save_task_list(project, initial)
 
         project.refresh_tools_from_registry()
-        tool = get_tool("update_plan")
-        assert tool is not None
+        ToolClass = get_tool("update_plan")
+        assert ToolClass is not None
 
+        tool = ToolClass(project)
         spec = ToolSpec(name="update_plan")
         args = {
             "merge": True,
@@ -231,7 +236,7 @@ async def test_merge_without_title_uses_existing_title(tmp_path):
             ],
         }
 
-        response = await tool.run(project, spec, args)
+        response = await tool.run(spec, args)
         assert isinstance(response, ToolTextResponse)
 
         task_list = get_task_list(project)
@@ -244,9 +249,10 @@ async def test_merge_without_title_uses_existing_title(tmp_path):
 async def test_merge_missing_title_for_new_task_errors(tmp_path):
     async with ProjectSandbox.create(tmp_path) as project:
         project.refresh_tools_from_registry()
-        tool = get_tool("update_plan")
-        assert tool is not None
+        ToolClass = get_tool("update_plan")
+        assert ToolClass is not None
 
+        tool = ToolClass(project)
         spec = ToolSpec(name="update_plan")
         args = {
             "merge": True,
@@ -260,16 +266,17 @@ async def test_merge_missing_title_for_new_task_errors(tmp_path):
         }
 
         with pytest.raises(ValueError):
-            await tool.run(project, spec, args)
+            await tool.run(spec, args)
 
 
 @pytest.mark.asyncio
 async def test_replace_missing_title_errors(tmp_path):
     async with ProjectSandbox.create(tmp_path) as project:
         project.refresh_tools_from_registry()
-        tool = get_tool("update_plan")
-        assert tool is not None
+        ToolClass = get_tool("update_plan")
+        assert ToolClass is not None
 
+        tool = ToolClass(project)
         spec = ToolSpec(name="update_plan")
         args = {
             "merge": False,
@@ -283,4 +290,4 @@ async def test_replace_missing_title_errors(tmp_path):
         }
 
         with pytest.raises(ValueError):
-            await tool.run(project, spec, args)
+            await tool.run(spec, args)

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 from .know import KnowProject
 from .scm.git import GitSCM
-from .know.tools import register_know_tools
+from .know.tools import convert_know_tool
 from .tools import get_all_tools
 from .settings import KnowProjectSettings, Settings
 from .settings_loader import load_settings
@@ -146,7 +146,7 @@ class Project:
 
     def refresh_tools_from_registry(self) -> None:
         """
-        Refresh self.tools from the global registry, excluding disabled tools per settings.
+        Refresh self.tools from the global registry and dynamic sources, excluding disabled tools per settings.
         """
         from .tools import get_all_tools
 
@@ -159,12 +159,32 @@ class Project:
             if self.settings
             else set()
         )
+
+        # Code tools
         all_tools = get_all_tools()
         self.tools = {
-            name: tool
-            for name, tool in all_tools.items()
+            name: cls(self)
+            for name, cls in all_tools.items()
             if name not in disabled_tool_names
         }
+
+        # Know tools
+        for t in self.know.pm.get_enabled_tools():
+            if t.tool_name not in disabled_tool_names:
+                self.tools[t.tool_name] = convert_know_tool(self, t)
+
+        # MCP tools (discovered dynamically via MCPManager, not registered globally).
+        if self.mcp_manager is not None:
+            # TODO: Fix circular import
+            from .mcp.proxy import MCPToolProxy
+
+            for name, schema in self.mcp_manager.get_tool_schemas().items():
+                # Respect disabled tools and avoid overriding existing tool implementations.
+                if name in disabled_tool_names:
+                    continue
+                if name in self.tools:
+                    continue
+                self.tools[name] = MCPToolProxy(self, name, schema, self.mcp_manager)
 
     async def start(self) -> None:
         """
@@ -202,6 +222,10 @@ class Project:
                 default_cwd=self.base_path,
                 env_policy=env_policy,
             )
+
+        # Register tools
+        self.refresh_tools_from_registry()
+
         # Perform an initial refresh of the 'know' project on start
         await self.refresh()
 
@@ -303,14 +327,10 @@ def init_project(
     # Persist computed know settings for deferred async initialization in start()
     settings.know = know_settings
 
-    # TODO: Move out
-    register_know_tools()
-
     proj = Project(
         base_path=base,
         config_relpath=rel,
         settings=settings,
     )
-    # Initialize tools snapshot based on current registry (includes 'know' tools).
-    proj.refresh_tools_from_registry()
+
     return proj

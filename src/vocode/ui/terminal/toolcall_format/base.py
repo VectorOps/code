@@ -27,7 +27,7 @@ DEFAULT_TOOL_CALL_FORMATTERS: Dict[str, "ToolCallFormatter"] = {
     "list_files": ToolCallFormatter(
         title="ListFiles",
         formatter="generic",
-        options={"field": "patterns"},
+        options={"field": "pattern"},
     ),
     "exec": ToolCallFormatter(
         title="Exec",

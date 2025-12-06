@@ -10,8 +10,6 @@ except Exception:
     FastMCPClient = None  # type: ignore[assignment]
 
 from ..settings import MCPSettings, MCPServerSettings, ToolSpec
-from ..tools import register_tool, unregister_tool
-from .proxy import MCPToolProxy
 
 if TYPE_CHECKING:
     from ..project import Project
@@ -28,7 +26,7 @@ class MCPManager:
     def __init__(self, settings: MCPSettings) -> None:
         self._settings = settings
         self._client: Optional[Any] = None  # fastmcp.Client instance (entered)
-        self._registered_tools: List[str] = []
+        self._tool_schemas: Dict[str, Dict[str, Any]] = {}
         self._started: bool = False
         self._project: Optional["Project"] = None
 
@@ -43,20 +41,27 @@ class MCPManager:
         tools = await self._list_tools()
         # Optional whitelist
         whitelist = self._settings.tools_whitelist or []
+        # Reset discovered tool schemas on (re)start.
+        self._tool_schemas.clear()
+
         for tool in tools:
-            name = tool.name
+            # fastmcp list_tools() entries are expected to expose 'name' and 'inputSchema'.
+            name = getattr(tool, "name", None)
             if not name:
                 continue
             if whitelist and name not in whitelist:
                 continue
-            parameters = tool.inputSchema or {"type": "object", "properties": {}}
-            proxy = MCPToolProxy(name=name, parameters_schema=parameters, manager=self)
-            try:
-                register_tool(name, proxy)
-                self._registered_tools.append(name)
-            except ValueError:
-                # Already registered; skip
+
+            parameters = getattr(tool, "inputSchema", None) or {
+                "type": "object",
+                "properties": {},
+            }
+
+            # If multiple MCP servers expose the same tool name, keep the first one.
+            if name in self._tool_schemas:
                 continue
+
+            self._tool_schemas[name] = parameters
 
         # Update project tool enablement snapshot
         project.refresh_tools_from_registry()
@@ -64,10 +69,8 @@ class MCPManager:
         self._started = True
 
     async def stop(self) -> None:
-        # Unregister tools first
-        for name in list(self._registered_tools):
-            unregister_tool(name)
-        self._registered_tools.clear()
+        # Clear discovered MCP tool schemas so they are no longer exposed via the project.
+        self._tool_schemas.clear()
 
         # Notify project of tool set changes
         if self._project:
@@ -86,6 +89,13 @@ class MCPManager:
         if not self._client:
             raise RuntimeError("MCPManager is not started")
         return await self._client.call_tool(name=name, arguments=args)
+
+    def get_tool_schemas(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Return a copy of the discovered MCP tool schemas keyed by tool name.
+        Empty if the MCP client has not been started or if discovery returned no tools.
+        """
+        return dict(self._tool_schemas)
 
     async def _create_client(self) -> Any:
         """
