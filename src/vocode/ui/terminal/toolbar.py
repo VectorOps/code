@@ -1,11 +1,10 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import shutil
 import time
 
 from prompt_toolkit.formatted_text import FormattedText, HTML
 from prompt_toolkit.formatted_text.utils import fragment_list_width
-
 
 from vocode.ui.base import UIState
 from vocode.ui.proto import UIPacketRunEvent
@@ -17,6 +16,9 @@ from vocode.runner.models import (
 from vocode.models import Confirmation
 from vocode.state import RunnerStatus
 from vocode.ui.terminal import styles
+
+if TYPE_CHECKING:
+    from .app import TerminalApp
 
 # Tool-call rendering happens in app.py when events are printed.
 
@@ -88,40 +90,75 @@ def build_prompt(ui: UIState, pending_req: Optional[UIPacketRunEvent]) -> Format
 
 
 def build_toolbar(
-    ui: UIState, pending_req: Optional[UIPacketRunEvent]
+    app: "TerminalApp",
+    pending_req: Optional[UIPacketRunEvent],
 ) -> FormattedText:
-    wf = ui.selected_workflow_name or "-"
-    node = ui.current_node_name or "-"
+    ui = app.ui
+    wf = ui.selected_workflow_name if ui and ui.selected_workflow_name else "-"
+    node = ui.current_node_name if ui and ui.current_node_name else "-"
+
     # Determine status display with "waiting input" and running animation.
-    raw_status = ui.status.value
+    if ui is not None:
+        raw_status = ui.status.value
+        status_is_running = ui.status == RunnerStatus.running
+    else:
+        raw_status = RunnerStatus.idle.value
+        status_is_running = False
 
     if pending_req is not None and pending_req.event.input_requested:
         status_display = "waiting input"
-    elif ui.status == RunnerStatus.running:
-        # Animate dots: 1..3 then loop, appended to the status text
+    elif status_is_running:
         dots = (int(time.monotonic()) % 3) + 1
         status_display = f"{raw_status}{'.' * dots}{' ' * (3 - dots)}"
     else:
         status_display = raw_status
 
-    # Build toolbar fragments as a list of (style class, text) tuples.
     left_fragments: FormattedText = [
         ("class:toolbar.wf", wf),
         ("class:toolbar", "@"),
         ("class:toolbar.node", node),
         ("class:toolbar", f" [{status_display}]"),
     ]
-    # Note: tool-call previews are rendered in app.py when events are printed.
 
-    p = ui.acc_prompt_tokens
-    c = ui.acc_completion_tokens
-    cost = ui.acc_cost_dollars
+    # Usage: derive from cached LLMUsageStats on TerminalApp.
+    global_usage = getattr(app, "llm_usage_global", None)
+    session_usage = getattr(app, "llm_usage_session", None)
+    node_usage = getattr(app, "llm_usage_node", None)
+
+    current_in = int(getattr(node_usage, "prompt_tokens", 0) or 0)
+    # Best-effort input token limit: node -> session -> global.
+    current_limit = None
+    for stats in (node_usage, session_usage, global_usage):
+        limit = getattr(stats, "input_token_limit", None) if stats is not None else None
+        if limit:
+            current_limit = int(limit)
+            break
+
+    total_in = int(getattr(global_usage, "prompt_tokens", 0) or 0)
+    total_out = int(getattr(global_usage, "completion_tokens", 0) or 0)
+    total_cost = float(getattr(global_usage, "cost_dollars", 0.0) or 0.0)
+
+    # Percentage of local (node) prompt tokens vs input limit.
+    pct_display = ""
+    if current_limit and current_limit > 0:
+        pct = int((current_in / current_limit) * 100)
+        if pct > 999:
+            pct = 999
+        pct_display = f" ({pct}%)"
+
+    if current_limit is not None:
+        head = f"{_abbr_int(current_in)}/{_abbr_int(current_limit)}{pct_display}"
+    else:
+        head = f"{_abbr_int(current_in)}/-"
+
     right_text = (
-        f"p:{_abbr_int(int(p))} r:{_abbr_int(int(c))} ${_abbr_cost(float(cost))}"
+        f"{head} | "
+        f"ts:{_abbr_int(total_in)} "
+        f"tr:{_abbr_int(total_out)} "
+        f"${_abbr_cost(total_cost)}"
     )
     right_fragments: FormattedText = [("class:toolbar", right_text)]
 
-    # Measure widths to compute spacing.
     width = shutil.get_terminal_size(fallback=(80, 24)).columns
     lw = fragment_list_width(left_fragments)
     rw = fragment_list_width(right_fragments)

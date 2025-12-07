@@ -15,7 +15,7 @@ from .tools import get_all_tools
 from .settings import KnowProjectSettings, Settings
 from .settings_loader import load_settings
 from .templates import write_default_config
-from vocode.runner.models import TokenUsageTotals
+from vocode.state import LLMUsageStats
 from vocode.commands import CommandManager
 from .mcp.manager import MCPManager
 from .proc.manager import ProcessManager
@@ -74,8 +74,8 @@ class Project:
         self.project_state: ProjectState = ProjectState()
         # Workflow-scoped custom commands (cleared on workflow changes)
         self.commands: CommandManager = CommandManager()
-        # Ephemeral (per-process) LLM usage totals
-        self.llm_usage: TokenUsageTotals = TokenUsageTotals()
+        # Ephemeral (per-process) global LLM usage totals
+        self.llm_usage: LLMUsageStats = LLMUsageStats()
         # Process manager
         self.processes: Optional[ProcessManager] = None
         # Message queue
@@ -140,9 +140,10 @@ class Project:
         self, prompt_delta: int, completion_delta: int, cost_delta: float
     ) -> None:
         """Increment aggregate LLM usage totals for this project."""
-        self.llm_usage.prompt_tokens += int(prompt_delta or 0)
-        self.llm_usage.completion_tokens += int(completion_delta or 0)
-        self.llm_usage.cost_dollars += float(cost_delta or 0.0)
+        stats = self.llm_usage
+        stats.prompt_tokens += int(prompt_delta or 0)
+        stats.completion_tokens += int(completion_delta or 0)
+        stats.cost_dollars += float(cost_delta or 0.0)
 
     def refresh_tools_from_registry(self) -> None:
         """

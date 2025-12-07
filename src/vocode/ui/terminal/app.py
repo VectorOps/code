@@ -56,9 +56,10 @@ from vocode.runner.models import (
     RespApproval,
     PACKET_MESSAGE_REQUEST,
     PACKET_TOOL_CALL,
-     PACKET_TOOL_RESULT,
+    PACKET_TOOL_RESULT,
     PACKET_MESSAGE,
     PACKET_FINAL_MESSAGE,
+    PACKET_TOKEN_USAGE,
     RunInput,
     RespPacket,
 )
@@ -139,6 +140,10 @@ class TerminalApp:
         self.old_sigusr2 = None
         self.consumer_task: Optional[asyncio.Task] = None
         self._log_handler = None
+        # Cached LLM usage snapshots from PACKET_TOKEN_USAGE events.
+        self.llm_usage_global = None
+        self.llm_usage_session = None
+        self.llm_usage_node = None
 
     def _toolbar_should_animate(self) -> bool:
         """
@@ -505,6 +510,25 @@ class TerminalApp:
         await self._update_toolbar_ticker()
         return
 
+    async def _runner_token_usage(self, envelope: UIPacketEnvelope) -> None:
+        """
+        Cache aggregated LLM usage for toolbar display.
+        """
+        req_payload = envelope.payload
+        assert req_payload.kind == PACKET_RUN_EVENT
+        ev = req_payload.event.event
+
+        # ev is a ReqTokenUsage instance from runner.models
+        try:
+            self.llm_usage_global = ev.global_usage
+            self.llm_usage_session = ev.session_usage
+            self.llm_usage_node = ev.node_usage
+        except Exception:
+            return
+
+        if self.session:
+            self.session.app.invalidate()
+
     async def _runner_tool_result(self, envelope: UIPacketEnvelope) -> None:
         assert self.ui is not None
         req_payload = envelope.payload
@@ -639,6 +663,9 @@ class TerminalApp:
         if ev.kind == PACKET_FINAL_MESSAGE:
             await self._runner_final_message(envelope)
             return
+        if ev.kind == PACKET_TOKEN_USAGE:
+            await self._runner_token_usage(envelope)
+            return
 
     async def event_consumer(self) -> None:
         assert self.ui is not None
@@ -762,7 +789,7 @@ class TerminalApp:
                 )
 
                 def _render_toolbar():
-                    base = build_toolbar(self.ui, self._pending_run_event_payload())
+                    base = build_toolbar(self, self._pending_run_event_payload())
                     fr = list(to_formatted_text(base))
                     # Compose a simple progress display in the toolbar from UIState
                     if self.ui and self.ui.project_op.message is not None:

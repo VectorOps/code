@@ -148,6 +148,20 @@ class Step(BaseModel):
     )
 
 
+class LLMUsageStats(BaseModel):
+    """
+    Aggregated LLM usage and limits.
+    Used for global, per-session, and per-node accounting.
+    """
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost_dollars: float = 0.0
+    # Model limits; typically represent input (context window) and optional output cap
+    input_token_limit: Optional[int] = None
+    output_token_limit: Optional[int] = None
+
+
 class Assignment(BaseModel):
     id: UUID = Field(
         default_factory=uuid4, description="Unique identifier for this assignment"
@@ -157,6 +171,10 @@ class Assignment(BaseModel):
         description="Current status of this assignment",
     )
     steps: List[Step] = Field(default_factory=list)
+    llm_usage: LLMUsageStats = Field(
+        default_factory=LLMUsageStats,
+        description="Aggregate LLM usage for this assignment/session.",
+    )
 
 
 class TaskStatus(str, Enum):

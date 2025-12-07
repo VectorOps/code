@@ -8,12 +8,13 @@ import litellm
 from vocode.runner.runner import Executor
 from vocode.models import OutcomeStrategy
 from vocode.state import Message, ToolCall
+from vocode.state import Message, ToolCall, LLMUsageStats
 from vocode.runner.models import (
     ReqPacket,
     ReqToolCall,
     ReqFinalMessage,
     ReqInterimMessage,
-    ReqTokenUsage,
+    ReqLocalTokenUsage,
     RespToolCall,
     RespMessage,
     ExecRunInput,
@@ -303,15 +304,14 @@ class LLMExecutor(Executor):
             round_cost = h_get_round_cost(
                 stream, cfg.model, cfg, prompt_tokens, completion_tokens
             )
-            # Per-cycle usage and model context window for reporting
-            current_prompt_tokens = prompt_tokens
-            current_completion_tokens = completion_tokens
             model_input_token_limit = h_resolve_model_token_limit(cfg)
 
-            self.project.add_llm_usage(
-                prompt_delta=prompt_tokens,
-                completion_delta=completion_tokens,
-                cost_delta=round_cost,
+            # Build per-call local usage stats for Runner to aggregate.
+            usage = LLMUsageStats(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cost_dollars=round_cost,
+                input_token_limit=model_input_token_limit,
             )
 
             state.total_prompt_tokens += prompt_tokens
@@ -391,19 +391,8 @@ class LLMExecutor(Executor):
                     raise RuntimeError(
                         f"LLMExecutor exceeded maximum function-call rounds ({MAX_ROUNDS}); possible tool loop"
                     )
-                # Report token usage for this tool-using round before requesting tool execution
-                _ = yield (
-                    ReqTokenUsage(
-                        acc_prompt_tokens=self.project.llm_usage.prompt_tokens,
-                        acc_completion_tokens=self.project.llm_usage.completion_tokens,
-                        acc_cost_dollars=self.project.llm_usage.cost_dollars,
-                        current_prompt_tokens=current_prompt_tokens,
-                        current_completion_tokens=current_completion_tokens,
-                        token_limit=model_input_token_limit,
-                        local=True,
-                    ),
-                    state,
-                )
+                # Report per-call local usage before requesting tool execution
+                _ = yield (ReqLocalTokenUsage(usage=usage), state)
                 yield (ReqToolCall(tool_calls=external_calls), state)
                 return
 
@@ -433,19 +422,8 @@ class LLMExecutor(Executor):
                         else:
                             outcome_name = outcomes[0]
 
-            # Report token usage/cost before finalizing
-            _ = yield (
-                ReqTokenUsage(
-                    acc_prompt_tokens=self.project.llm_usage.prompt_tokens,
-                    acc_completion_tokens=self.project.llm_usage.completion_tokens,
-                    acc_cost_dollars=self.project.llm_usage.cost_dollars,
-                    current_prompt_tokens=current_prompt_tokens,
-                    current_completion_tokens=current_completion_tokens,
-                    token_limit=model_input_token_limit,
-                    local=True,
-                ),
-                state,
-            )
+            # Report per-call local usage before finalizing
+            _ = yield (ReqLocalTokenUsage(usage=usage), state)
 
             # Finalize: prepare final message and persist state. Allow post-final user reply on next cycle.
             final_msg = Message(role="agent", text=assistant_text, node=cfg.name)

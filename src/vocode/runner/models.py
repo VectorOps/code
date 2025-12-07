@@ -2,7 +2,7 @@ from typing import Annotated, Optional, Union, List, Literal, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 
-from vocode.state import Message, ToolCall, Activity, RunnerStatus
+import vocode.state as vstate
 
 PACKET_MESSAGE_REQUEST = "message_request"
 PACKET_TOOL_CALL = "tool_call"
@@ -11,12 +11,17 @@ PACKET_MESSAGE = "message"
 PACKET_FINAL_MESSAGE = "final_message"
 PACKET_APPROVAL = "approval"
 PACKET_TOKEN_USAGE = "token_usage"
+PACKET_LOCAL_TOKEN_USAGE = "local_token_usage"
 PACKET_STATUS_CHANGE = "status_change"
 PACKET_STOP = "stop"
 PACKET_START_WORKFLOW = "start_workflow"
 
 # Packet kinds that are considered "interim" (do not end an executor cycle)
-INTERIM_PACKETS: tuple[str, ...] = (PACKET_MESSAGE, PACKET_TOKEN_USAGE)
+INTERIM_PACKETS: tuple[str, ...] = (
+    PACKET_MESSAGE,
+    PACKET_TOKEN_USAGE,
+    PACKET_LOCAL_TOKEN_USAGE,
+)
 PACKETS_FOR_HISTORY = (PACKET_FINAL_MESSAGE, PACKET_MESSAGE_REQUEST)
 
 
@@ -49,7 +54,7 @@ class ReqToolCall(BaseModel):
     """
 
     kind: Literal["tool_call"] = PACKET_TOOL_CALL
-    tool_calls: List[ToolCall]
+    tool_calls: List[vstate.ToolCall]
 
 
 class ReqToolResult(BaseModel):
@@ -58,7 +63,7 @@ class ReqToolResult(BaseModel):
     """
 
     kind: Literal["tool_result"] = PACKET_TOOL_RESULT
-    tool_calls: List[ToolCall]
+    tool_calls: List[vstate.ToolCall]
 
 
 class ReqInterimMessage(BaseModel):
@@ -67,7 +72,7 @@ class ReqInterimMessage(BaseModel):
     """
 
     kind: Literal["message"] = PACKET_MESSAGE
-    message: Message
+    message: vstate.Message
 
 
 class ReqFinalMessage(BaseModel):
@@ -76,7 +81,7 @@ class ReqFinalMessage(BaseModel):
     """
 
     kind: Literal["final_message"] = PACKET_FINAL_MESSAGE
-    message: Optional[Message] = None
+    message: Optional[vstate.Message] = None
     outcome_name: Optional[str] = None
 
 
@@ -87,37 +92,51 @@ class ReqTokenUsage(BaseModel):
     """
 
     kind: Literal["token_usage"] = PACKET_TOKEN_USAGE
-    acc_prompt_tokens: int
-    acc_completion_tokens: int
-    acc_cost_dollars: float
-    current_prompt_tokens: Optional[int] = None
-    current_completion_tokens: Optional[int] = None
-    token_limit: Optional[int] = None
+    global_usage: vstate.LLMUsageStats
+    session_usage: vstate.LLMUsageStats
+    node_usage: vstate.LLMUsageStats
     # Indicates usage was generated in this process (hint for UIs)
-    local: Optional[bool] = True
+    local: bool = True
+
+
+class ReqLocalTokenUsage(BaseModel):
+    """
+    Per-call local token usage emitted by executors.
+    Consumed by Runner to maintain aggregates and derive ReqTokenUsage.
+    """
+
+    kind: Literal["local_token_usage"] = PACKET_LOCAL_TOKEN_USAGE
+    usage: vstate.LLMUsageStats
+
+
 class ReqStartWorkflow(BaseModel):
     """
     Runner-level request to start another workflow and return its final message
     back to the requesting executor as a RespMessage. Handled internally by UIState.
     """
+
     kind: Literal["start_workflow"] = PACKET_START_WORKFLOW
     workflow: str
-    initial_message: Optional[Message] = None
+    initial_message: Optional[vstate.Message] = None
+
 
 class ReqStatusChange(BaseModel):
     """
     Runner-emitted packet indicating a transition between nodes (and optional status change).
     """
+
     kind: Literal["status_change"] = PACKET_STATUS_CHANGE
-    old_status: RunnerStatus
-    new_status: RunnerStatus
+    old_status: vstate.RunnerStatus
+    new_status: vstate.RunnerStatus
     old_node: Optional[str] = None
     new_node: Optional[str] = None
+
 
 class ReqStop(BaseModel):
     """
     Executor-emitted packet requesting the runner to stop gracefully.
     """
+
     kind: Literal["stop"] = PACKET_STOP
     reason: Optional[str] = None
 
@@ -130,6 +149,7 @@ ReqPacket = Annotated[
         ReqInterimMessage,
         ReqFinalMessage,
         ReqTokenUsage,
+        ReqLocalTokenUsage,
         ReqStatusChange,
         ReqStop,
         ReqStartWorkflow,
@@ -145,7 +165,7 @@ class RespMessage(BaseModel):
     """
 
     kind: Literal["message"] = PACKET_MESSAGE
-    message: Message
+    message: vstate.Message
 
 
 class RespToolCall(BaseModel):
@@ -154,7 +174,7 @@ class RespToolCall(BaseModel):
     """
 
     kind: Literal["tool_call"] = PACKET_TOOL_CALL
-    tool_calls: List[ToolCall]
+    tool_calls: List[vstate.ToolCall]
 
 
 class RespApproval(BaseModel):
@@ -180,11 +200,11 @@ class RunnerState(BaseModel):
     state: Optional[Any] = None
     req: Optional[ReqPacket] = None
     response: Optional[RespPacket] = None
-    messages: Optional[List[Message]] = None
+    messages: Optional[List[vstate.Message]] = None
 
 
 class ExecRunInput(BaseModel):
-    messages: List[Message] = Field(default_factory=list)
+    messages: List[vstate.Message] = Field(default_factory=list)
     state: Optional[Any] = None
     response: Optional["RespPacket"] = None
 
@@ -192,7 +212,7 @@ class ExecRunInput(BaseModel):
 # Runner to consumer events
 class RunEvent(BaseModel):
     node: str = Field(..., description="Node name this event pertains to")
-    execution: Activity = Field(
+    execution: vstate.Activity = Field(
         description="Execution result for this node, when available"
     )
     event: ReqPacket
@@ -202,9 +222,11 @@ class RunEvent(BaseModel):
 class RunInput(BaseModel):
     response: Optional[RespPacket] = Field(None, description="Optional response packet")
 
+
 class RunStats(BaseModel):
     """
     Per-node runtime statistics for a single Runner instance.
     Currently tracks the number of completed executions for the node.
     """
+
     run_count: int = 0

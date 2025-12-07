@@ -53,6 +53,8 @@ Concrete example: files that were read and already in context.
 Unclosed client session
 client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Terminal UI
+** [ ] Toolbar
+*** [ ] Emit zero local llm usage when naviging to a new node. Emit correct usage total when navigating back to node with history.
 ** [ ] Add support for images
 ** [ ] Figure out a way to avoid showing nested output for workflow (tool calls, etc)
 *** [ ] Allow nodes to specify if output should be hidden by default

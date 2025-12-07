@@ -96,8 +96,8 @@ async def drain_until_non_interim(agen):
         if pkt.kind == "message":
             interim_texts.append(pkt.message.text)
             continue
-        # Skip over interim token usage and log packets
-        if pkt.kind in ("token_usage", "log"):
+        # Skip over interim token usage (old and new) and log packets
+        if pkt.kind in ("token_usage", "local_token_usage", "log"):
             continue
         return interim_texts, pkt, st_last
 
@@ -719,12 +719,13 @@ async def test_llm_executor_reads_usage_object_prefer_over_estimate(
         agen = execu.run(
             ExecRunInput(messages=[Message(role="user", text="hello")], state=None)
         )
-        _, pkt_final, _ = await drain_until_non_interim(agen)
+        _, pkt_final, state = await drain_until_non_interim(agen)
         assert pkt_final.kind == "final_message"
-        assert (
-            project.llm_usage.prompt_tokens == 50
-            and project.llm_usage.completion_tokens == 10
-        )
+        # LLMState totals should reflect the explicit usage object from the stream,
+        # not a token estimate.
+        assert state is not None
+        assert getattr(state, "total_prompt_tokens", None) == 50
+        assert getattr(state, "total_completion_tokens", None) == 10
 
 
 def test_llm_node_reasoning_effort_validation_ok():

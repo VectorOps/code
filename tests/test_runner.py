@@ -37,17 +37,17 @@ def msg(role: str, text: str) -> Message:
     return Message(role=role, text=text)
 
 
-# Helpers to tolerate status-change packets inserted between node transitions
+# Helpers to tolerate status-change and token-usage packets inserted between node transitions
 async def next_event_wrap(it):
     ev = await it.__anext__()
-    while ev.event.kind == "status_change":
+    while ev.event.kind in ("status_change", "token_usage"):
         ev = await asend_wrap(it, None)
     return ev
 
 
 async def asend_wrap(it, payload):
     ev = await it.asend(payload)
-    while ev.event.kind == "status_change":
+    while ev.event.kind in ("status_change", "token_usage"):
         ev = await it.asend(None)
     return ev
 

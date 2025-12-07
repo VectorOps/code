@@ -79,8 +79,6 @@ class UIState:
         self._log_handler: Optional[logging.Handler] = None
         # LLM usage totals are stored on Project.llm_usage and proxied via properties.
         # Start background tasks for command deltas and incoming packet routing
-        # LLM usage totals are stored on Project.llm_usage and proxied via properties.
-        # Start background tasks for command deltas and incoming packet routing
         self._cmd_events_task = asyncio.create_task(self._forward_command_events())
         self._incoming_router_task = asyncio.create_task(self._route_incoming_packets())
         # Subscribe to project messages and forward to UI
@@ -173,6 +171,7 @@ class UIState:
             if workflow.name:
                 self._selected_workflow_name = workflow.name
             self._last_final = None
+            # Reset per-run session/node usage; preserve global totals.
 
             if assignment and assignment.status == vstate.RunStatus.finished:
                 assignment = vstate.Assignment()
@@ -280,6 +279,7 @@ class UIState:
 
             self._msg_counter = 0
             self._last_status = None
+            # Reset per-run session/node usage on restart; preserve global totals.
             self._stop_signal.clear()
             # Always instruct UI to reset when a runner restarts.
             await self._send_ui_reset()
@@ -391,18 +391,6 @@ class UIState:
     @property
     def last_final_message(self) -> Optional[vstate.Message]:
         return self._last_final
-
-    @property
-    def acc_prompt_tokens(self) -> int:
-        return self.project.llm_usage.prompt_tokens
-
-    @property
-    def acc_completion_tokens(self) -> int:
-        return self.project.llm_usage.completion_tokens
-
-    @property
-    def acc_cost_dollars(self) -> float:
-        return self.project.llm_usage.cost_dollars
 
     @property
     def project_op(self) -> ProjectOpState:
@@ -547,7 +535,6 @@ class UIState:
                     self._current_node_name = sc.new_node
                     to_send = None
                     continue
-
                 # Decide if this event should be forwarded to the UI client.
                 # Suppress node finals when hide_final_output is True and no input is requested.
                 suppress_event = False
