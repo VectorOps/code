@@ -58,6 +58,15 @@ class LLMNode(Node):
         ),
     )
 
+    max_rounds: int = Field(
+        default=32,
+        ge=0,
+        description=(
+            "Maximum number of LLM tool-call rounds allowed for this node before failing. "
+            "0 means unlimited; used to prevent infinite tool loops. Defaults to 32."
+        ),
+    )
+
     # Optional reasoning effort level, passed through to the LLM provider.
     # Currently supports the levels exposed by litellm/OpenAI:
     # "none", "minimal", "low", "medium", "high".

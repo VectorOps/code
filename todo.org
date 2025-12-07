@@ -54,7 +54,7 @@ Unclosed client session
 client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Terminal UI
 ** [ ] Toolbar
-*** [ ] Emit zero local llm usage when naviging to a new node. Emit correct usage total when navigating back to node with history.
+*** [X] Emit zero local llm usage when naviging to a new node. Emit correct usage total when navigating back to node with history.
 ** [ ] Add support for images
 ** [ ] Figure out a way to avoid showing nested output for workflow (tool calls, etc)
 *** [ ] Allow nodes to specify if output should be hidden by default
@@ -97,9 +97,10 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 (linter, etc)
 ** [ ] LLM node
 *** [X] If call does not have correct payload that's not JSON - should respond back with an error immediately
-*** [ ] Report tool token usage
-*** [ ] Report % token usage
-**** [ ] Fix it to get input limit
+*** [X] Report tool token usage
+*** [X] Report % token usage
+**** [X] Fix it to get input limit
+*** [ ] Fix function_token_pct support
 *** [ ] If LLM did not return token count, show estimation but add (est) to the UI
 *** [ ] Add tool calling budgets (number of calls, tokens, etc)
 *** [ ] Detect tool call loops
@@ -126,6 +127,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Skill parsers
 *** [ ] Generate tool stubs for skills
 ** [ ] Web client tool
+** [ ] Search tool
+*** [ ] Specify that search tool does not support any special syntax
 ** [ ] Shell tool
 *** [X] Limit how many lines are returned back to LLM
 *** [ ] Refresh know after shell command (could be slow)

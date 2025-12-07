@@ -39,7 +39,6 @@ from .helpers import (
     resolve_model_token_limit as h_resolve_model_token_limit,
     extract_usage_tokens as h_extract_usage_tokens,
     estimate_usage_tokens as h_estimate_usage_tokens,
-    MAX_ROUNDS,
 )
 
 
@@ -387,9 +386,11 @@ class LLMExecutor(Executor):
                 state.expect = LLMExpect.tools
                 # Limit tool call loops
                 state.tool_rounds += 1
-                if state.tool_rounds > MAX_ROUNDS:
+                max_rounds = cfg.max_rounds
+                # max_rounds == 0 => unlimited
+                if max_rounds and state.tool_rounds > max_rounds:
                     raise RuntimeError(
-                        f"LLMExecutor exceeded maximum function-call rounds ({MAX_ROUNDS}); possible tool loop"
+                        f"LLMExecutor exceeded maximum function-call rounds ({max_rounds}); possible tool loop"
                     )
                 # Report per-call local usage before requesting tool execution
                 _ = yield (ReqLocalTokenUsage(usage=usage), state)
