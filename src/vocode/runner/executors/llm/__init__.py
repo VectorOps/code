@@ -7,7 +7,6 @@ from litellm import acompletion
 import litellm
 from vocode.runner.runner import Executor
 from vocode.models import OutcomeStrategy
-from vocode.state import Message, ToolCall
 from vocode.state import Message, ToolCall, LLMUsageStats
 from vocode.runner.models import (
     ReqPacket,
@@ -37,7 +36,6 @@ from .helpers import (
     get_round_cost as h_get_round_cost,
     build_effective_tool_specs as h_build_effective_tool_specs,
     resolve_model_token_limit as h_resolve_model_token_limit,
-    extract_usage_tokens as h_extract_usage_tokens,
     estimate_usage_tokens as h_estimate_usage_tokens,
 )
 
@@ -137,11 +135,7 @@ class LLMExecutor(Executor):
                 conv.insert(0, {"role": "system", "content": tag_instr})
 
         # Drive the LLM loop with tool-calls as needed
-        assistant_text: str = ""
-
         while True:
-            assistant_text_parts: List[str] = []
-            tool_calls_by_idx: Dict[int, Dict[str, Any]] = {}
             # Filter extra to avoid overriding explicit kwargs (e.g., 'tools')
             extra_args = dict(cfg.extra or {})
             for k in (
@@ -173,87 +167,67 @@ class LLMExecutor(Executor):
             attempt = 0
             while True:
                 try:
-                    completion_coro = acompletion(
-                        model=cfg.model,
-                        messages=conv,
-                        temperature=cfg.temperature,
-                        max_tokens=effective_max_tokens,
-                        tools=tools,
-                        tool_choice="auto" if tools else None,
-                        # Optional reasoning effort level for reasoning-capable models.
-                        # Only sets the effort level; does not request reasoning summaries.
-                        reasoning_effort=cfg.reasoning_effort,
-                        stream=True,
-                        stream_options={"include_usage": True},
+                    args = {
+                        "model": cfg.model,
+                        "messages": conv,
+                        "temperature": cfg.temperature,
+                        "max_tokens": effective_max_tokens,
+                        "tools": tools,
+                        "tool_choice": "auto" if tools else None,
+                        "reasoning_effort": cfg.reasoning_effort,
+                        "stream": True,
+                        "stream_options": {
+                            "include_usage": True,
+                        },
                         **extra_args,
-                    )
+                    }
+
+                    completion_coro = acompletion(**args)
+
                     # Wrap in a named task for better diagnostics
                     task_name = f"llm.acompletion:{cfg.name}"
                     stream_task = asyncio.create_task(completion_coro, name=task_name)
                     stream = await stream_task
-                    # Collect streamed content and tool_calls; emit interim messages for content chunks
-                    last_usage: Optional[Dict[str, Any]] = None
+
+                    chunks: List[Any] = []
+
+                    # Collect streamed chunks; emit interim messages for content deltas.
                     async for chunk in stream:
-                        try:
-                            ch = (chunk.get("choices") or [])[0]
-                            delta = ch.get("delta") or {}
-                        except Exception:
-                            delta = {}
+                        chunks.append(chunk)
 
-                        # Capture usage if provider includes it per chunk (include_usage=True)
+                        content_piece: Optional[str] = None
                         try:
-                            usage_obj = chunk.get(
-                                "usage"
-                            )  # may be litellm Usage object
-                            if usage_obj is not None:
-                                # Accept both dict and object; _extract_usage_tokens handles details
-                                last_usage = usage_obj
+                            choices_obj = chunk.choices
                         except Exception:
-                            pass
+                            choices_obj = None
+                        if choices_obj:
+                            delta_obj = choices_obj[0].delta
+                            if delta_obj is not None:
+                                try:
+                                    value = delta_obj.content
+                                except Exception:
+                                    value = None
+                                if isinstance(value, str):
+                                    content_piece = value
 
-                        # Stream content
-                        content_piece = delta.get("content")
                         if content_piece:
-                            assistant_text_parts.append(content_piece)
                             _ = yield (
                                 ReqInterimMessage(
                                     message=Message(
-                                        role="agent", text=content_piece, node=cfg.name
+                                        role="agent",
+                                        text=content_piece,
+                                        node=cfg.name,
                                     )
                                 ),
                                 None,
                             )
-
-                        # Accumulate streamed tool_calls (OpenAI-style deltas)
-                        tc_deltas = delta.get("tool_calls") or []
-                        for dtc in tc_deltas:
-                            idx = dtc.get("index", 0)
-                            _id = dtc.get("id")
-                            _type = dtc.get("type")
-                            fn = dtc.get("function") or {}
-                            name = fn.get("name")
-                            args_part = fn.get("arguments") or ""
-
-                            entry = tool_calls_by_idx.get(idx)
-                            if entry is None:
-                                entry = {
-                                    "id": None,
-                                    "type": "function",
-                                    "function": {"name": None, "arguments": ""},
-                                }
-                                tool_calls_by_idx[idx] = entry
-
-                            if _id:
-                                entry["id"] = _id
-                            if _type:
-                                entry["type"] = _type
-                            if name:
-                                entry["function"]["name"] = name
-                            if args_part:
-                                entry["function"]["arguments"] += args_part
                     break  # success
                 except Exception as e:
-                    status_code = getattr(e, "status_code", None)
+                    # Avoid getattr/hasattr; access status_code directly when present.
+                    try:
+                        status_code = e.status_code  # type: ignore[attr-defined]
+                    except Exception:
+                        status_code = None
                     try:
                         should_retry = bool(litellm._should_retry(status_code))
                     except Exception:
@@ -289,19 +263,57 @@ class LLMExecutor(Executor):
                     )
                     return
 
-            assistant_text = "".join(assistant_text_parts)
-            # Get token usage from stream and last chunk (robust across litellm/provider changes)
-            prompt_tokens, completion_tokens = h_extract_usage_tokens(
-                stream, last_usage
+            # Build final response object from streamed chunks.
+            response = litellm.stream_chunk_builder(
+                chunks,
+                messages=conv,
             )
+
+            # Extract assistant message and full content from final response.
+            if not response.choices:
+                raise RuntimeError("LLM response missing choices")
+
+            choice = response.choices[0]
+            message_obj = choice.message
+            assistant_text = message_obj.content or ""
+
+            # Get token usage from response.usage; fall back to estimate if missing.
+            prompt_tokens = 0
+            completion_tokens = 0
+            usage_obj = response.usage
+            if usage_obj is not None:
+                try:
+                    if usage_obj.prompt_tokens is not None:
+                        prompt_tokens = int(usage_obj.prompt_tokens)
+                except Exception:
+                    try:
+                        if isinstance(usage_obj, dict):
+                            v = usage_obj.get("prompt_tokens")
+                            if v is not None:
+                                prompt_tokens = int(v)
+                    except Exception:
+                        pass
+                try:
+                    if usage_obj.completion_tokens is not None:
+                        completion_tokens = int(usage_obj.completion_tokens)
+                except Exception:
+                    try:
+                        if isinstance(usage_obj, dict):
+                            v = usage_obj.get("completion_tokens")
+                            if v is not None:
+                                completion_tokens = int(v)
+                    except Exception:
+                        pass
+
             if prompt_tokens == 0 and completion_tokens == 0:
                 est_prompt, est_completion = h_estimate_usage_tokens(
                     cfg.model, conv, assistant_text
                 )
                 prompt_tokens = est_prompt
                 completion_tokens = est_completion
+
             round_cost = h_get_round_cost(
-                stream, cfg.model, cfg, prompt_tokens, completion_tokens
+                response, cfg.model, cfg, prompt_tokens, completion_tokens
             )
             model_input_token_limit = h_resolve_model_token_limit(cfg)
 
@@ -318,39 +330,58 @@ class LLMExecutor(Executor):
             state.total_cost_dollars += round_cost
 
             # Build final assistant message dict and append to conversation
-            streamed_tool_calls = []
-            # Deterministic order by index to preserve original sequence
-            for idx in sorted(tool_calls_by_idx.keys()):
-                tc_obj = tool_calls_by_idx[idx] or {}
-                fn = tc_obj.get("function") or {}
-                streamed_tool_calls.append(
+            raw_tool_calls = message_obj.tool_calls or []
+            assistant_tool_calls_for_conv: List[Dict[str, Any]] = []
+            for tc in raw_tool_calls:
+                function = tc.function
+                function_name = (
+                    function.name
+                    if function is not None and function.name is not None
+                    else ""
+                )
+                function_arguments = (
+                    function.arguments
+                    if function is not None and function.arguments is not None
+                    else ""
+                )
+                assistant_tool_calls_for_conv.append(
                     {
-                        "id": (tc_obj.get("id") or ""),
-                        "type": tc_obj.get("type", "function"),
+                        "id": tc.id or "",
+                        "type": tc.type or "function",
                         "function": {
-                            "name": (fn.get("name") or ""),
-                            "arguments": (fn.get("arguments") or ""),
+                            "name": function_name,
+                            "arguments": function_arguments,
                         },
                     }
                 )
 
             assistant_msg: Dict[str, Any] = {
-                "role": "assistant",
+                "role": message_obj.role or "assistant",
                 "content": assistant_text or None,
             }
-            if streamed_tool_calls:
-                assistant_msg["tool_calls"] = streamed_tool_calls
+            if assistant_tool_calls_for_conv:
+                assistant_msg["tool_calls"] = assistant_tool_calls_for_conv
             conv.append(assistant_msg)
 
             # Separate outcome selection vs. external tool calls
             external_calls: List[ToolCall] = []
-            for tc in streamed_tool_calls:
-                name = (tc.get("function") or {}).get("name") or ""
-                arguments = (tc.get("function") or {}).get("arguments") or ""
-                call_id = tc.get("id")
+            for tc in raw_tool_calls:
+                function = tc.function
+                name = (
+                    function.name
+                    if function is not None and function.name is not None
+                    else ""
+                )
+                arguments_str = (
+                    function.arguments
+                    if function is not None and function.arguments is not None
+                    else ""
+                )
+                call_id = tc.id
+
                 if name == CHOOSE_OUTCOME_TOOL_NAME:
                     try:
-                        parsed = json.loads(arguments) if arguments else {}
+                        parsed = json.loads(arguments_str) if arguments_str else {}
                     except Exception:
                         parsed = {}
                     sel = parsed.get("outcome")
@@ -359,14 +390,9 @@ class LLMExecutor(Executor):
                         state.pending_outcome_name = sel
                     # Do not forward this special call to the runner
                     continue
-                # Forward all other calls to the runner using our protocol
-                # Parse JSON arguments to a dict as ToolCall.arguments expects a mapping
+
                 try:
-                    args_obj = (
-                        json.loads(arguments)
-                        if isinstance(arguments, str) and arguments
-                        else {}
-                    )
+                    args_obj = json.loads(arguments_str) if arguments_str else {}
                 except Exception:
                     args_obj = {}
 

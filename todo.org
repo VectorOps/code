@@ -96,6 +96,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Figure out a node that takes diff, finds changed files and runs a tool for each added or modified file
 (linter, etc)
 ** [ ] LLM node
+*** [ ] Make reasoning effort optional
 *** [X] If call does not have correct payload that's not JSON - should respond back with an error immediately
 *** [X] Report tool token usage
 *** [X] Report % token usage

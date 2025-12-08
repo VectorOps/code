@@ -1,8 +1,10 @@
 import asyncio
 import json
-import pytest
-
 from pathlib import Path
+
+import pytest
+from litellm import ModelResponseStream
+
 from vocode.testing import ProjectSandbox
 
 from vocode.runner.executors import llm as llm_mod
@@ -23,39 +25,52 @@ from vocode.runner.models import (
 from vocode.settings import ToolSpec
 
 
-def chunk_content(text: str):
-    return {"choices": [{"delta": {"content": text}}]}
+def _make_chunk(delta: dict, usage: dict | None = None) -> ModelResponseStream:
+    """Build a litellm-style streaming chunk for tests.
 
+    We only populate fields that LLMExecutor and litellm.stream_chunk_builder rely on:
+    - model: to satisfy builder requirements
+    - choices[0].delta: carries content/tool_calls
+    - usage: optional, for explicit token accounting tests
+    """
 
-class _DummyUsage:
-    def __init__(self, prompt_tokens: int, completion_tokens: int):
-        self.prompt_tokens = prompt_tokens
-        self.completion_tokens = completion_tokens
-
-
-def chunk_usage(prompt_tokens: int, completion_tokens: int):
-    return {
-        "choices": [{"delta": {}}],
-        "usage": _DummyUsage(prompt_tokens, completion_tokens),
+    kwargs: dict = {
+        "model": "gpt-x",
+        "choices": [{"delta": delta}],
     }
+    if usage is not None:
+        kwargs["usage"] = usage
+    return ModelResponseStream(**kwargs)
 
 
-def chunk_tool_call(index: int, call_id: str, name: str, args_part: str):
-    return {
-        "choices": [
-            {
-                "delta": {
-                    "tool_calls": [
-                        {
-                            "index": index,
-                            "id": call_id,
-                            "function": {"name": name, "arguments": args_part},
-                        }
-                    ]
+def chunk_content(text: str) -> ModelResponseStream:
+    return _make_chunk({"content": text})
+
+
+def chunk_usage(prompt_tokens: int, completion_tokens: int) -> ModelResponseStream:
+    return _make_chunk(
+        delta={},
+        usage={
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+        },
+    )
+
+
+def chunk_tool_call(
+    index: int, call_id: str, name: str, args_part: str
+) -> ModelResponseStream:
+    return _make_chunk(
+        {
+            "tool_calls": [
+                {
+                    "index": index,
+                    "id": call_id,
+                    "function": {"name": name, "arguments": args_part},
                 }
-            }
-        ]
-    }
+            ]
+        }
+    )
 
 
 class ACompletionStub:
