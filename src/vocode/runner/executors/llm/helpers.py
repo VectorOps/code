@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Final, Tuple
+from typing import Any, Dict, List, Optional, Final
 import re
 import contextlib
 import json
 
 import litellm
-from litellm import completion_cost, token_counter
 
 from vocode.state import Message
 from vocode.settings import ToolSpec  # type: ignore
@@ -131,89 +130,6 @@ def get_outcome_choice_desc(cfg: LLMNode, outcome_desc_bullets: str) -> str:
     return "Choose the appropriate outcome."
 
 
-# Pricing/model helpers
-def get_input_cost_per_1k(cfg: LLMNode) -> float:
-    extra = cfg.extra or {}
-    return float(
-        extra.get("input_cost_per_1k") or extra.get("prompt_cost_per_1k") or 0.0
-    )
-
-
-def get_output_cost_per_1k(cfg: LLMNode) -> float:
-    extra = cfg.extra or {}
-    return float(
-        extra.get("output_cost_per_1k") or extra.get("completion_cost_per_1k") or 0.0
-    )
-
-
-def _safe_get(obj: Any, key: str) -> Any:
-    try:
-        if isinstance(obj, dict):
-            return obj.get(key)
-        return getattr(obj, key, None)
-    except Exception:
-        return None
-
-
-def _get_model_info(model: str) -> Optional[Any]:
-    with contextlib.suppress(Exception):
-        return litellm.get_model_info(model)
-    return None
-
-
-def _get_model_info_value(model: str, key: str) -> Optional[Any]:
-    mi = _get_model_info(model)
-    if mi is None:
-        return None
-    return _safe_get(mi, key)
-
-
-def calc_cost_from_model_info(
-    model: str, prompt_tokens: int, completion_tokens: int
-) -> Optional[float]:
-    try:
-        mi = _get_model_info(model)
-        if mi is None:
-            return None
-        in_per_tok = float(_safe_get(mi, "input_cost_per_token") or 0.0)
-        out_per_tok = float(_safe_get(mi, "output_cost_per_token") or 0.0)
-        if (in_per_tok or out_per_tok) and (prompt_tokens or completion_tokens):
-            return (prompt_tokens * in_per_tok) + (completion_tokens * out_per_tok)
-    except Exception:
-        return None
-    return None
-
-
-def get_round_cost(
-    stream: Any, model: str, cfg: LLMNode, prompt_tokens: int, completion_tokens: int
-) -> float:
-    round_cost = 0.0
-    try:
-        cost = completion_cost(completion_response=stream, model=model)
-        if cost is not None:
-            round_cost = float(cost)
-    except Exception:
-        pass
-
-    if round_cost == 0.0:
-        model_info_cost = calc_cost_from_model_info(
-            model=model,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-        )
-        if model_info_cost is not None:
-            round_cost = float(model_info_cost)
-
-    if round_cost == 0.0:
-        in_per_1k = get_input_cost_per_1k(cfg)
-        out_per_1k = get_output_cost_per_1k(cfg)
-        if in_per_1k > 0.0 or out_per_1k > 0.0:
-            round_cost = (prompt_tokens / 1000.0) * in_per_1k + (
-                completion_tokens / 1000.0
-            ) * out_per_1k
-    return round_cost
-
-
 def build_effective_tool_specs(project: Any, cfg: LLMNode) -> Dict[str, ToolSpec]:
     """Merge node-level ToolSpec with project-level (global) ToolSpec by name.
 
@@ -273,110 +189,25 @@ def build_effective_tool_specs(project: Any, cfg: LLMNode) -> Dict[str, ToolSpec
 
 
 def resolve_model_token_limit(cfg: LLMNode) -> Optional[int]:
-    """
-    Resolve the model input context window (prompt token limit) with fallbacks:
+    """Resolve the model input context window (prompt token limit).
+
+    Fallback order:
     1) litellm.get_model_info(cfg.model).max_input_tokens
     2) cfg.extra['model_max_tokens']
     3) litellm.get_model_info(cfg.model).max_tokens
     """
     with contextlib.suppress(Exception):
-        v = _get_model_info_value(cfg.model, "max_input_tokens")
+        mi = litellm.get_model_info(cfg.model)
+        v = mi.get("max_input_tokens")
         if v:
-            v = int(v or 0)
-            if v > 0:
-                return v
+            return v
     with contextlib.suppress(Exception):
         v = int((cfg.extra or {}).get("model_max_tokens") or 0)
         if v > 0:
             return v
     with contextlib.suppress(Exception):
-        v = _get_model_info_value(cfg.model, "max_tokens")
-        if v:
-            v = int(v or 0)
-            if v > 0:
-                return v
+        mi = litellm.get_model_info(cfg.model)
+        v = int(mi.get("max_tokens", 0))
+        if v > 0:
+            return v
     return None
-
-
-# Usage/token helpers
-def extract_usage_tokens(
-    stream: Any, last_chunk_usage: Optional[Any]
-) -> Tuple[int, int]:
-    prompt_tokens = 0
-    completion_tokens = 0
-    try:
-        if last_chunk_usage is not None:
-            if isinstance(last_chunk_usage, dict):
-                pt = last_chunk_usage.get("prompt_tokens")
-                ct = last_chunk_usage.get("completion_tokens")
-            else:
-                pt = getattr(last_chunk_usage, "prompt_tokens", None)
-                ct = getattr(last_chunk_usage, "completion_tokens", None)
-            if isinstance(pt, int):
-                prompt_tokens = pt
-            if isinstance(ct, int):
-                completion_tokens = ct
-    except Exception:
-        pass
-
-    if prompt_tokens == 0 and completion_tokens == 0:
-        try:
-            usage_obj = getattr(stream, "usage", None)
-            if usage_obj:
-                if isinstance(usage_obj, dict):
-                    prompt_tokens = int(usage_obj.get("prompt_tokens") or 0)
-                    completion_tokens = int(usage_obj.get("completion_tokens") or 0)
-                else:
-                    prompt_tokens = int(getattr(usage_obj, "prompt_tokens", 0) or 0)
-                    completion_tokens = int(
-                        getattr(usage_obj, "completion_tokens", 0) or 0
-                    )
-        except Exception:
-            pass
-
-    if prompt_tokens == 0 and completion_tokens == 0:
-        try:
-            resp = getattr(stream, "response", None)
-            if resp is not None:
-                usage_obj = (
-                    resp.get("usage")
-                    if isinstance(resp, dict)
-                    else getattr(resp, "usage", None)
-                )
-                if usage_obj:
-                    if isinstance(usage_obj, dict):
-                        prompt_tokens = int(usage_obj.get("prompt_tokens") or 0)
-                        completion_tokens = int(usage_obj.get("completion_tokens") or 0)
-                    else:
-                        prompt_tokens = int(getattr(usage_obj, "prompt_tokens", 0) or 0)
-                        completion_tokens = int(
-                            getattr(usage_obj, "completion_tokens", 0) or 0
-                        )
-        except Exception:
-            pass
-    return prompt_tokens, completion_tokens
-
-
-def estimate_usage_tokens(
-    model: str,
-    prompt_messages: List[Dict[str, Any]],
-    assistant_text: Optional[str],
-) -> Tuple[int, int]:
-    est_prompt = 0
-    est_completion = 0
-    try:
-        est_prompt = int(token_counter(model=model, messages=prompt_messages) or 0)
-    except Exception:
-        pass
-    if assistant_text:
-        try:
-            est_completion = int(
-                token_counter(
-                    model=model,
-                    messages=[{"role": "assistant", "content": assistant_text}],
-                )
-                or 0
-            )
-        except Exception:
-            pass
-    return est_prompt, est_completion

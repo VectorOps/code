@@ -715,9 +715,7 @@ async def test_llm_executor_emits_post_final_token_pct_log(monkeypatch, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_llm_executor_reads_usage_object_prefer_over_estimate(
-    monkeypatch, tmp_path
-):
+async def test_llm_executor_uses_usage_object_for_token_totals(monkeypatch, tmp_path):
     cfg = LLMNode(
         name="LLM",
         model="gpt-x",
@@ -736,8 +734,7 @@ async def test_llm_executor_reads_usage_object_prefer_over_estimate(
         )
         _, pkt_final, state = await drain_until_non_interim(agen)
         assert pkt_final.kind == "final_message"
-        # LLMState totals should reflect the explicit usage object from the stream,
-        # not a token estimate.
+        # LLMState totals should reflect the explicit usage object from the stream.
         assert state is not None
         assert getattr(state, "total_prompt_tokens", None) == 50
         assert getattr(state, "total_completion_tokens", None) == 10

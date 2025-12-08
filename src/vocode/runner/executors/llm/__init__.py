@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import AsyncIterator, List, Optional, Dict, Any
 import json
 import asyncio
-from litellm import acompletion
+from litellm import acompletion, completion_cost
 import litellm
 from vocode.runner.runner import Executor
 from vocode.models import OutcomeStrategy
@@ -33,10 +33,8 @@ from .helpers import (
     get_outcome_names as h_get_outcome_names,
     get_outcome_desc_bullets as h_get_outcome_desc_bullets,
     get_outcome_choice_desc as h_get_outcome_choice_desc,
-    get_round_cost as h_get_round_cost,
     build_effective_tool_specs as h_build_effective_tool_specs,
     resolve_model_token_limit as h_resolve_model_token_limit,
-    estimate_usage_tokens as h_estimate_usage_tokens,
 )
 
 
@@ -277,44 +275,25 @@ class LLMExecutor(Executor):
             message_obj = choice.message
             assistant_text = message_obj.content or ""
 
-            # Get token usage from response.usage; fall back to estimate if missing.
+            # Get token usage from response.usage (official litellm usage object).
             prompt_tokens = 0
             completion_tokens = 0
             usage_obj = response.usage
             if usage_obj is not None:
-                try:
-                    if usage_obj.prompt_tokens is not None:
-                        prompt_tokens = int(usage_obj.prompt_tokens)
-                except Exception:
-                    try:
-                        if isinstance(usage_obj, dict):
-                            v = usage_obj.get("prompt_tokens")
-                            if v is not None:
-                                prompt_tokens = int(v)
-                    except Exception:
-                        pass
-                try:
-                    if usage_obj.completion_tokens is not None:
-                        completion_tokens = int(usage_obj.completion_tokens)
-                except Exception:
-                    try:
-                        if isinstance(usage_obj, dict):
-                            v = usage_obj.get("completion_tokens")
-                            if v is not None:
-                                completion_tokens = int(v)
-                    except Exception:
-                        pass
+                prompt_tokens = int(usage_obj.prompt_tokens or 0)
+                completion_tokens = int(usage_obj.completion_tokens or 0)
 
-            if prompt_tokens == 0 and completion_tokens == 0:
-                est_prompt, est_completion = h_estimate_usage_tokens(
-                    cfg.model, conv, assistant_text
+            # Compute round cost using litellm.completion_cost on the full response.
+            round_cost = 0.0
+            try:
+                cost_val = completion_cost(
+                    completion_response=response, model=cfg.model
                 )
-                prompt_tokens = est_prompt
-                completion_tokens = est_completion
+                if cost_val is not None:
+                    round_cost = float(cost_val)
+            except Exception:
+                round_cost = 0.0
 
-            round_cost = h_get_round_cost(
-                response, cfg.model, cfg, prompt_tokens, completion_tokens
-            )
             model_input_token_limit = h_resolve_model_token_limit(cfg)
 
             # Build per-call local usage stats for Runner to aggregate.
