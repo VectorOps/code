@@ -20,7 +20,7 @@ Emit exactly one SEARCH/REPLACE fenced block per change using the file’s langu
 ```<lang>
 <full/path/to/file>
 <<<<<<< SEARCH
-<contiguous lines that EXACTLY match current file content>
+<contiguous lines that EXACTLY match current content>
 =======
 <replacement lines>
 >>>>>>> REPLACE
@@ -35,16 +35,16 @@ Deletes: put entire current file in SEARCH; leave REPLACE empty.
 2. Include enough lines in SEARCH to uniquely identify lines being replaced.
 3. No other diff headers, line numbers, or markers.
 4. Keep changes narrowly scoped; avoid touching unrelated code.
-5. Use existing libs/patterns; keep imports/types/names consistent.
+5. Use existing libraries/patterns; keep imports/types/names consistent.
 6. SEARCH/REPLACE will only change first occurence.
-7. Keep changes small. Break larger changes into series of SEARCH/REPLACE blocks.
+7. Keep all changes small and compact. Break larger changes into series of SEARCH/REPLACE blocks.
 8. You are allowed to emit multiple blocks per file, but blocks should not overlap. Each block must have it's own fence.
+9. Avoid emitting complete files if they have multiple changes. Emit multiple blocks per file instead.
 
 ## Self-check before emitting
 1. All planned changes covered?
 2. SEARCH sections exact? Imports/types/tests correct? Unrelated edits avoided?
-3. Are changes minimal? Whole files or whole functions are not included?
-4. Is there exactly one SEARCH/REPLACE per fenced block?
+3. Are changes as small as possible?
 """
 
 
