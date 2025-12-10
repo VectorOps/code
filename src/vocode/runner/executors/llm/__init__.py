@@ -91,6 +91,28 @@ class LLMExecutor(Executor):
             state.expect = LLMExpect.none
 
         conv: List[Dict[str, Any]] = state.conv
+        conv: List[Dict[str, Any]] = state.conv
+
+        # Resolve model token limit once for this run.
+        model_input_token_limit = h_resolve_model_token_limit(cfg)
+        # Attach model input token limit to usage snapshots for UI and aggregation.
+        if model_input_token_limit is not None:
+            if state.total_usage.input_token_limit is None:
+                state.total_usage.input_token_limit = model_input_token_limit
+            if state.last_usage.input_token_limit is None:
+                state.last_usage.input_token_limit = model_input_token_limit
+
+        # Emit per-node usage snapshot at the start of this run using values stored
+        # in state:
+        # - context_usage: last round's per-call usage (zero-initialized for new nodes),
+        # - usage: accumulated totals for this node.
+        _ = yield (
+            ReqLocalTokenUsage(
+                context_usage=state.last_usage.model_copy(),
+                usage=state.total_usage.model_copy(),
+            ),
+            state,
+        )
 
         # Outcome handling strategy
         outcomes: List[str] = h_get_outcome_names(cfg)
@@ -294,19 +316,25 @@ class LLMExecutor(Executor):
             except Exception:
                 round_cost = 0.0
 
-            model_input_token_limit = h_resolve_model_token_limit(cfg)
-
-            # Build per-call local usage stats for Runner to aggregate.
-            usage = LLMUsageStats(
+            # Per-call usage for this round (also used as delta for aggregation).
+            delta = LLMUsageStats(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 cost_dollars=round_cost,
                 input_token_limit=model_input_token_limit,
             )
 
-            state.total_prompt_tokens += prompt_tokens
-            state.total_completion_tokens += completion_tokens
-            state.total_cost_dollars += round_cost
+            # Update per-node usage in state.
+            state.last_usage = delta
+            state.total_usage.prompt_tokens += delta.prompt_tokens
+            state.total_usage.completion_tokens += delta.completion_tokens
+            state.total_usage.cost_dollars += delta.cost_dollars
+            if model_input_token_limit is not None:
+                state.total_usage.input_token_limit = model_input_token_limit
+
+            # Absolute per-node accumulated usage and per-call context usage.
+            usage = state.total_usage.model_copy()
+            context_usage = state.last_usage.model_copy()
 
             # Build final assistant message dict and append to conversation
             raw_tool_calls = message_obj.tool_calls or []
@@ -398,7 +426,14 @@ class LLMExecutor(Executor):
                         f"LLMExecutor exceeded maximum function-call rounds ({max_rounds}); possible tool loop"
                     )
                 # Report per-call local usage before requesting tool execution
-                _ = yield (ReqLocalTokenUsage(usage=usage), state)
+                _ = yield (
+                    ReqLocalTokenUsage(
+                        context_usage=context_usage,
+                        usage=usage,
+                        delta=delta,
+                    ),
+                    state,
+                )
                 yield (ReqToolCall(tool_calls=external_calls), state)
                 return
 
@@ -429,7 +464,14 @@ class LLMExecutor(Executor):
                             outcome_name = outcomes[0]
 
             # Report per-call local usage before finalizing
-            _ = yield (ReqLocalTokenUsage(usage=usage), state)
+            _ = yield (
+                ReqLocalTokenUsage(
+                    context_usage=context_usage,
+                    usage=usage,
+                    delta=delta,
+                ),
+                state,
+            )
 
             # Finalize: prepare final message and persist state. Allow post-final user reply on next cycle.
             final_msg = Message(role="agent", text=assistant_text, node=cfg.name)

@@ -736,8 +736,57 @@ async def test_llm_executor_uses_usage_object_for_token_totals(monkeypatch, tmp_
         assert pkt_final.kind == "final_message"
         # LLMState totals should reflect the explicit usage object from the stream.
         assert state is not None
-        assert getattr(state, "total_prompt_tokens", None) == 50
-        assert getattr(state, "total_completion_tokens", None) == 10
+        assert state.total_usage.prompt_tokens == 50
+        assert state.total_usage.completion_tokens == 10
+
+
+@pytest.mark.asyncio
+async def test_llm_executor_emits_absolute_and_delta_usage(monkeypatch, tmp_path):
+    cfg = LLMNode(
+        name="LLM",
+        model="gpt-x",
+        outcomes=[OutcomeSlot(name="done")],
+        outcome_strategy=OutcomeStrategy.function_call,
+    )
+    # Include a litellm-like Usage object on the final chunk
+    seq = [chunk_content("ok"), chunk_usage(50, 10)]
+    stub = ACompletionStub([seq])
+    monkeypatch.setattr(llm_mod, "acompletion", stub)
+
+    async with ProjectSandbox.create(tmp_path) as project:
+        execu = LLMExecutor(cfg, project)
+        agen = execu.run(
+            ExecRunInput(messages=[Message(role="user", text="hello")], state=None)
+        )
+
+        packets: list[tuple[object, object | None]] = []
+        while True:
+            pkt, st = await anext(agen)
+            packets.append((pkt, st))
+            if pkt.kind == "final_message":
+                break
+
+        local_packets = [pkt for pkt, _ in packets if pkt.kind == "local_token_usage"]
+        # One at start (previous totals) and one at finish (new totals).
+        assert len(local_packets) == 2
+        start_pkt, final_pkt = local_packets
+
+        # Start-of-run snapshot: no tokens yet, no delta (no new usage).
+        assert start_pkt.context_usage.prompt_tokens == 0
+        assert start_pkt.context_usage.completion_tokens == 0
+        assert start_pkt.usage.prompt_tokens == 0
+        assert start_pkt.usage.completion_tokens == 0
+        assert start_pkt.delta is None
+
+        # Finish snapshot: accumulated totals, per-call context, and matching delta
+        # from usage object.
+        assert final_pkt.context_usage.prompt_tokens == 50
+        assert final_pkt.context_usage.completion_tokens == 10
+        assert final_pkt.usage.prompt_tokens == 50
+        assert final_pkt.usage.completion_tokens == 10
+        assert final_pkt.delta is not None
+        assert final_pkt.delta.prompt_tokens == 50
+        assert final_pkt.delta.completion_tokens == 10
 
 
 def test_llm_node_reasoning_effort_validation_ok():

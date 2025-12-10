@@ -95,18 +95,37 @@ class ReqTokenUsage(BaseModel):
     global_usage: vstate.LLMUsageStats
     session_usage: vstate.LLMUsageStats
     node_usage: vstate.LLMUsageStats
+    # Per-call context-window usage (e.g. latest prompt/response) for the current node.
+    context_usage: vstate.LLMUsageStats = Field(
+        default_factory=vstate.LLMUsageStats,
+        description="Per-call context-window usage for the current node.",
+    )
     # Indicates usage was generated in this process (hint for UIs)
     local: bool = True
 
 
 class ReqLocalTokenUsage(BaseModel):
     """
-    Per-call local token usage emitted by executors.
-    Consumed by Runner to maintain aggregates and derive ReqTokenUsage.
+    Per-node local token usage emitted by executors.
+    `usage` is the absolute per-node totals at the time of emission.
+    `delta` is the incremental usage since the previous emission, or None when
+    no new tokens are being reported.
+    Runner aggregates only non-zero `delta` into session/project totals and
+    forwards `usage` as node_usage inside ReqTokenUsage for UI consumption.
     """
 
     kind: Literal["local_token_usage"] = PACKET_LOCAL_TOKEN_USAGE
+    # Per-call context-window usage for the last completed LLM round.
+    context_usage: vstate.LLMUsageStats = Field(
+        default_factory=vstate.LLMUsageStats,
+        description="Per-call context-window usage for the last completed LLM round.",
+    )
+    # Accumulated per-node totals at the time of emission.
     usage: vstate.LLMUsageStats
+    delta: Optional[vstate.LLMUsageStats] = Field(
+        default=None,
+        description="Incremental usage since previous emission; None when no new tokens.",
+    )
 
 
 class ReqStartWorkflow(BaseModel):

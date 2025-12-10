@@ -121,22 +121,33 @@ def build_toolbar(
     ]
 
     # Usage: derive from cached LLMUsageStats on TerminalApp.
-    global_usage = getattr(app, "llm_usage_global", None)
-    session_usage = getattr(app, "llm_usage_session", None)
-    node_usage = getattr(app, "llm_usage_node", None)
+    global_usage = app.llm_usage_global
+    session_usage = app.llm_usage_session
+    node_usage = app.llm_usage_node
+    context_usage = app.llm_usage_context
 
-    current_in = int(getattr(node_usage, "prompt_tokens", 0) or 0)
-    # Best-effort input token limit: node -> session -> global.
+    # Context-window tokens for the most recent LLM round.
+    if context_usage is not None:
+        current_in = context_usage.prompt_tokens
+    else:
+        current_in = 0
+
+    # Best-effort input token limit: prefer context, then session/global, then node.
     current_limit = None
-    for stats in (node_usage, session_usage, global_usage):
-        limit = getattr(stats, "input_token_limit", None) if stats is not None else None
-        if limit:
-            current_limit = int(limit)
+    for stats in (context_usage, session_usage, global_usage, node_usage):
+        if stats is not None and stats.input_token_limit is not None:
+            current_limit = stats.input_token_limit
             break
 
-    total_in = int(getattr(global_usage, "prompt_tokens", 0) or 0)
-    total_out = int(getattr(global_usage, "completion_tokens", 0) or 0)
-    total_cost = float(getattr(global_usage, "cost_dollars", 0.0) or 0.0)
+    # Total (billing) tokens and cost from accumulated project values.
+    if global_usage is not None:
+        total_in = global_usage.prompt_tokens
+        total_out = global_usage.completion_tokens
+        total_cost = global_usage.cost_dollars
+    else:
+        total_in = 0
+        total_out = 0
+        total_cost = 0.0
 
     # Percentage of local (node) prompt tokens vs input limit.
     pct_display = ""

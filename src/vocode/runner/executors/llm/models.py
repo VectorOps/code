@@ -11,7 +11,7 @@ from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 from vocode.runner.runner import Executor
 from vocode.models import Node, PreprocessorSpec, OutcomeStrategy, Mode
-from vocode.state import Message, ToolCall
+from vocode.state import Message, ToolCall, LLMUsageStats
 from vocode.runner.models import (
     ReqPacket,
     ReqToolCall,
@@ -109,8 +109,7 @@ class LLMState(BaseModel):
     expect: LLMExpect = LLMExpect.none
     pending_outcome_name: Optional[str] = None
     tool_rounds: int = 0
-    total_prompt_tokens: int = 0
-    total_completion_tokens: int = 0
-    total_cost_dollars: float = 0.0
+    last_usage: LLMUsageStats = Field(default_factory=LLMUsageStats)
+    total_usage: LLMUsageStats = Field(default_factory=LLMUsageStats)
     # Snapshot of the configured reasoning effort, if any, for visibility in state.
     reasoning_effort: Optional[str] = None

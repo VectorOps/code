@@ -144,6 +144,10 @@ class TerminalApp:
         self.llm_usage_global = None
         self.llm_usage_session = None
         self.llm_usage_node = None
+        # Cached per-call context-window usage (latest round for current node).
+        self.llm_usage_context = None
+        # Cached per-call context-window usage (latest round for current node).
+        self.llm_usage_context = None
 
     def _toolbar_should_animate(self) -> bool:
         """
@@ -523,6 +527,7 @@ class TerminalApp:
             self.llm_usage_global = ev.global_usage
             self.llm_usage_session = ev.session_usage
             self.llm_usage_node = ev.node_usage
+            self.llm_usage_context = ev.context_usage
         except Exception:
             return
 

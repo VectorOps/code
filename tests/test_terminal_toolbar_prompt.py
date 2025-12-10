@@ -41,6 +41,7 @@ def _dummy_app(status: RunnerStatus = RunnerStatus.running):
         llm_usage_global=None,
         llm_usage_session=None,
         llm_usage_node=None,
+        llm_usage_context=None,
     )
 
 

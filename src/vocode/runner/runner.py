@@ -140,8 +140,6 @@ class Runner:
         self._run_stats: Dict[str, RunStats] = {
             n.name: RunStats() for n in self.workflow.graph.nodes
         }
-        # Per-node LLM usage within this Runner instance
-        self._node_llm_usage: Dict[str, LLMUsageStats] = {}
         self._stop_requested: bool = False
         self._internal_cancel_requested: bool = False
 
@@ -385,69 +383,58 @@ class Runner:
                         return rs.state
         return None
 
-    def _accumulate_llm_usage(
-        self, dst: LLMUsageStats, src: LLMUsageStats
-    ) -> None:
-        dst.prompt_tokens += src.prompt_tokens
-        dst.completion_tokens += src.completion_tokens
-        dst.cost_dollars += src.cost_dollars
-        if src.input_token_limit is not None:
-            dst.input_token_limit = src.input_token_limit
-        if src.output_token_limit is not None:
-            dst.output_token_limit = src.output_token_limit
-
-    def _build_token_usage_snapshot(
-        self, task: Assignment, node_name: str
+    def _handle_local_token_usage(
+        self,
+        task: Assignment,
+        node_name: str,
+        local: ReqLocalTokenUsage,
     ) -> ReqTokenUsage:
         """
-        Build a read-only aggregated usage snapshot for the given node name:
-        - global totals (project),
-        - session totals (assignment),
-        - per-node totals (within this Runner),
-        without mutating any counters.
-        """
-        # Session / assignment-level snapshot
-        session_usage = task.llm_usage or LLMUsageStats()
+        Consume a local usage record from an executor.
 
-        # Node-level snapshot (may be zero for non-LLM nodes or nodes without usage)
-        node_stats = self._node_llm_usage.get(node_name)
-        if node_stats is None:
-            node_stats = LLMUsageStats()
+        - `local.usage` is the absolute per-node totals reported by the executor.
+        - `local.delta` is the incremental usage since the previous emission, or None.
+        - `local.context_usage` is the per-call context-window usage for the last round.
+
+        Runner:
+        - Aggregates only non-zero `delta` into project and session totals.
+        - Uses `usage` as-is for node-level stats in ReqTokenUsage.
+        """
+        if task.llm_usage is None:
+            task.llm_usage = LLMUsageStats()
+
+        usage = local.usage
+        delta = local.delta
+
+        # Propagate model limits from absolute usage to the session snapshot
+        if usage.input_token_limit is not None:
+            task.llm_usage.input_token_limit = usage.input_token_limit
+        if usage.output_token_limit is not None:
+            task.llm_usage.output_token_limit = usage.output_token_limit
+
+        # Apply incremental usage only when provided and non-zero
+        if delta is not None:
+            if (
+                delta.prompt_tokens
+                or delta.completion_tokens
+                or delta.cost_dollars
+            ):
+                self.project.add_llm_usage(
+                    prompt_delta=delta.prompt_tokens,
+                    completion_delta=delta.completion_tokens,
+                    cost_delta=delta.cost_dollars,
+                )
+                task.llm_usage.prompt_tokens += delta.prompt_tokens
+                task.llm_usage.completion_tokens += delta.completion_tokens
+                task.llm_usage.cost_dollars += delta.cost_dollars
 
         return ReqTokenUsage(
             global_usage=self.project.llm_usage.model_copy(),
-            session_usage=session_usage.model_copy(),
-            node_usage=node_stats.model_copy(),
+            session_usage=task.llm_usage.model_copy(),
+            node_usage=usage.model_copy(),
+            context_usage=local.context_usage.model_copy(),
             local=True,
         )
-
-    def _handle_local_token_usage(
-        self, task: Assignment, node_name: str, usage: LLMUsageStats
-    ) -> ReqTokenUsage:
-        """
-        Consume a per-call local usage record from an executor, update:
-        - project-level totals,
-        - assignment/session totals,
-        - per-node totals for this Runner,
-        and return an aggregated ReqTokenUsage snapshot.
-        """
-        # Global/project-level
-        self.project.add_llm_usage(
-            prompt_delta=usage.prompt_tokens,
-            completion_delta=usage.completion_tokens,
-            cost_delta=usage.cost_dollars,
-        )
-
-        # Session / assignment-level
-        if task.llm_usage is None:
-            task.llm_usage = LLMUsageStats()
-        self._accumulate_llm_usage(task.llm_usage, usage)
-
-        # Node-level within this Runner
-        node_stats = self._node_llm_usage.setdefault(node_name, LLMUsageStats())
-        self._accumulate_llm_usage(node_stats, usage)
-        # Build a snapshot using the updated aggregates
-        return self._build_token_usage_snapshot(task=task, node_name=node_name)
 
     def _get_last_final_message_for_node(
         self,
@@ -1002,13 +989,13 @@ class Runner:
                             finally:
                                 self._current_exec_task = None
                             if pkt.kind == PACKET_LOCAL_TOKEN_USAGE:
-                                # Per-call local usage from executor: update aggregates and emit a
-                                # ReqTokenUsage snapshot for UI consumption.
+                                # Local usage from executor: update aggregates using `delta`
+                                # and emit a ReqTokenUsage snapshot for UI consumption.
                                 assert isinstance(pkt, ReqLocalTokenUsage)
                                 token_event = self._handle_local_token_usage(
                                     task=task,
                                     node_name=current_runtime_node.name,
-                                    usage=pkt.usage,
+                                    local=pkt,
                                 )
                                 self.status = RunnerStatus.running
                                 interim_act = Activity(
@@ -1114,31 +1101,6 @@ class Runner:
                         self.status = RunnerStatus.finished
                         task.status = RunStatus.finished
                         return
-
-                    # Emit node-local usage snapshot for the upcoming node.
-                    # If no usage is cached for this node, this will report zeros,
-                    # which is correct for non-LLM nodes.
-                    token_event = self._build_token_usage_snapshot(
-                        task=task, node_name=next_runtime_node.name
-                    )
-                    usage_activity = Activity(
-                        type=ActivityType.executor,
-                        message=None,
-                        is_complete=False,
-                        runner_state=RunnerState(
-                            state=None,
-                            req=token_event,
-                            response=None,
-                        ),
-                        ephemeral=True,
-                    )
-                    usage_run_event = RunEvent(
-                        node=next_runtime_node.name,
-                        execution=usage_activity,
-                        event=token_event,
-                        input_requested=False,
-                    )
-                    _ = yield usage_run_event
 
                     # Emit node transition event
                     status_change = ReqStatusChange(
@@ -1342,29 +1304,6 @@ class Runner:
                         self.status = RunnerStatus.finished
                         task.status = RunStatus.finished
                         return
-
-                    # Emit node-local usage snapshot for the upcoming node.
-                    token_event = self._build_token_usage_snapshot(
-                        task=task, node_name=next_runtime_node.name
-                    )
-                    usage_activity = Activity(
-                        type=ActivityType.executor,
-                        message=None,
-                        is_complete=False,
-                        runner_state=RunnerState(
-                            state=None,
-                            req=token_event,
-                            response=None,
-                        ),
-                        ephemeral=True,
-                    )
-                    usage_run_event = RunEvent(
-                        node=next_runtime_node.name,
-                        execution=usage_activity,
-                        event=token_event,
-                        input_requested=False,
-                    )
-                    _ = yield usage_run_event
 
                     # Emit node transition event
                     status_change = ReqStatusChange(
