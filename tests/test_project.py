@@ -37,6 +37,8 @@ class DummyKnow:
     async def refresh(self, repo=None, **_kwargs):
         return None
 
+    async def refresh_all(self):
+        return None
 
 @pytest.fixture(autouse=True)
 def patch_know(monkeypatch):

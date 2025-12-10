@@ -708,6 +708,9 @@ class UIState:
         self._router.register(
             proto.PACKET_REPLACE_USER_INPUT_ACTION, self._handle_replace_user_input
         )
+        self._router.register(
+            proto.PACKET_UI_REPOS_ACTION, self._handle_ui_repos_action
+        )
 
     async def _route_incoming_packets(self) -> None:
         try:
@@ -907,9 +910,7 @@ class UIState:
         try:
             await self.use(req.name, initial_message=req.message)
         except Exception as e:
-            logger.exception(
-                "UIState: use_with_input('%s') failed: %s", req.name, e
-            )
+            logger.exception("UIState: use_with_input('%s') failed: %s", req.name, e)
         return proto.UIPacketAck()
 
     async def _handle_ui_reset_run(
@@ -929,6 +930,120 @@ class UIState:
         except Exception as e:
             logger.exception("UIState: restart failed: %s", e)
         return proto.UIPacketAck()
+
+    async def _handle_ui_repos_action(
+        self, envelope: proto.UIPacketEnvelope
+    ) -> Optional[proto.UIPacket]:
+        req = envelope.payload
+        if req.kind != proto.PACKET_UI_REPOS_ACTION:
+            return None
+
+        # Use KnowProject.pm directly (already initialized in Project.know).
+        know = self.project.know
+        pm = know.pm
+        data = know.data
+
+        action = req.action
+
+        try:
+            if action == "list":
+                repo_ids = pm.repo_ids
+                if not repo_ids:
+                    output = "No repositories are configured for this project."
+                else:
+                    repos = await data.repo.get_by_ids(repo_ids)
+                    lines: list[str] = []
+                    for r in repos:
+                        # Direct property access on knowlt Repo
+                        example_virtual = pm.construct_virtual_path(r.id, "")
+                        lines.append(
+                            f"- {r.name}: {r.root_path} (virtual: {example_virtual})"
+                        )
+                    output = "\n".join(lines)
+
+                return proto.UIPacketCommandResult(
+                    name="repos",
+                    ok=True,
+                    output=output,
+                )
+
+            if action == "add":
+                name = (req.name or "").strip()
+                path = (req.path or "").strip()
+                if not name or not path:
+                    return proto.UIPacketCommandResult(
+                        name="repos",
+                        ok=False,
+                        error="Usage: add requires both 'name' and 'path'",
+                    )
+
+                # Delegate to KnowProjectManager.add_repo_path
+                repo = await pm.add_repo_path(name, path)
+                example_virtual = pm.construct_virtual_path(repo.id, "")
+
+                # Kick off an automatic refresh of the newly added repository so it
+                # becomes available to tools and search immediately. Run in the
+                # background to avoid blocking the UI command result.
+                async def _auto_refresh_new_repo() -> None:
+                    try:
+                        await self.project.refresh(repo=repo)
+                    except Exception as ex:
+                        logger.exception(
+                            "UIState: auto-refresh of repo '%s' failed: %s",
+                            getattr(repo, "name", "<unknown>"),
+                            ex,
+                        )
+
+                asyncio.create_task(_auto_refresh_new_repo())
+
+                return proto.UIPacketCommandResult(
+                    name="repos",
+                    ok=True,
+                    output=(
+                        f"Repository '{repo.name}' at '{repo.root_path}' added. "
+                        f"Example virtual path: {example_virtual} "
+                        "(refresh started automatically)"
+                    ),
+                )
+
+            if action == "remove":
+                name = (req.name or "").strip()
+                if not name:
+                    return proto.UIPacketCommandResult(
+                        name="repos",
+                        ok=False,
+                        error="Usage: remove requires 'name'",
+                    )
+
+                repo = await data.repo.get_by_name(name)
+                if repo is None:
+                    return proto.UIPacketCommandResult(
+                        name="repos",
+                        ok=False,
+                        error=f"Repository '{name}' not found",
+                    )
+
+                # Delegate to KnowProjectManager.remove_repo
+                await pm.remove_repo(repo.id)
+
+                return proto.UIPacketCommandResult(
+                    name="repos",
+                    ok=True,
+                    output=f"Repository '{name}' removed from project.",
+                )
+
+            return proto.UIPacketCommandResult(
+                name="repos",
+                ok=False,
+                error=f"Unsupported repos action '{action}'",
+            )
+        except Exception as ex:
+            logger.exception("UIState: repos action '%s' failed: %s", action, ex)
+            return proto.UIPacketCommandResult(
+                name="repos",
+                ok=False,
+                error=str(ex),
+            )
 
     async def _handle_replace_user_input(
         self, envelope: proto.UIPacketEnvelope

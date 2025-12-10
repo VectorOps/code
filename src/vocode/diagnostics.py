@@ -318,7 +318,6 @@ def setup_fault_handlers() -> None:
 
     warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince211)
     warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince20)
-    warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince20)
     warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 
 

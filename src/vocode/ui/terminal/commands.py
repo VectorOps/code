@@ -19,12 +19,7 @@ from vocode.ui.proto import (
     PACKET_COMPLETION_RESULT,
     UIPacketUIReload,
 )
-from vocode.ui.terminal.rpc_helpers import (
-    rpc_use,
-    rpc_reset,
-    rpc_restart,
-    rpc_use_with_input,
-)
+from vocode.ui.terminal import rpc_helpers
 
 if TYPE_CHECKING:
     from vocode.ui.base import UIState
@@ -143,7 +138,7 @@ async def _use(ctx: CommandContext, args: List[str]) -> None:
         return
     name = args[0]
     try:
-        await rpc_use(ctx.rpc, name)
+        await rpc_helpers.rpc_use(ctx.rpc, name)
     except Exception as e:
         await ctx.out(f"Failed to start workflow '{name}': {e}")
 
@@ -160,7 +155,7 @@ async def _handoff(ctx: CommandContext, args: List[str]) -> None:
         await ctx.out("No final output is available to hand off.")
         return
     try:
-        await rpc_use_with_input(ctx.rpc, name, msg)
+        await rpc_helpers.rpc_use_with_input(ctx.rpc, name, msg)
     except Exception as e:
         await ctx.out(f"Failed to hand off to workflow '{name}': {e}")
 
@@ -171,14 +166,14 @@ async def _run(ctx: CommandContext, args: List[str]) -> None:
         return
     name = args[0]
     try:
-        await rpc_use(ctx.rpc, name)
+        await rpc_helpers.rpc_use(ctx.rpc, name)
     except Exception as e:
         await ctx.out(f"Failed to run workflow '{name}': {e}")
 
 
 async def _reset(ctx: CommandContext, args: List[str]) -> None:
     try:
-        await rpc_reset(ctx.rpc)
+        await rpc_helpers.rpc_reset(ctx.rpc)
     except Exception as e:
         await ctx.out(f"Failed to reset: {e}")
 
@@ -204,7 +199,7 @@ async def _continue(ctx: CommandContext, args: List[str]) -> None:
             )
         return
     try:
-        await rpc_restart(ctx.rpc)
+        await rpc_helpers.rpc_restart(ctx.rpc)
     except Exception as e:
         await ctx.out(f"Failed to continue: {e}")
 
@@ -223,6 +218,42 @@ async def _reload(ctx: CommandContext, args: List[str]) -> None:
         await ctx.out("Reloaded project.")
     except Exception as e:
         await ctx.out(f"Reload failed: {e}")
+
+
+async def _repos(ctx: CommandContext, args: List[str]) -> None:
+    if not args:
+        await ctx.out("Usage: /repos <list|add|remove> [args]")
+        return
+
+    sub = args[0]
+    try:
+        if sub == "list":
+            res = await rpc_helpers.rpc_repos_list(ctx.rpc)
+        elif sub == "add":
+            if len(args) < 3:
+                await ctx.out("Usage: /repos add <name> <path>")
+                return
+            name = args[1]
+            path = args[2]
+            res = await rpc_helpers.rpc_repos_add(ctx.rpc, name=name, path=path)
+        elif sub == "remove":
+            if len(args) < 2:
+                await ctx.out("Usage: /repos remove <name>")
+                return
+            name = args[1]
+            res = await rpc_helpers.rpc_repos_remove(ctx.rpc, name=name)
+        else:
+            await ctx.out("Usage: /repos <list|add|remove> [args]")
+            return
+    except Exception as e:
+        await ctx.out(f"Repos command failed: {e}")
+        return
+
+    if res.ok:
+        if res.output:
+            await ctx.out(res.output)
+    else:
+        await ctx.out(res.error or "unknown error")
 
 
 def register_default_commands(
@@ -270,5 +301,11 @@ def register_default_commands(
         "<workflow>",
         completer=(ac_factory("workflow_list") if ac_factory else None),
     )(_handoff)
+
+    commands.register(
+        "/repos",
+        "Manage repositories",
+        "<list|add|remove> [args]",
+    )(_repos)
 
     return commands

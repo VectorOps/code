@@ -227,8 +227,8 @@ class Project:
         # Register tools
         self.refresh_tools_from_registry()
 
-        # Perform an initial refresh of the 'know' project on start
-        await self.refresh()
+        # Perform an initial refresh of all 'know' repositories on start
+        await self.know.refresh_all()
 
 
 def _find_project_root_with_config(start: Path, rel_config: Path) -> Optional[Path]:
