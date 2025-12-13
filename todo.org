@@ -15,14 +15,14 @@ from other repos? Or just boost default repository results? (knowlt)
 ** [X] Autocompleters needs consts at model level
 * [ ] Documentation
 ** [ ] Architecture
-** [ ] Configuration
+** [?] Configuration
 ** [ ] Nodes
 ** [ ] Tools
-** [ ] Know
+** [?] Know
 ** [ ] Preprocessors
 ** [ ] Changing
 ** [ ] Contribution rules
-* [ ] Preprocessors
+* [X] Preprocessors
 ** [X] Figure out a way to print warnings or logs
 * [ ] Runner
 ** [ ] [#A] Add a way to restrict number of loops when cycling
@@ -32,8 +32,8 @@ from other repos? Or just boost default repository results? (knowlt)
 ** [ ] Add a way to fully disable know integration
 ** [ ] Figure out why confirmation override for discovery did not work
 ** [ ] Prompts
-*** [ ] Discovery prompt: add clause to not offer solution
-*** [ ] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
+*** [X] Discovery prompt: add clause to not offer solution
+*** [X] Tweak architect prompts to not provide solution if there are questions to answer or user explicitly requests one shot solution
 ** [ ] [#A] Tweak prompt for discovery to only work with existing files
 Concrete example: files that were read and already in context.
 ** [ ] Rewrite system prompt for analyst node
@@ -49,10 +49,10 @@ Concrete example: files that were read and already in context.
 ** [X] Create node that starts a workflow with an input
 ** [ ] Extend UI support to show workflow stacking
 * [ ] Error handling
-** [ ] Add exception handlers
-*** [ ] Runner
-*** [ ] UI
-** [ ] Tool calling timeouts and failures
+** [X] Add exception handlers
+*** [X] Runner
+*** [X] UI
+** [X] Tool calling timeouts and failures
 ** [ ] Add a way for human to unblock failures by retrying last operation
 ** [ ] Running another workflow from workflow causes this error to be printed:
 Unclosed client session
@@ -74,14 +74,14 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Add a hotkey to show collapsed output
 ** [ ] Figure our a way to run a shell command and pass its output as a response back to the workflow from UI. For example, running linter or test manually.
 ** [ ] Better visual separation of prompts vs responses
-** [ ] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
+** [X] When final message is printed, we need to add an extra linebreak. Also, validate streaming line splits with bottom toolbar - it seems to be broken.
 ** [X] Disable know warnings, they mess up UI output
 ** [ ] Animation does not always start after providing feedback message back to Node
 ** [ ] Better multi-line inputs, don't require esc+enter to send
 ** [ ] Show how long individual steps took, in seconds
-** [ ] Continue after stopping does not show agent output upon response, but it's there
-** [ ] Simple styling
-*** [ ] Simple animations
+** [X] Continue after stopping does not show agent output upon response, but it's there
+** [X] Simple styling
+*** [X] Simple animations
 ** [ ] Format tool calls
 *** [ ] Add a way (tab?) to expand/collapse JSON
 *** [ ] Add a way to show full diff for update file tool before confirming with formatting (custom formatter?)
@@ -107,22 +107,22 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [X] Report % token usage
 **** [X] Fix it to get input limit
 *** [ ] Fix function_token_pct support
-*** [ ] If LLM did not return token count, show estimation but add (est) to the UI
+*** [X] If LLM did not return token count, show estimation but add (est) to the UI
 *** [ ] Add tool calling budgets (number of calls, tokens, etc)
-*** [ ] Detect tool call loops
+*** [X] Detect tool call loops
 *** [ ] Add stats for the number of tokens in the context and context window limits
-*** [ ] Figure out why pricing estimates are all zeroes
-** [ ] Create RepoMap node - call into Know with provided prompt
-*** [ ] Also create preprocessor
+*** [X] Figure out why pricing estimates are all zeroes
+** [-] Create RepoMap node - call into Know with provided prompt
+*** [-] Also create preprocessor
 ** [ ] Fan-out node - call other defined tools, collect their results and pass concatenated messages to next tool
 ** [ ] TODO node - collect plan that is formatted with specific syntax (markdown? function call?)
 ** [ ] Exec node
 *** [X] Add timeout
-*** [ ] Need comprehensive tests
+*** [X] Need comprehensive tests
 *** [ ] Use containerization / sandboxing framework when available
 * [ ] Tools
 ** [ ] Allow tools to inject system or user prompts. Prompt should be configurable/overridable.
-** [ ] Maximum tool call rounds should be configurable per node
+** [X] Maximum tool call rounds should be configurable per node
 ** [X] Update tool result formatter to, optionally, print tool calling results
 ** [ ] Integrate Know
 *** [ ] Figure out how to express 3rd party dependencies and give access
@@ -134,29 +134,29 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Generate tool stubs for skills
 ** [ ] Web client tool
 ** [ ] Search tool
-*** [ ] Specify that search tool does not support any special syntax
+*** [X] Specify that search tool does not support any special syntax
 ** [ ] Shell tool
 *** [X] Limit how many lines are returned back to LLM
 *** [ ] Refresh know after shell command (could be slow)
 *** [ ] Add a way to approve similar tool calls within a session
 *** [ ] Windows shell support
 *** [ ] Non-POSIX shell support
+*** [ ] Docker support
 *** [ ] PTY support
-*** [ ] Containerization / sandboxing
 *** [ ] Add timeout
 *** [X] Add streaming output support
 *** [ ] Prevent access to files in .gitignore
+*** [ ] Figure out sandboxing
+**** [ ] Wrap stdio MCP servers in sandbox
+**** [ ] Wrap shell tool in sandbox
 ** [ ] Task management tool
 *** [X] Create output formatter
 *** [X] Do not show input parameters
 ** [X] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Ensure that cwd is passed correctly
-** [ ] Add a way to reject tool calling automatically if tools with same parameters were already called
-** [ ] Figure out sandboxing
-*** [ ] Wrap stdio MCP servers in sandbox
-*** [ ] Wrap shell tool in sandbox
-** [ ] Apply patch tool - useful for fully-agentic loops
-*** [ ] Does not work with formatter types
+** [-] Add a way to reject tool calling automatically if tools with same parameters were already called
+** [X] Apply patch tool - useful for fully-agentic loops
+*** [X] Does not work with formatter types
 ** [ ] Delayed action tool
 *** [ ] Create a tool that allows LLM to accumulate actions to be executed later. For example, architect node can record tests to run and separate executor type can run these delayed actions.
