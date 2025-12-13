@@ -1,0 +1,36 @@
+site_name: VectorOps Code
+site_description: Agentic, graph-driven workflow runner for AI-assisted coding
+repo_url: https://github.com/vectorops/code/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.instant
+    - toc.integrate
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - tables
+  - attr_list
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+
+nav:
+  - Overview: index.md
+  - Concepts:
+      - Workflows and Graphs: concepts/workflows.md
+      - Tools and Executors: concepts/tools.md
+  - API Reference:
+      - Settings: api/settings.md

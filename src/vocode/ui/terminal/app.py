@@ -591,6 +591,7 @@ class TerminalApp:
         )
         term_width = shutil.get_terminal_size(fallback=(80, 24)).columns
         print_source = bool(req_payload.event.input_requested)
+        printed_any = False
         for tc in ev.tool_calls:
             fragments = render_tool_call(
                 tc.name,
@@ -611,7 +612,10 @@ class TerminalApp:
                 to_formatted_text(fragments),
                 style=styles.get_pt_style(),
             )
-        print_formatted_text("")
+            printed_any = True
+
+        if printed_any:
+            print_formatted_text("")
         self.pending_req_env = envelope if req_payload.event.input_requested else None
         if self.session:
             self.session.app.invalidate()

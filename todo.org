@@ -1,5 +1,5 @@
 #+title: Code TODO
-* [ ] Figure out why exec node returns same result twice
+* [X] Figure out why exec node returns same result twice
 * [ ] Add multi-repo support
 ** [X] Work with default repo with ability to specify repo id (or a virtual path) to see files
 from other repos? Or just boost default repository results? (knowlt)
@@ -9,6 +9,7 @@ from other repos? Or just boost default repository results? (knowlt)
 ** [ ] Change command to repo, instead of repos
 ** [ ] Add progress callback to refresh_all() (knowlt)
 ** [ ] Add repo refresh subcommand
+** [ ] Fix auto-complete for virtual repos
 * [X] Add a way to pass final output to a different workflow as an input in the UI
 * [ ] Cleanup and optimizations
 ** [X] Autocompleters needs consts at model level
@@ -157,3 +158,5 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Wrap shell tool in sandbox
 ** [ ] Apply patch tool - useful for fully-agentic loops
 *** [ ] Does not work with formatter types
+** [ ] Delayed action tool
+*** [ ] Create a tool that allows LLM to accumulate actions to be executed later. For example, architect node can record tests to run and separate executor type can run these delayed actions.
