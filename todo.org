@@ -31,6 +31,9 @@ from other repos? Or just boost default repository results? (knowlt)
 ** [X] Add a way to tell how many times node can be executed and skip if more times have passed
 ** [ ] Add a way to raise error and stop the runner. User should be able to try and continue the runner.
 * [ ] Configuration
+** [ ] Better prompts for nested workflows
+*** [ ] Better built-in discovery tool
+*** [ ] Update agent node system prompt to always use discovery
 ** [ ] Add a way to fully disable know integration
 ** [ ] Figure out why confirmation override for discovery did not work
 ** [ ] Prompts

@@ -38,6 +38,8 @@ def _get_child_workflow_pairs(project: Project) -> List[tuple[str, str]]:
         # When no explicit allowlist is defined, treat all other workflows as available children.
         names = [name for name in workflows.keys() if name != parent_name]
 
+    print("XXX", names)
+
     result: List[tuple[str, str]] = []
     for name in names:
         cfg = workflows.get(name)

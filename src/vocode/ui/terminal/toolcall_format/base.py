@@ -39,6 +39,11 @@ DEFAULT_TOOL_CALL_FORMATTERS: Dict[str, "ToolCallFormatter"] = {
         formatter="patch",
         show_output=True,
     ),
+    "start_workflow": ToolCallFormatter(
+        title="StartWorkflow",
+        formatter="generic",
+        options={"field": "workflow"},
+    ),
     # Task plan tool: show a task list with a dedicated formatter.
     "update_plan": ToolCallFormatter(
         title="Task plan",

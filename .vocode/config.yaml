@@ -1,6 +1,6 @@
 # Default Vocode configuration
 logging:
-  #default_level: debug
+  default_level: debug
   enabled_loggers:
     LiteLLM: warning
 variables:
@@ -93,8 +93,8 @@ workflows:
       - test.fail -> architect:keep_state
       - reprompt.done -> architect
   # Search
-  agent-search:
-    description: "Navigate the project, search relevant files and provide their short description. If you need to explain the codebase, you MUST use this tool instead of more generic tools."
+  agent-discovery:
+    description: "Smart codebase knowledge agent. Always prefer this workflow over individual search tools when doing project discovery."
     nodes:
       - $include:
           template: nodes/discovery.yaml
@@ -108,7 +108,7 @@ workflows:
   agent:
     description: "End-to-end development loop: discover requirements, design a plan, write code, apply patches, and run tests with retries."
     child_workflows:
-      - agent-search
+      - agent-discovery
     nodes:
       - name: prompt
         type: input
