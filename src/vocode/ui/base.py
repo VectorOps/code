@@ -502,6 +502,7 @@ class UIState:
                     # Done: bubble final message to previous frame (if any)
                     finished = self.runner_stack.pop()
                     parent = self._top_frame()
+
                     if parent is not None and finished.last_final is not None:
                         parent.to_send = rmodels.RunInput(
                             response=rmodels.RespMessage(message=finished.last_final)
@@ -541,6 +542,7 @@ class UIState:
                     self._current_node_name = sc.new_node
                     to_send = None
                     continue
+
                 # Decide if this event should be forwarded to the UI client.
                 # Suppress node finals when hide_final_output is True and no input is requested.
                 suppress_event = False

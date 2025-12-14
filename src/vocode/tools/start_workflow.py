@@ -1,5 +1,4 @@
 from typing import Any, Dict, Optional
-
 from .base import BaseTool, ToolStartWorkflowResponse
 from vocode.settings import ToolSpec
 
@@ -8,7 +7,7 @@ class StartWorkflowTool(BaseTool):
     """
     A tool that requests starting a child workflow.
 
-    - The target workflow name must be provided via ToolSpec.config["workflow"].
+    - The target workflow name must be provided via args["workflow"].
     - Optional initial user text can be provided in args as "text" (preferred) or "initial_text".
     """
 
@@ -17,12 +16,14 @@ class StartWorkflowTool(BaseTool):
     async def run(self, spec: ToolSpec, args: Any):
         if not isinstance(spec, ToolSpec):
             raise TypeError("StartWorkflowTool requires a resolved ToolSpec")
-
-        workflow = (spec.config or {}).get("workflow")
-        if not workflow or not isinstance(workflow, str):
-            raise ValueError(
-                "StartWorkflowTool requires ToolSpec.config['workflow'] (string)"
+        if not isinstance(args, dict):
+            raise TypeError(
+                "StartWorkflowTool requires dict args with a 'workflow' key"
             )
+
+        workflow = args.get("workflow")
+        if not workflow or not isinstance(workflow, str):
+            raise ValueError("StartWorkflowTool requires 'workflow' argument (string)")
 
         # Enforce WorkflowConfig.child_workflows allowlist when a parent workflow
         # context is available on the Project. This prevents arbitrary nested
@@ -39,53 +40,44 @@ class StartWorkflowTool(BaseTool):
                     )
 
         initial_text: Optional[str] = None
-        if isinstance(args, dict):
-            # Prefer "text" to align with existing tests and conventions; accept "initial_text" as a fallback.
-            if isinstance(args.get("text"), str):
-                initial_text = args.get("text")
-            elif isinstance(args.get("initial_text"), str):
-                initial_text = args.get("initial_text")
+        # Prefer "text" to align with existing tests and conventions; accept "initial_text" as a fallback.
+        if isinstance(args.get("text"), str):
+            initial_text = args.get("text")
+        elif isinstance(args.get("initial_text"), str):
+            initial_text = args.get("initial_text")
 
         return ToolStartWorkflowResponse(workflow=workflow, initial_text=initial_text)
 
     async def openapi_spec(self, spec: ToolSpec) -> Dict[str, Any]:
-        workflow_name = (spec.config or {}).get("workflow")
-        wf_desc: Optional[str] = None
-        try:
-            if self.prj and workflow_name:
-                wf = self.prj.settings.workflows.get(workflow_name)
-                wf_desc = getattr(wf, "description", None) if wf else None
-        except Exception:
-            wf_desc = None
-
-        if workflow_name:
-            if wf_desc:
-                desc = (
-                    f"Start the '{workflow_name}' workflow. {wf_desc} "
-                    "Optionally pass 'text' to send as the user's first message in the child workflow."
-                )
-            else:
-                desc = (
-                    f"Start the '{workflow_name}' workflow. "
-                    "Optionally pass 'text' to send as the user's first message in the child workflow."
-                )
-        else:
-            desc = (
-                "Start a child workflow. "
-                "Optionally pass 'text' to send as the user's first message in the child workflow."
-            )
-
+        # Static OpenAPI schema: workflow name is provided via args, not ToolSpec.config.
         return {
             "name": self.name,
-            "description": desc,
+            "description": (
+                "Start a child workflow by name. "
+                "Provide 'workflow' as the workflow name and optional 'text' as "
+                "the user's first message in the child workflow."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "workflow": {
+                        "type": "string",
+                        "description": "Name of the workflow to start",
+                    },
                     "text": {
                         "type": "string",
-                        "description": "Optional initial user text for the child workflow",
+                        "description": "Initial input for the child workflow",
                     },
                 },
+                "required": ["workflow"],
                 "additionalProperties": False,
             },
         }
+
+
+try:
+    from .base import register_tool
+
+    register_tool(StartWorkflowTool.name, StartWorkflowTool)
+except Exception:
+    pass

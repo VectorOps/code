@@ -17,6 +17,7 @@ from enum import Enum
 
 if TYPE_CHECKING:
     from vocode.project import Project
+from vocode.logger import logger
 from vocode.models import Node, Confirmation, ResetPolicy, MessageMode
 from vocode.graph import RuntimeGraph
 from vocode.state import (
@@ -987,6 +988,7 @@ class Runner:
                                 pkt, yielded_state = await self._current_exec_task
                             finally:
                                 self._current_exec_task = None
+
                             if pkt.kind == PACKET_LOCAL_TOKEN_USAGE:
                                 # Local usage from executor: update aggregates using `delta`
                                 # and emit a ReqTokenUsage snapshot for UI consumption.
@@ -1054,6 +1056,8 @@ class Runner:
                         # Executor ended without emitting a completion packet; treat as done for this cycle
                         req = None
                         current_agen = None
+
+                logger.debug("Runner.req", req=req)
 
                 # If nothing returned, mark step finished and transition
                 if req is None:

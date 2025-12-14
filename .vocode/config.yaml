@@ -27,6 +27,8 @@ tools:
     auto_approve: true
   - name: search_project
     auto_approve: true
+  - name: start_workflow
+    auto_approve: true
 workflows:
   architect:
     description: "End-to-end development loop: discover requirements, design a plan, write code, apply patches, and run tests with retries."
@@ -90,9 +92,23 @@ workflows:
       - test.success -> reprompt
       - test.fail -> architect:keep_state
       - reprompt.done -> architect
+  # Search
+  agent-search:
+    description: "Navigate the project, search relevant files and provide their short description. If you need to explain the codebase, you MUST use this tool instead of more generic tools."
+    nodes:
+      - $include:
+          template: nodes/discovery.yaml
+        confirmation: auto
+      - name: finish
+        type: result
+        hide_final_output: true
+    edges:
+      - discovery.done -> finish
   # Agent
   agent:
     description: "End-to-end development loop: discover requirements, design a plan, write code, apply patches, and run tests with retries."
+    child_workflows:
+      - agent-search
     nodes:
       - name: prompt
         type: input
@@ -106,6 +122,7 @@ workflows:
         confirmation: loop
         max_rounds: 0
         preprocessors:
+          - name: child_workflows
           - name: file_read
             options:
               paths:
@@ -115,6 +132,7 @@ workflows:
           - read_files
           - list_files
           - search_project
+          - start_workflow
           - name: exec
             auto_approve_rules:
               - key: command

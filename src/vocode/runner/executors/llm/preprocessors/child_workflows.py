@@ -8,9 +8,10 @@ from vocode.state import Message
 from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 
 
-_HEADER_PREFIX = (
-    '\n\nYou have access to custom agents and can start them by calling '
-    '"start_workflow" tool. The list of available agents is below:\n'
+_DEFAULT_HEADER = (
+    "\n\nYou have access to custom workflows (specialized agents). "
+    "When possible, prefer starting a custom workflow over using generic tools. "
+    'Call the "start_workflow" tool with one of the workflow names below:\n'
 )
 
 
@@ -71,13 +72,34 @@ def _child_workflows_preprocessor(
     if target is None:
         return messages
 
-    base_text = target.text or ""
+    opts = spec.options or {}
+    header = opts.get("header")
+    if not isinstance(header, str) or not header:
+        header = _DEFAULT_HEADER
+
     # Avoid duplicate injection when preprocessors are applied multiple times.
-    if _HEADER_PREFIX in base_text:
+    base_text = target.text or ""
+    if header in base_text:
         return messages
 
-    lines = [f"- {name}: {desc}".rstrip() for name, desc in pairs]
-    block = _HEADER_PREFIX + "\n".join(lines)
+    item_format = opts.get("item_format")
+    if not isinstance(item_format, str) or not item_format:
+        item_format = "- {name}: {description}"
+
+    separator = opts.get("separator")
+    if not isinstance(separator, str) or not separator:
+        separator = "\n"
+
+    lines: List[str] = []
+    for name, desc in pairs:
+        try:
+            rendered = item_format.format(name=name, description=desc)
+        except Exception:
+            # Fall back to the built-in formatting if the custom template fails.
+            rendered = f"- {name}: {desc}"
+        lines.append(rendered.rstrip())
+
+    block = header + separator.join(lines)
 
     if spec.prepend:
         target.text = f"{block}{base_text}"
@@ -92,6 +114,7 @@ register_preprocessor(
     func=_child_workflows_preprocessor,
     description=(
         "Injects a system prompt section listing available child workflows for the "
-        "current workflow, based on Settings.workflows and WorkflowConfig.child_workflows."
+        "current workflow, based on Settings.workflows and WorkflowConfig.child_workflows. "
+        "Supports custom header and item formatting via PreprocessorSpec.options."
     ),
 )

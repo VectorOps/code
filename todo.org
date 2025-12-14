@@ -45,9 +45,10 @@ Concrete example: files that were read and already in context.
 ** [ ] Add syntax name hint to apply formatting
 * [ ] [#A] Nested workflows support
 ** [X] Create API to start a new workflow
-** [ ] Create a tool that allows LLMs to call into new workflows
+** [ ] Refactor UIState to support multiple parallel running child workflows instead of state?
+** [X] Create a tool that allows LLMs to call into new workflows
 *** [X] Add a way for tools to request workflow executions
-*** [ ] Create configuration for nested workflows that are registered as tools
+*** [X] Create configuration for nested workflows that are registered as tools
 ** [X] Create node that starts a workflow with an input
 ** [ ] Extend UI support to show workflow stacking
 * [ ] Error handling
@@ -126,7 +127,9 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [X] Need comprehensive tests
 *** [ ] Use containerization / sandboxing framework when available
 * [ ] Tools
+** [ ] Better tool registration code
 ** [ ] Allow tools to inject system or user prompts. Prompt should be configurable/overridable.
+** [ ] If tool can not be loaded or does not exist - print error for workflow
 ** [X] Maximum tool call rounds should be configurable per node
 ** [X] Update tool result formatter to, optionally, print tool calling results
 ** [ ] Integrate Know

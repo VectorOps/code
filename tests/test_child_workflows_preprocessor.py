@@ -65,7 +65,7 @@ def test_child_workflows_preprocessor_uses_allowlist(
 
     text = out_messages[0].text
     assert (
-        'You have access to custom agents and can start them by calling "start_workflow" tool.'
+        "When possible, prefer starting a custom workflow over using generic tools."
         in text
     )
     assert "- child_allowed: Allowed child" in text
@@ -121,3 +121,63 @@ def test_child_workflows_preprocessor_noop_in_user_mode(
     out_messages = pp.func(project, spec, list(base_messages))
 
     assert out_messages[0].text == base_messages[0].text
+
+
+def test_child_workflows_preprocessor_custom_header_and_format(
+    base_messages: List[Message],
+) -> None:
+    # No explicit allowlist -> both child workflows are listed, allowing us to
+    # verify the custom separator between items.
+    settings = _build_settings_with_workflows(child_allowlist=None)
+    project = _make_project(settings=settings, current_workflow="parent")
+
+    pp = get_preprocessor("child_workflows")
+    assert pp is not None
+
+    custom_header = "\n\nUse these workflows:\n"
+    spec = PreprocessorSpec(
+        name="child_workflows",
+        mode=Mode.System,
+        options={
+            "header": custom_header,
+            "item_format": "* {name}",
+            "separator": " | ",
+        },
+    )
+
+    out_messages = pp.func(project, spec, list(base_messages))
+    text = out_messages[0].text
+
+    # Custom header should be used instead of the default.
+    assert custom_header in text
+    assert (
+        "When possible, prefer starting a custom workflow over using generic tools."
+        not in text
+    )
+
+    # Custom formatting and separator should be applied.
+    assert "* child_allowed" in text
+    assert "* child_other" in text
+    assert " | " in text
+
+
+def test_child_workflows_preprocessor_custom_header_dedupes(
+    base_messages: List[Message],
+) -> None:
+    settings = _build_settings_with_workflows(child_allowlist=["child_allowed"])
+    project = _make_project(settings=settings, current_workflow="parent")
+
+    pp = get_preprocessor("child_workflows")
+    assert pp is not None
+
+    custom_header = "\n\nCustom header once:\n"
+    spec = PreprocessorSpec(
+        name="child_workflows",
+        mode=Mode.System,
+        options={"header": custom_header},
+    )
+
+    first = pp.func(project, spec, list(base_messages))
+    second = pp.func(project, spec, first)
+
+    assert second[0].text == first[0].text

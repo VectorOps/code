@@ -6,5 +6,15 @@ from .file_state import FileStateExecutor  # ensure registration
 from .exec import ExecExecutor  # register process-spawning executor
 from .fileread import FileReadExecutor
 from .start_workflow import StartWorkflowExecutor
+from .result import ResultExecutor
 
-__all__ = ["InputExecutor", "MessageExecutor", "LLMUsageStatsExecutor", "FileStateExecutor", "ExecExecutor", "FileReadExecutor", "StartWorkflowExecutor"]
+__all__ = [
+    "InputExecutor",
+    "MessageExecutor",
+    "LLMUsageStatsExecutor",
+    "FileStateExecutor",
+    "ExecExecutor",
+    "FileReadExecutor",
+    "StartWorkflowExecutor",
+    "ResultExecutor",
+]

@@ -266,15 +266,25 @@ async def test_start_workflow_tool_respects_child_workflows_allowlist():
 
     # Allowed child should succeed
     spec_allowed = ToolSpec(
-        name="start_workflow", enabled=True, config={"workflow": "child_allowed"}
+        name="start_workflow",
+        enabled=True,
+        config={},
     )
-    resp = await tool.run(spec_allowed, args={"text": "hi"})
+    resp = await tool.run(
+        spec_allowed,
+        args={"workflow": "child_allowed", "text": "hi"},
+    )
     assert isinstance(resp, ToolStartWorkflowResponse)
     assert resp.workflow == "child_allowed"
 
     # Non-whitelisted child should raise
     spec_denied = ToolSpec(
-        name="start_workflow", enabled=True, config={"workflow": "child_denied"}
+        name="start_workflow",
+        enabled=True,
+        config={},
     )
     with pytest.raises(ValueError):
-        await tool.run(spec_denied, args={"text": "hi"})
+        await tool.run(
+            spec_denied,
+            args={"workflow": "child_denied", "text": "hi"},
+        )
