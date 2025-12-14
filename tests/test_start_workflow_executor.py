@@ -14,7 +14,8 @@ from vocode.runner.runner import Executor
 from vocode.state import Message, ToolCall
 from vocode.runner.models import ReqToolCall, ReqFinalMessage
 from vocode.tools import BaseTool, ToolStartWorkflowResponse
-from vocode.settings import Settings, WorkflowConfig, LoggingSettings
+from vocode.tools.start_workflow import StartWorkflowTool
+from vocode.settings import Settings, WorkflowConfig, LoggingSettings, ToolSpec
 
 
 class DummyLLMUsage:
@@ -37,15 +38,23 @@ class DummyCommands:
 class DummyProject:
     def __init__(self, workflows: dict):
         # Convert provided workflow stubs to real WorkflowConfig entries
-        wf_map = {
-            name: WorkflowConfig(nodes=wf.nodes, edges=wf.edges)
-            for name, wf in workflows.items()
-        }
+        wf_map = {}
+        for name, wf in workflows.items():
+            # Allow tests to provide an optional child_workflows attribute on the
+            # stub workflow object; fall back to None when missing.
+            child = getattr(wf, "child_workflows", None)
+            wf_map[name] = WorkflowConfig(
+                nodes=wf.nodes,
+                edges=wf.edges,
+                child_workflows=child,
+            )
         self.settings = Settings(workflows=wf_map, logging=LoggingSettings())
         self.llm_usage = DummyLLMUsage()
         self.commands = DummyCommands()
         self.project_state = {}
         self.base_path = "."
+        # Track currently active workflow name for StartWorkflowTool validation.
+        self.current_workflow: Optional[str] = None
 
     async def message_generator(self):
         if False:
@@ -228,3 +237,44 @@ async def test_tool_start_workflow_initiates_child_and_returns_result():
 
     # The parent final text should be the child's final message text
     assert parent_final == "child says hi"
+
+
+@pytest.mark.asyncio
+async def test_start_workflow_tool_respects_child_workflows_allowlist():
+    # Parent workflow config allows only "child_allowed" as a child workflow
+    class WF:
+        def __init__(self, nodes, edges, child_workflows=None):
+            self.nodes = nodes
+            self.edges = edges
+            self.child_workflows = child_workflows
+
+    parent_wf = WF(nodes=[], edges=[], child_workflows=["child_allowed"])
+    child_allowed = WF(nodes=[], edges=[])
+    child_denied = WF(nodes=[], edges=[])
+
+    project = DummyProject(
+        {
+            "parent": parent_wf,
+            "child_allowed": child_allowed,
+            "child_denied": child_denied,
+        }
+    )
+    # Simulate that "parent" workflow is currently running
+    project.current_workflow = "parent"
+
+    tool = StartWorkflowTool(project)
+
+    # Allowed child should succeed
+    spec_allowed = ToolSpec(
+        name="start_workflow", enabled=True, config={"workflow": "child_allowed"}
+    )
+    resp = await tool.run(spec_allowed, args={"text": "hi"})
+    assert isinstance(resp, ToolStartWorkflowResponse)
+    assert resp.workflow == "child_allowed"
+
+    # Non-whitelisted child should raise
+    spec_denied = ToolSpec(
+        name="start_workflow", enabled=True, config={"workflow": "child_denied"}
+    )
+    with pytest.raises(ValueError):
+        await tool.run(spec_denied, args={"text": "hi"})

@@ -142,6 +142,9 @@ class Runner:
         }
         self._stop_requested: bool = False
         self._internal_cancel_requested: bool = False
+        # Record current workflow name on the Project for tooling/contextual validation.
+        # `workflow` is expected to be a vmodels.Workflow instance.
+        self.project.current_workflow = self.workflow.name
 
     def _bypass_skipped_nodes(
         self,
@@ -414,11 +417,7 @@ class Runner:
 
         # Apply incremental usage only when provided and non-zero
         if delta is not None:
-            if (
-                delta.prompt_tokens
-                or delta.completion_tokens
-                or delta.cost_dollars
-            ):
+            if delta.prompt_tokens or delta.completion_tokens or delta.cost_dollars:
                 self.project.add_llm_usage(
                     prompt_delta=delta.prompt_tokens,
                     completion_delta=delta.completion_tokens,

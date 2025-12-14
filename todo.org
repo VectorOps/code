@@ -22,6 +22,8 @@ from other repos? Or just boost default repository results? (knowlt)
 ** [ ] Preprocessors
 ** [ ] Changing
 ** [ ] Contribution rules
+* [ ] Git support
+** [ ] Auto-commit after change
 * [X] Preprocessors
 ** [X] Figure out a way to print warnings or logs
 * [ ] Runner
@@ -58,6 +60,9 @@ Concrete example: files that were read and already in context.
 Unclosed client session
 client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Terminal UI
+** [ ] Autocomplete improvements
+*** [ ] Make auto-complete for files work with files from all repos
+*** [ ] Allow auto-complete for directories
 ** [ ] Toolbar
 *** [X] Emit zero local llm usage when naviging to a new node. Emit correct usage total when navigating back to node with history.
 ** [ ] Add support for images

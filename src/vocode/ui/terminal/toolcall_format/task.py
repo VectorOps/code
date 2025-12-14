@@ -21,9 +21,9 @@ class TaskToolFormatter(BaseToolCallFormatter):
     Renders a task list like:
 
         Task plan:
-        [ ] Implement feature X (step-1)
-        [>] Fix bug Y (step-2)
-        [x] Write tests (step-3)
+        [ ] Implement feature X
+        [>] Fix bug Y
+        [x] Write tests
     """
 
     def format_input(
@@ -138,9 +138,6 @@ class TaskToolFormatter(BaseToolCallFormatter):
         for task in tasks:
             prefix = self._status_prefix(task.get("status", ""))
             label_parts: List[str] = [prefix, " ", task.get("title", "")]
-            task_id = task.get("id")
-            if task_id:
-                label_parts.append(f" ({task_id})")
             line = "".join(label_parts)
             fragments.append(("class:tasklist.item", line))
             fragments.append(("", "\n"))

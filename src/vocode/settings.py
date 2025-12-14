@@ -39,6 +39,9 @@ class WorkflowConfig(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     nodes: List[Node] = Field(default_factory=list)
     edges: List[Edge] = Field(default_factory=list)
+    # Optional allowlist of workflows that may be started as children from this workflow
+    # via StartWorkflowTool. When None, no additional restriction is applied.
+    child_workflows: Optional[List[str]] = None
 
     @model_validator(mode="before")
     @classmethod

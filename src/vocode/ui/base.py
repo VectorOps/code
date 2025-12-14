@@ -170,6 +170,8 @@ class UIState:
             self.workflow = workflow
             if workflow.name:
                 self._selected_workflow_name = workflow.name
+                # Keep Project.current_workflow in sync with the active top-level workflow
+                self.project.current_workflow = workflow.name
             self._last_final = None
             # Reset per-run session/node usage; preserve global totals.
 
@@ -214,6 +216,8 @@ class UIState:
             # so a later restart() will create a fresh generator tied to the current runner/assignment.
             if top.agen is not None:
                 top.agen = None
+            # Clear current_workflow when the top-level runner is stopped
+            self.project.current_workflow = None
 
     async def cancel(self) -> None:
         """
@@ -235,6 +239,7 @@ class UIState:
             self.assignment = None
             self._current_node_name = None
             self._last_status = None
+            self.project.current_workflow = None
 
     async def restart(self) -> None:
         """
@@ -315,6 +320,7 @@ class UIState:
         wf = vmodels.Workflow(name=name, graph=graph)
 
         self._selected_workflow_name = name
+        self.project.current_workflow = name
         await self.start(wf, initial_message=initial_message)
 
     async def _shutdown_current_runner(self, *, cancel: bool) -> None:

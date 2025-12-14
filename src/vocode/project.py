@@ -76,6 +76,9 @@ class Project:
         self.commands: CommandManager = CommandManager()
         # Ephemeral (per-process) global LLM usage totals
         self.llm_usage: LLMUsageStats = LLMUsageStats()
+        # Name of the currently running workflow (top-level frame in UIState), if any.
+        # Set/cleared by the runner/UI layer; tools may use this for contextual validation.
+        self.current_workflow: Optional[str] = None
         # Process manager
         self.processes: Optional[ProcessManager] = None
         # Message queue

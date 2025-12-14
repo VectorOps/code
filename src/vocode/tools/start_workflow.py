@@ -24,6 +24,20 @@ class StartWorkflowTool(BaseTool):
                 "StartWorkflowTool requires ToolSpec.config['workflow'] (string)"
             )
 
+        # Enforce WorkflowConfig.child_workflows allowlist when a parent workflow
+        # context is available on the Project. This prevents arbitrary nested
+        # workflow starts unless explicitly whitelisted.
+        prj = self.prj
+        parent_name: Optional[str] = getattr(prj, "current_workflow", None)
+        settings = getattr(prj, "settings", None)
+        if parent_name and settings and settings.workflows:
+            parent_cfg = settings.workflows.get(parent_name)
+            if parent_cfg and parent_cfg.child_workflows is not None:
+                if workflow not in parent_cfg.child_workflows:
+                    raise ValueError(
+                        f"Workflow '{workflow}' is not allowed as a child of '{parent_name}'"
+                    )
+
         initial_text: Optional[str] = None
         if isinstance(args, dict):
             # Prefer "text" to align with existing tests and conventions; accept "initial_text" as a fallback.
