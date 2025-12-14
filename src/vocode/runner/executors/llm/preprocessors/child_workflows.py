@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+from typing import Any, List
+
+from vocode.models import PreprocessorSpec, Mode
+from vocode.project import Project
+from vocode.state import Message
+from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
+
+
+_HEADER_PREFIX = (
+    '\n\nYou have access to custom agents and can start them by calling '
+    '"start_workflow" tool. The list of available agents is below:\n'
+)
+
+
+def _get_child_workflow_pairs(project: Project) -> List[tuple[str, str]]:
+    """Return (name, description) pairs for workflows available as children of the current workflow."""
+    settings = project.settings
+    if settings is None:
+        return []
+
+    workflows = settings.workflows
+    if not workflows:
+        return []
+
+    parent_name = project.current_workflow
+    if parent_name is None or parent_name not in workflows:
+        return []
+
+    parent_cfg = workflows[parent_name]
+    allowlist = parent_cfg.child_workflows
+
+    if allowlist is not None:
+        names: List[str] = [name for name in allowlist if name in workflows]
+    else:
+        # When no explicit allowlist is defined, treat all other workflows as available children.
+        names = [name for name in workflows.keys() if name != parent_name]
+
+    result: List[tuple[str, str]] = []
+    for name in names:
+        cfg = workflows.get(name)
+        if cfg is None:
+            continue
+        desc = cfg.description or ""
+        result.append((name, desc))
+    return result
+
+
+def _child_workflows_preprocessor(
+    project: Any, spec: PreprocessorSpec, messages: List[Message]
+) -> List[Message]:
+    # Only operate on the system prompt.
+    if spec.mode != Mode.System:
+        return messages
+
+    # Enforce concrete project type; if not a real Project, do nothing.
+    if not isinstance(project, Project):
+        return messages
+
+    pairs = _get_child_workflow_pairs(project)
+    if not pairs:
+        return messages
+
+    target: Message | None = None
+    for msg in messages:
+        if msg.role == "system":
+            target = msg
+            break
+
+    if target is None:
+        return messages
+
+    base_text = target.text or ""
+    # Avoid duplicate injection when preprocessors are applied multiple times.
+    if _HEADER_PREFIX in base_text:
+        return messages
+
+    lines = [f"- {name}: {desc}".rstrip() for name, desc in pairs]
+    block = _HEADER_PREFIX + "\n".join(lines)
+
+    if spec.prepend:
+        target.text = f"{block}{base_text}"
+    else:
+        target.text = f"{base_text}{block}"
+
+    return messages
+
+
+register_preprocessor(
+    name="child_workflows",
+    func=_child_workflows_preprocessor,
+    description=(
+        "Injects a system prompt section listing available child workflows for the "
+        "current workflow, based on Settings.workflows and WorkflowConfig.child_workflows."
+    ),
+)

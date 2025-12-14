@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from vocode.models import Node
+from vocode.models import Node, Workflow
 from vocode.graph import Graph
 from vocode.runner.runner import Executor, Runner
 from vocode.runner.models import ReqToolCall, ReqFinalMessage, RunInput
@@ -114,11 +114,8 @@ async def test_runner_tool_concurrency_respects_setting():
 
     project = _DummyProject(settings=settings, tool=_ConcurrencyTool(None, counter))
 
-    class _WF:
-        def __init__(self, g):
-            self.graph = g
-
-    runner = Runner(_WF(graph), project)
+    workflow = Workflow(name="test", graph=graph)
+    runner = Runner(workflow, project)
     assignment = Assignment(steps=[], status=RunStatus.running)
 
     agen = runner.run(assignment)
