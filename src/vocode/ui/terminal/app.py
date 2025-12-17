@@ -49,6 +49,7 @@ from vocode.ui.proto import (
     PACKET_PROJECT_OP_FINISH,
     PACKET_LOG as UI_PACKET_LOG,
     UIPacketLog,
+    UIPacketStatus,
 )
 from vocode.ui.rpc import RpcHelper, IncomingPacketRouter
 from vocode.runner.models import (
@@ -146,8 +147,8 @@ class TerminalApp:
         self.llm_usage_node = None
         # Cached per-call context-window usage (latest round for current node).
         self.llm_usage_context = None
-        # Cached per-call context-window usage (latest round for current node).
-        self.llm_usage_context = None
+        # Cached workflow stack (outermost -> innermost) from last status packet.
+        self.workflow_stack = None
 
     def _toolbar_should_animate(self) -> bool:
         """
@@ -408,9 +409,11 @@ class TerminalApp:
         self._router.register(UI_PACKET_LOG, self._ui_log)
 
     async def _ui_status(self, envelope: UIPacketEnvelope):
-        msg = envelope.payload
+        msg: UIPacketStatus = envelope.payload  # type: ignore[assignment]
         # Reset interrupt counter and update toolbar ticker state.
         self.reset_interrupt()
+        # Cache workflow stack for toolbar rendering.
+        self.workflow_stack = getattr(msg, "stack", None)
         await self._update_toolbar_ticker()
         # If node changed, print a styled "Running <node>" line
         curr_node = msg.curr_node

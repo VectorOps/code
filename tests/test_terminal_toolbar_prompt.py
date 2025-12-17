@@ -38,6 +38,8 @@ def _dummy_app(status: RunnerStatus = RunnerStatus.running):
     # Minimal TerminalApp-like stub for build_toolbar(app, pending_req)
     return SimpleNamespace(
         ui=_dummy_ui(status),
+        # workflow_stack is accessed by build_toolbar; default to empty for tests
+        workflow_stack=[],
         llm_usage_global=None,
         llm_usage_session=None,
         llm_usage_node=None,
@@ -75,6 +77,25 @@ def test_toolbar_running_animation_and_cancel_on_status_change(monkeypatch):
     text4 = _text_from_html(build_toolbar(app, pending_req))
     assert f"[{RunnerStatus.finished.value}]" in text4
     assert "running" not in text4
+
+
+def test_toolbar_stack_top_and_child_formatting():
+    # Top-level frame should render as "wf@node" and child frames should render
+    # as "wf@node", joined by " > ". This keeps nested workflows
+    # identifiable in the toolbar.
+    app = _dummy_app(RunnerStatus.running)
+
+    Frame = SimpleNamespace  # Minimal stand-in for UIWorkflowStackFrame
+    app.workflow_stack = [
+        Frame(workflow="wf-top", node="node-top", node_description=None),
+        Frame(workflow="wf-child", node="node-child", node_description=None),
+    ]
+
+    text = _text_from_html(build_toolbar(app, None))
+
+    # Expect "wf-top@node-top" followed by separator and then "wf-child@node-child".
+    assert "wf-top@node-top" in text
+    assert "wf-child@node-child" in text
 
 
 def test_handoff_command_uses_last_final(monkeypatch):

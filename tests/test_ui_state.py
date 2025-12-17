@@ -2,8 +2,19 @@ import asyncio
 from types import SimpleNamespace
 import pytest
 from vocode.ui.base import UIState
-from vocode.ui.proto import UIPacketEnvelope, UIPacketRunEvent, UIPacketStatus, UIPacketRunInput, UIPacketUIReset
-from vocode.runner.models import ReqMessageRequest, ReqFinalMessage, RunInput, RespMessage
+from vocode.ui.proto import (
+    UIPacketEnvelope,
+    UIPacketRunEvent,
+    UIPacketStatus,
+    UIPacketRunInput,
+    UIPacketUIReset,
+)
+from vocode.runner.models import (
+    ReqMessageRequest,
+    ReqFinalMessage,
+    RunInput,
+    RespMessage,
+)
 from vocode.state import RunnerStatus, Message
 from vocode.testing.ui import (
     FakeProject,
@@ -110,6 +121,38 @@ def test_ui_state_basic_flow(monkeypatch):
     asyncio.run(scenario())
 
 
+def test_ui_status_includes_workflow_stack(monkeypatch):
+    async def scenario():
+        from vocode.ui import base as ui_base
+
+        # Use FakeRunner for deterministic behavior
+        monkeypatch.setattr(ui_base, "Runner", FakeRunner)
+
+        # Simple single-node workflow; stack should contain one frame.
+        script = [
+            ("node1", mk_final("done"), False, RunnerStatus.running),
+        ]
+        wf = SimpleNamespace(name="wf-stack", script=script)
+        project = FakeProject()
+        ui = UIState(project)
+
+        await ui.start(wf)
+
+        # Drain reset
+        reset_env = await _recv_skip_node_status(ui)
+        assert isinstance(reset_env.payload, UIPacketUIReset)
+
+        # First status (running) should include a non-empty stack
+        status_env = await _recv_skip_node_status(ui)
+        assert isinstance(status_env.payload, UIPacketStatus)
+        stack = status_env.payload.stack
+        assert stack is not None
+        assert len(stack) == 1
+        assert stack[0].workflow == "wf-stack"
+
+    asyncio.run(scenario())
+
+
 def test_last_final_message_and_handoff(monkeypatch):
     async def scenario():
         from vocode.ui import base as ui_base
@@ -137,7 +180,10 @@ def test_last_final_message_and_handoff(monkeypatch):
         seen_final = False
         while True:
             env = await _recv_skip_node_status(ui)
-            if isinstance(env.payload, UIPacketStatus) and env.payload.curr == RunnerStatus.finished:
+            if (
+                isinstance(env.payload, UIPacketStatus)
+                and env.payload.curr == RunnerStatus.finished
+            ):
                 break
             if isinstance(env.payload, UIPacketRunEvent):
                 ev = env.payload.event.event

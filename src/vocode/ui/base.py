@@ -69,6 +69,11 @@ class UIState:
         self._msg_counter: int = 0
         self._client_msg_counter: int = 0
         self._last_status: Optional[vstate.RunnerStatus] = None
+        # Snapshot of the last emitted workflow stack for status packets.
+        # Represented as a tuple of (workflow_name, node_name) so we can
+        # detect stack changes (e.g., child workflow push/pop) even when the
+        # runner's status value itself does not change.
+        self._last_status_stack: Optional[tuple[tuple[str, Optional[str]], ...]] = None
         self._selected_workflow_name: Optional[str] = None
         self._current_node_name: Optional[str] = None
         self._lock = asyncio.Lock()
@@ -188,6 +193,7 @@ class UIState:
             self.assignment = top_frame.assignment
             self._msg_counter = 0
             self._last_status = None
+            self._last_status_stack = None
             self._stop_signal.clear()
             # Always instruct UI to reset when a runner starts.
             await self._send_ui_reset()
@@ -239,6 +245,7 @@ class UIState:
             self.assignment = None
             self._current_node_name = None
             self._last_status = None
+            self._last_status_stack = None
             self.project.current_workflow = None
 
     async def restart(self) -> None:
@@ -284,6 +291,7 @@ class UIState:
 
             self._msg_counter = 0
             self._last_status = None
+            self._last_status_stack = None
             # Reset per-run session/node usage on restart; preserve global totals.
             self._stop_signal.clear()
             # Always instruct UI to reset when a runner restarts.
@@ -343,6 +351,7 @@ class UIState:
             self._drive_task = None
             self.runner = None
             self._last_status = None
+            self._last_status_stack = None
             self._current_node_name = None
             # Drain any leftover outbound requests and inbound responses from the previous run
             with contextlib.suppress(asyncio.QueueEmpty):
@@ -455,16 +464,74 @@ class UIState:
             )
         )
 
+    def _build_workflow_stack(self) -> list[proto.UIWorkflowStackFrame]:
+        """Build a shallow summary of the current runner stack for UI consumers.
+
+        Frames are ordered from outermost -> innermost so UIs can render
+        hierarchical workflow context without accessing UIState internals.
+        """
+        stack: list[proto.UIWorkflowStackFrame] = []
+        top = self._top_frame()
+
+        for frame in self.runner_stack:
+            wf_name = frame.workflow.name
+            node_name: Optional[str] = None
+            node_desc: Optional[str] = None
+
+            # For the top frame, prefer the live current_node_name tracked by
+            # the driver; this reflects the node for the most recent RunEvent.
+            if frame is top and self._current_node_name:
+                node_name = self._current_node_name
+            else:
+                # For all frames (including top as a fallback), derive the
+                # current node from the last step in the assignment when
+                # available. This keeps nested workflow frames in sync with
+                # their own node progression.
+                assign = frame.assignment
+                if assign.steps:
+                    node_name = assign.steps[-1].node
+
+            if node_name:
+                rn = frame.runner.runtime_graph.get_runtime_node_by_name(node_name)
+                if rn is not None:
+                    # Best-effort description; absence is fine for UI.
+                    node_desc = getattr(rn.model, "description", None)
+
+            stack.append(
+                proto.UIWorkflowStackFrame(
+                    workflow=wf_name,
+                    node=node_name,
+                    node_description=node_desc,
+                )
+            )
+
+        return stack
+
     async def _emit_status(self, runner):
         curr = runner.status
-        if curr != self._last_status:
+        stack = self._build_workflow_stack()
+
+        # Represent stack shape as a simple, hashable tuple for change
+        # detection without exposing internal RunnerFrame details.
+        stack_key: Optional[tuple[tuple[str, Optional[str]], ...]]
+        if stack:
+            stack_key = tuple((f.workflow or "", f.node) for f in stack)
+        else:
+            stack_key = None
+
+        if curr != self._last_status or stack_key != self._last_status_stack:
             await self._outgoing.put(
                 proto.UIPacketEnvelope(
                     msg_id=self._next_msg_id(),
-                    payload=proto.UIPacketStatus(prev=self._last_status, curr=curr),
+                    payload=proto.UIPacketStatus(
+                        prev=self._last_status,
+                        curr=curr,
+                        stack=stack or None,
+                    ),
                 )
             )
             self._last_status = curr
+            self._last_status_stack = stack_key
 
     async def _emit_status_if_changed(self) -> None:
         top = self._top_frame()
@@ -504,15 +571,28 @@ class UIState:
                     parent = self._top_frame()
 
                     if parent is not None and finished.last_final is not None:
+                        # Update convenience refs back to the parent frame
+                        self.runner = parent.runner
+                        self.workflow = parent.workflow
+                        self.assignment = parent.assignment
                         parent.to_send = rmodels.RunInput(
                             response=rmodels.RespMessage(message=finished.last_final)
                         )
+                        # Emit a status packet reflecting the new top-of-stack runner
+                        # after the child workflow frame has been removed.
+                        await self._emit_status(parent.runner)
                         # Continue loop to drive parent
                         continue
                     else:
                         # No parent or no final to bubble; emit final status and stop
                         await self._emit_status(finished.runner)
                         break
+
+                # Track current node for UI convenience as soon as we receive
+                # a RunEvent so that subsequent status packets (including
+                # status-only transitions) can render the correct node name in
+                # their workflow stack.
+                self._current_node_name = req.node
 
                 # Notify status transition, if any
                 await self._emit_status_if_changed()
@@ -526,6 +606,7 @@ class UIState:
                         if node:
                             node_description = node.description
 
+                    stack = self._build_workflow_stack()
                     await self._outgoing.put(
                         proto.UIPacketEnvelope(
                             msg_id=self._next_msg_id(),
@@ -535,11 +616,10 @@ class UIState:
                                 prev_node=sc.old_node,
                                 curr_node=sc.new_node,
                                 curr_node_description=node_description,
+                                stack=stack or None,
                             ),
                         )
                     )
-                    # Track current node for UI convenience
-                    self._current_node_name = sc.new_node
                     to_send = None
                     continue
 
@@ -575,6 +655,13 @@ class UIState:
                         self.runner = child_frame.runner
                         self.workflow = child_frame.workflow
                         self.assignment = child_frame.assignment
+                        # Child workflow has not executed a node yet; clear current node
+                        # so stack summaries do not attribute the parent's node to it.
+                        self._current_node_name = None
+                        # Emit a status packet reflecting the new top-of-stack runner and
+                        # updated workflow stack. This keeps UIs in sync with stack changes
+                        # even before the child emits its first RunEvent.
+                        await self._emit_status(child_frame.runner)
                         # Continue to drive the child
                         continue
                     except Exception as e:
@@ -600,7 +687,6 @@ class UIState:
 
                 # Await UI response only if required
                 if req.input_requested and not suppress_event:
-                    self._current_node_name = req.node
                     # Disable timeout while waiting for user input: block indefinitely
                     response_payload = await self._rpc.call(
                         proto.UIPacketRunEvent(event=req), timeout=None
@@ -621,7 +707,6 @@ class UIState:
                 else:
                     if not suppress_event:
                         # Forward the run event to the UI client with a correlation id
-                        self._current_node_name = req.node
                         await self._outgoing.put(
                             proto.UIPacketEnvelope(
                                 msg_id=self._next_msg_id(),

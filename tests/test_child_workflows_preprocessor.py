@@ -20,7 +20,7 @@ def _build_settings_with_workflows(child_allowlist: List[str] | None) -> Setting
         description="Parent workflow",
         nodes=[],
         edges=[],
-        child_workflows=child_allowlist,
+        agent_workflows=child_allowlist,
     )
     child_allowed = WorkflowConfig(
         description="Allowed child",
@@ -65,7 +65,7 @@ def test_child_workflows_preprocessor_uses_allowlist(
 
     text = out_messages[0].text
     assert (
-        "When possible, prefer starting a custom workflow over using generic tools."
+        "You have access to specialized agents. Agents accept requests, perform the required work"
         in text
     )
     assert "- child_allowed: Allowed child" in text
@@ -151,7 +151,7 @@ def test_child_workflows_preprocessor_custom_header_and_format(
     # Custom header should be used instead of the default.
     assert custom_header in text
     assert (
-        "When possible, prefer starting a custom workflow over using generic tools."
+        "When possible, prefer starting a custom agent over using generic tools."
         not in text
     )
 

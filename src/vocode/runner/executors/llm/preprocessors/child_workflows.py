@@ -9,14 +9,15 @@ from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 
 
 _DEFAULT_HEADER = (
-    "\n\nYou have access to custom workflows (specialized agents). "
-    "When possible, prefer starting a custom workflow over using generic tools. "
-    'Call the "start_workflow" tool with one of the workflow names below:\n'
+    "\n\n## You have access to specialized agents. Agents accept requests, perform the required work, "
+    "and return results. Always use an appropriate specialized agent instead of making direct tool calls. "
+    "Agents are more efficient and are the preferred—and expected—execution path.\n"
+    "The list of available agents is below:\n"
 )
 
 
 def _get_child_workflow_pairs(project: Project) -> List[tuple[str, str]]:
-    """Return (name, description) pairs for workflows available as children of the current workflow."""
+    """Return (name, description) pairs for workflows available as agent list of the current workflow."""
     settings = project.settings
     if settings is None:
         return []
@@ -30,15 +31,13 @@ def _get_child_workflow_pairs(project: Project) -> List[tuple[str, str]]:
         return []
 
     parent_cfg = workflows[parent_name]
-    allowlist = parent_cfg.child_workflows
+    allowlist = parent_cfg.agent_workflows
 
     if allowlist is not None:
         names: List[str] = [name for name in allowlist if name in workflows]
     else:
         # When no explicit allowlist is defined, treat all other workflows as available children.
         names = [name for name in workflows.keys() if name != parent_name]
-
-    print("XXX", names)
 
     result: List[tuple[str, str]] = []
     for name in names:
@@ -115,8 +114,8 @@ register_preprocessor(
     name="child_workflows",
     func=_child_workflows_preprocessor,
     description=(
-        "Injects a system prompt section listing available child workflows for the "
-        "current workflow, based on Settings.workflows and WorkflowConfig.child_workflows. "
+        "Injects a system prompt section listing available agent workflows for the "
+        "current workflow, based on Settings.workflows and WorkflowConfig.agent_workflows. "
         "Supports custom header and item formatting via PreprocessorSpec.options."
     ),
 )

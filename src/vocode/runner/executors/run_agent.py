@@ -1,7 +1,8 @@
 from typing import AsyncIterator, Optional, Any
-from pydantic import Field
-from vocode.models import Node
 
+from pydantic import Field
+
+from vocode.models import Node
 from vocode.runner.runner import Executor
 from vocode.runner.models import (
     ReqStartWorkflow,
@@ -13,36 +14,41 @@ from vocode.runner.models import (
 from vocode.state import Message
 
 
-# New node to start a stacked workflow
-class StartWorkflowNode(Node):
-    # Enforce node type for registry/dispatch
-    type: str = Field(default="start_workflow")
-    # Name of the child workflow to start
+class RunAgentNode(Node):
+    """Node that starts a nested workflow/agent in a new runner frame.
+
+    This replaces the former StartWorkflowNode. The underlying runner packet
+    remains ReqStartWorkflow(kind="start_workflow") for wire compatibility.
+    """
+
+    type: str = Field(default="run_agent")
     workflow: str = Field(
-        ..., description="Name of the workflow to start in a new runner frame"
+        ..., description="Name of the workflow/agent to start in a new runner frame"
     )
-    # Optional initial text for the child workflow (sent as a user message)
     initial_text: Optional[str] = Field(
         default=None,
-        description="Optional initial user message text for the child workflow",
+        description="Optional initial user message text for the child agent",
     )
 
 
-class StartWorkflowExecutor(Executor):
-    # Handles nodes of type "start_workflow"
-    type = "start_workflow"
+class RunAgentExecutor(Executor):
+    """Executor for RunAgentNode.
+
+    It uses the existing ReqStartWorkflow packet so the UI/runner stack logic
+    does not change on the wire.
+    """
+
+    type = "run_agent"
 
     async def run(
         self, inp: ExecRunInput
     ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
-        # Child finished: UIState resumes us with a RespMessage; finalize with that message.
         if inp.response is not None and inp.response.kind == PACKET_MESSAGE:
             yield ReqFinalMessage(message=inp.response.message), inp.state
             return
 
-        # First cycle: request starting the child workflow.
         if not inp.state:
-            cfg: StartWorkflowNode = self.config  # node config is strongly-typed
+            cfg: RunAgentNode = self.config
             initial_msg: Optional[Message] = None
             if cfg.initial_text is not None:
                 initial_msg = Message(role="user", text=cfg.initial_text)
@@ -51,9 +57,7 @@ class StartWorkflowExecutor(Executor):
             ), True
             return
 
-        # Already requested; wait for child final to resume.
         return
 
 
-# Explicitly register to be robust even if automatic subclass registration changes.
-Executor.register("start_workflow", StartWorkflowExecutor)
+Executor.register("run_agent", RunAgentExecutor)

@@ -43,6 +43,7 @@ from other repos? Or just boost default repository results? (knowlt)
 Concrete example: files that were read and already in context.
 ** [ ] Rewrite system prompt for analyst node
 * [ ] UI protocol
+** [ ] Add a way to run know tools (search, etc) for debugging purposes
 ** [X] Remove direct calls from app to UIState
 ** [ ] Debug stopping and continuing, sometimes it does not start after stop?
 ** [ ] Add syntax name hint to apply formatting
@@ -67,6 +68,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Autocomplete improvements
 *** [ ] Make auto-complete for files work with files from all repos
 *** [ ] Allow auto-complete for directories
+** [ ] Better history management
+*** [ ] Allow users to pick message to return to
 ** [ ] Toolbar
 *** [X] Emit zero local llm usage when naviging to a new node. Emit correct usage total when navigating back to node with history.
 ** [ ] Add support for images
@@ -147,6 +150,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Search tool
 *** [X] Specify that search tool does not support any special syntax
 ** [ ] Shell tool
+*** [ ] Shell tool does not handle timeouts?
 *** [X] Limit how many lines are returned back to LLM
 *** [ ] Refresh know after shell command (could be slow)
 *** [ ] Add a way to approve similar tool calls within a session
@@ -163,6 +167,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Task management tool
 *** [X] Create output formatter
 *** [X] Do not show input parameters
+*** [ ] Update task protocol to allow overriding all tasks instead of merging
 ** [X] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Ensure that cwd is passed correctly

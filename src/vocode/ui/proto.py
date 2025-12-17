@@ -39,6 +39,14 @@ class UIPacketUIReset(BaseModel):
     # No payload for now; acts as a directive.
 
 
+class UIWorkflowStackFrame(BaseModel):
+    """Shallow summary of a single workflow frame for UI rendering."""
+
+    workflow: Optional[str] = None
+    node: Optional[str] = None
+    node_description: Optional[str] = None
+
+
 class UIPacketStatus(BaseModel):
     kind: Literal["status"] = PACKET_STATUS
     prev: Optional[RunnerStatus] = None
@@ -46,6 +54,8 @@ class UIPacketStatus(BaseModel):
     prev_node: Optional[str] = None
     curr_node: Optional[str] = None
     curr_node_description: Optional[str] = None
+    # Optional workflow stack from outermost -> innermost frame.
+    stack: Optional[List[UIWorkflowStackFrame]] = None
 
 
 class UICommand(BaseModel):
@@ -100,18 +110,23 @@ class UIPacketAck(BaseModel):
 class UIPacketUIReload(BaseModel):
     kind: Literal["ui_reload"] = PACKET_UI_RELOAD
 
+
 class UIPacketUIStopAction(BaseModel):
     kind: Literal["ui_stop_action"] = PACKET_UI_STOP_ACTION
 
+
 class UIPacketUICancelAction(BaseModel):
     kind: Literal["ui_cancel_action"] = PACKET_UI_CANCEL_ACTION
+
 
 class UIPacketUIUseAction(BaseModel):
     kind: Literal["ui_use_action"] = PACKET_UI_USE_ACTION
     name: str
 
+
 class UIPacketUIResetRunAction(BaseModel):
     kind: Literal["ui_reset_run_action"] = PACKET_UI_RESET_RUN_ACTION
+
 
 class UIPacketUIRestartAction(BaseModel):
     kind: Literal["ui_restart_action"] = PACKET_UI_RESTART_ACTION
@@ -122,6 +137,7 @@ class UIPacketUIUseWithInputAction(BaseModel):
     name: str
     message: Optional[Message] = None
 
+
 class UIPacketUIReposAction(BaseModel):
     kind: Literal["ui_repos_action"] = PACKET_UI_REPOS_ACTION
     # 'list' | 'add' | 'remove'
@@ -130,6 +146,7 @@ class UIPacketUIReposAction(BaseModel):
     name: Optional[str] = None
     path: Optional[str] = None
 
+
 class UIPacketReplaceUserInputAction(BaseModel):
     kind: Literal["replace_user_input_action"] = PACKET_REPLACE_USER_INPUT_ACTION
     # Exactly one of message/approved should be provided.
@@ -137,17 +154,21 @@ class UIPacketReplaceUserInputAction(BaseModel):
     approved: Optional[bool] = None
     n: Optional[int] = 1
 
+
 class UIPacketProjectOpStart(BaseModel):
     kind: Literal["project_op_start"] = PACKET_PROJECT_OP_START
     message: str
+
 
 class UIPacketProjectOpProgress(BaseModel):
     kind: Literal["project_op_progress"] = PACKET_PROJECT_OP_PROGRESS
     progress: int
     total: int
 
+
 class UIPacketProjectOpFinish(BaseModel):
     kind: Literal["project_op_finish"] = PACKET_PROJECT_OP_FINISH
+
 
 class UIPacketLog(BaseModel):
     kind: Literal["log"] = PACKET_LOG

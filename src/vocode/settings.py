@@ -39,15 +39,24 @@ class WorkflowConfig(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     nodes: List[Node] = Field(default_factory=list)
     edges: List[Edge] = Field(default_factory=list)
-    # Optional allowlist of workflows that may be started as children from this workflow
-    # via StartWorkflowTool. When None, no additional restriction is applied.
-    child_workflows: Optional[List[str]] = None
+    # Optional allowlist of workflows that may be started as agents from this
+    # workflow via the run_agent tool. When None, no additional restriction is
+    # applied.
+    agent_workflows: Optional[List[str]] = None
 
     @model_validator(mode="before")
     @classmethod
     def _dispatch_nodes(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
+
+        # Backwards compatibility: support legacy "child_workflows" key by
+        # mapping it into the new "agent_workflows" field when the latter is
+        # not explicitly provided.
+        legacy = data.get("child_workflows")
+        if "agent_workflows" not in data and legacy is not None:
+            data = dict(data)
+            data["agent_workflows"] = legacy
 
         nodes = data.get("nodes")
         if isinstance(nodes, list):

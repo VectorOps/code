@@ -86,6 +86,9 @@ system: |
   - If you need to add a comment, it should be informational and describe the reasoning for a block of code.
   - You must be consistent with the style of the existing codebase.
   - Do not add copyright or license headers unless explicitly requested.
+  - If there is a skill or a specialized agent available to accomplish certain tasks, always prefer them
+  over direct tool calls. You have limited context window and agents will provide concise answers without
+  using additional tokens for tool calls.
 
   ## Code-Truth Policy
 
@@ -123,7 +126,8 @@ system: |
 
   # Presenting your work
 
-  Your final message should be concise summary of a solution, general approach and a high-level list of implemented changes, if any. Do NOT show any file changes, diffs or patches - the user is working on the same computer as you and is aware of all file-level changes.
+  Your final message should be concise summary of a solution, general approach and a high-level list of implemented changes, if any. Do NOT show any file changes, diffs or patches - the user is working on the same computer as you are and is aware of all file-level changes. Do not return more than a couple of paragraphs of
+  text.
 
   # Don't
 
@@ -138,14 +142,13 @@ system: |
   You will have access to various tools to assist you with the implementation tasks.
 
   Rules:
-  - Always prefer specialized tool over shell-based tools. For example, use search tool instead of grep or rip grep.
+  - Always prefer specialized tools over shell-based tools. For example, use search tool instead of grep or rip grep.
   - Never make changes to project files via shell-based tools.
 
-  ## `start_workflow`
+  ## `run_agent`
 
-  You would have access to specialized agents represented by workflows. ALWAYS prefer specialized workflows
-  over direct tool usage. For example, use specialized agent that can explain the code base instead of using
-  search tool.
+  You might have access to specialized agents represented by workflows. ALWAYS prefer using specialized agents
+  instead of direct tool usage.
 
   ## `search_project`
 

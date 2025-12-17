@@ -4,7 +4,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from vocode.ui.base import UIState  # for type hints in helpers
-from vocode.ui.proto import UIPacketEnvelope, UIPacketRunInput, UIPacketStatus, UIPacketLog
+from vocode.ui.proto import (
+    UIPacketEnvelope,
+    UIPacketRunInput,
+    UIPacketStatus,
+    UIPacketLog,
+)
 from vocode.runner.models import (
     ReqInterimMessage,
     ReqFinalMessage,
@@ -24,7 +29,9 @@ from vocode.project import ProjectState
 # -----------------------------
 # High-level UI interaction helpers
 # -----------------------------
-async def respond_packet(ui: UIState, source_msg_id: int, packet: Optional[RespPacket]) -> None:
+async def respond_packet(
+    ui: UIState, source_msg_id: int, packet: Optional[RespPacket]
+) -> None:
     inp = RunInput(response=packet) if packet is not None else RunInput(response=None)
     await ui.send(
         UIPacketEnvelope(
@@ -54,7 +61,9 @@ async def recv_skip_node_status(ui: UIState) -> UIPacketEnvelope:
         if isinstance(env.payload, UIPacketLog):
             continue
         if isinstance(env.payload, UIPacketStatus):
-            if getattr(env.payload, "prev_node", None) or getattr(env.payload, "curr_node", None):
+            if getattr(env.payload, "prev_node", None) or getattr(
+                env.payload, "curr_node", None
+            ):
                 continue
         return env
 
@@ -109,7 +118,9 @@ class FakeProject:
         if settings is None:
             default_wf_name = "wf-project-state"
             settings = Settings(
-                workflows={default_wf_name: WorkflowConfig(nodes=[], edges=[], config={})},
+                workflows={
+                    default_wf_name: WorkflowConfig(nodes=[], edges=[], config={})
+                },
                 logging=LoggingSettings(),
             )
         self.settings = settings
@@ -133,7 +144,10 @@ class FakeProject:
         """
         Build a FakeProject from mapping name -> object with .nodes and .edges.
         """
-        wf_map = {name: WorkflowConfig(nodes=wf.nodes, edges=wf.edges) for name, wf in workflows.items()}
+        wf_map = {
+            name: WorkflowConfig(nodes=wf.nodes, edges=wf.edges)
+            for name, wf in workflows.items()
+        }
         settings = Settings(workflows=wf_map, logging=LoggingSettings())
         return cls(settings=settings)
 
@@ -153,15 +167,30 @@ class FakeRunner:
 
     def __init__(self, workflow, project, initial_message=None):
         self.status: RunnerStatus = RunnerStatus.idle
-        self.script: List[Tuple[str, object, bool, RunnerStatus]] = getattr(workflow, "script", [])
+        self.script: List[Tuple[str, object, bool, RunnerStatus]] = getattr(
+            workflow, "script", []
+        )
         self.received_inputs: List[Optional[RunInput]] = []
         self.rewound: Optional[int] = None
         self.replaced_input: Optional[RespPacket] = None
         node_hide_map = getattr(workflow, "node_hide_map", {})
-        self.runtime_graph = SimpleNamespace(
-            get_runtime_node_by_name=lambda name: SimpleNamespace(
-                model=SimpleNamespace(hide_final_output=bool(node_hide_map.get(name, False)))
+
+        def _get_runtime_node_by_name(name: str):
+            """Minimal runtime node stub matching UIState expectations.
+
+            UIState may access both `hide_final_output` and `description` on
+            `runner.runtime_graph.get_runtime_node_by_name(name).model`.
+            """
+
+            return SimpleNamespace(
+                model=SimpleNamespace(
+                    hide_final_output=bool(node_hide_map.get(name, False)),
+                    description=None,
+                )
             )
+
+        self.runtime_graph = SimpleNamespace(
+            get_runtime_node_by_name=_get_runtime_node_by_name
         )
 
     def cancel(self) -> None:
@@ -173,7 +202,9 @@ class FakeRunner:
     async def rewind(self, task, n: int = 1) -> None:
         self.rewound = n
 
-    def replace_user_input(self, task, response, step_index=None, n: Optional[int] = None) -> None:
+    def replace_user_input(
+        self, task, response, step_index=None, n: Optional[int] = None
+    ) -> None:
         # Accept both legacy and named 'n' arg styles
         self.replaced_input = response
 

@@ -1,6 +1,6 @@
 # Default Vocode configuration
 logging:
-  default_level: debug
+  #default_level: debug
   enabled_loggers:
     LiteLLM: warning
 variables:
@@ -27,7 +27,7 @@ tools:
     auto_approve: true
   - name: search_project
     auto_approve: true
-  - name: start_workflow
+  - name: run_agent
     auto_approve: true
 workflows:
   architect:
@@ -94,7 +94,8 @@ workflows:
       - reprompt.done -> architect
   # Search
   agent-discovery:
-    description: "Smart codebase knowledge agent. Always prefer this workflow over individual search tools when doing project discovery."
+    description: "Smart codebase knowledge base agent. Can search and summarize project
+    efficiently. Use to inspect project files needed to solve the users ask."
     nodes:
       - $include:
           template: nodes/discovery.yaml
@@ -132,7 +133,7 @@ workflows:
           - read_files
           - list_files
           - search_project
-          - start_workflow
+          - run_agent
           - name: exec
             auto_approve_rules:
               - key: command

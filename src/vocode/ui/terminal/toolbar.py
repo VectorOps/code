@@ -7,7 +7,7 @@ from prompt_toolkit.formatted_text import FormattedText, HTML
 from prompt_toolkit.formatted_text.utils import fragment_list_width
 
 from vocode.ui.base import UIState
-from vocode.ui.proto import UIPacketRunEvent
+from vocode.ui.proto import UIPacketRunEvent, UIWorkflowStackFrame
 from vocode.runner.models import (
     PACKET_MESSAGE_REQUEST,
     PACKET_TOOL_CALL,
@@ -94,8 +94,6 @@ def build_toolbar(
     pending_req: Optional[UIPacketRunEvent],
 ) -> FormattedText:
     ui = app.ui
-    wf = ui.selected_workflow_name if ui and ui.selected_workflow_name else "-"
-    node = ui.current_node_name if ui and ui.current_node_name else "-"
 
     # Determine status display with "waiting input" and running animation.
     if ui is not None:
@@ -113,12 +111,55 @@ def build_toolbar(
     else:
         status_display = raw_status
 
-    left_fragments: FormattedText = [
-        ("class:toolbar.wf", wf),
-        ("class:toolbar", "@"),
-        ("class:toolbar.node", node),
-        ("class:toolbar", f" [{status_display}]"),
-    ]
+    # Build left-hand workflow/stack display.
+    left_fragments: FormattedText = []
+    if app.workflow_stack:
+        # Render from outermost -> innermost. Top-level shows "wf@node" when
+        # a node is known; child frames mirror this as "wf@node" so nested
+        # workflows remain identifiable.
+        for idx, frame in enumerate(app.workflow_stack):
+            is_top = idx == 0
+            wf_name = frame.workflow or "-"
+            node_name = frame.node or "-"
+
+            if is_top:
+                # Top-level: include workflow name and node (wf@node).
+                left_fragments.extend(
+                    [
+                        ("class:toolbar.wf", wf_name),
+                        ("class:toolbar", "@"),
+                        ("class:toolbar.node", node_name),
+                    ]
+                )
+            else:
+                # Child workflows: show "wf@node" when available.
+                left_fragments.extend(
+                    [
+                        ("class:toolbar.wf", wf_name),
+                        ("class:toolbar", "@"),
+                        ("class:toolbar.node", node_name),
+                    ]
+                )
+
+            if idx != len(app.workflow_stack) - 1:
+                left_fragments.append(("class:toolbar", " > "))
+    else:
+        # Fallback to a single workflow@node when no stack is available.
+        wf = "-"
+        node = "-"
+        if ui and ui.selected_workflow_name:
+            wf = ui.selected_workflow_name
+        if ui and ui.current_node_name:
+            node = ui.current_node_name
+        left_fragments.extend(
+            [
+                ("class:toolbar.wf", wf),
+                ("class:toolbar", "@"),
+                ("class:toolbar.node", node),
+            ]
+        )
+
+    left_fragments.append(("class:toolbar", f" [{status_display}]"))
 
     # Usage: derive from cached LLMUsageStats on TerminalApp.
     global_usage = app.llm_usage_global

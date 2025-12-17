@@ -5,16 +5,16 @@ from vocode.ui.base import UIState
 from vocode.runner.models import RunInput, RespApproval
 from vocode.state import RunnerStatus
 from vocode.runner.executors.noop import NoopNode
-from vocode.runner.executors.start_workflow import (
-    StartWorkflowExecutor,
-    StartWorkflowNode,
+from vocode.runner.executors.run_agent import (
+    RunAgentExecutor,
+    RunAgentNode,
 )  # ensure import/registration
 from vocode.ui.proto import UIPacketEnvelope, UIPacketRunInput
 from vocode.runner.runner import Executor
 from vocode.state import Message, ToolCall
 from vocode.runner.models import ReqToolCall, ReqFinalMessage
 from vocode.tools import BaseTool, ToolStartWorkflowResponse
-from vocode.tools.start_workflow import StartWorkflowTool
+from vocode.tools.run_agent import RunAgentTool
 from vocode.settings import Settings, WorkflowConfig, LoggingSettings, ToolSpec
 
 
@@ -40,13 +40,13 @@ class DummyProject:
         # Convert provided workflow stubs to real WorkflowConfig entries
         wf_map = {}
         for name, wf in workflows.items():
-            # Allow tests to provide an optional child_workflows attribute on the
+            # Allow tests to provide an optional agent_workflows attribute on the
             # stub workflow object; fall back to None when missing.
-            child = getattr(wf, "child_workflows", None)
+            child = getattr(wf, "agent_workflows", None)
             wf_map[name] = WorkflowConfig(
                 nodes=wf.nodes,
                 edges=wf.edges,
-                child_workflows=child,
+                agent_workflows=child,
             )
         self.settings = Settings(workflows=wf_map, logging=LoggingSettings())
         self.llm_usage = DummyLLMUsage()
@@ -65,10 +65,10 @@ class DummyProject:
 
 
 @pytest.mark.asyncio
-async def test_start_workflow_executor_stack_and_complete():
+async def test_run_agent_executor_stack_and_complete():
     # Parent: Start the "child" workflow, passing initial text
     parent_nodes = [
-        StartWorkflowNode(
+        RunAgentNode(
             name="parent", workflow="child", initial_text="hi child", outcomes=[]
         )
     ]
@@ -119,7 +119,7 @@ async def test_start_workflow_executor_stack_and_complete():
 
 
 @pytest.mark.asyncio
-async def test_tool_start_workflow_initiates_child_and_returns_result():
+async def test_tool_run_agent_initiates_child_and_returns_result():
     # Define a dummy tool that requests starting the 'child' workflow
     class StartChildTool(BaseTool):
         name = "start_child_tool"
@@ -240,15 +240,15 @@ async def test_tool_start_workflow_initiates_child_and_returns_result():
 
 
 @pytest.mark.asyncio
-async def test_start_workflow_tool_respects_child_workflows_allowlist():
-    # Parent workflow config allows only "child_allowed" as a child workflow
+async def test_run_agent_tool_respects_child_workflows_allowlist():
+    # Parent workflow config allows only "child_allowed" as a child agent
     class WF:
-        def __init__(self, nodes, edges, child_workflows=None):
+        def __init__(self, nodes, edges, agent_workflows=None):
             self.nodes = nodes
             self.edges = edges
-            self.child_workflows = child_workflows
+            self.agent_workflows = agent_workflows
 
-    parent_wf = WF(nodes=[], edges=[], child_workflows=["child_allowed"])
+    parent_wf = WF(nodes=[], edges=[], agent_workflows=["child_allowed"])
     child_allowed = WF(nodes=[], edges=[])
     child_denied = WF(nodes=[], edges=[])
 
@@ -262,29 +262,29 @@ async def test_start_workflow_tool_respects_child_workflows_allowlist():
     # Simulate that "parent" workflow is currently running
     project.current_workflow = "parent"
 
-    tool = StartWorkflowTool(project)
+    tool = RunAgentTool(project)
 
     # Allowed child should succeed
     spec_allowed = ToolSpec(
-        name="start_workflow",
+        name="run_agent",
         enabled=True,
         config={},
     )
     resp = await tool.run(
         spec_allowed,
-        args={"workflow": "child_allowed", "text": "hi"},
+        args={"name": "child_allowed", "text": "hi"},
     )
     assert isinstance(resp, ToolStartWorkflowResponse)
     assert resp.workflow == "child_allowed"
 
     # Non-whitelisted child should raise
     spec_denied = ToolSpec(
-        name="start_workflow",
+        name="run_agent",
         enabled=True,
         config={},
     )
     with pytest.raises(ValueError):
         await tool.run(
             spec_denied,
-            args={"workflow": "child_denied", "text": "hi"},
+            args={"name": "child_denied", "text": "hi"},
         )
