@@ -65,6 +65,7 @@ Concrete example: files that were read and already in context.
 Unclosed client session
 client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 * [ ] Terminal UI
+** [ ] Add a way to reject a tool call with a message.
 ** [ ] Autocomplete improvements
 *** [ ] Make auto-complete for files work with files from all repos
 *** [ ] Allow auto-complete for directories
@@ -95,6 +96,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [X] Simple styling
 *** [X] Simple animations
 ** [ ] Format tool calls
+*** [ ] Add a way to show multiple parameters
+*** [ ] Show when tool call finished and how long it took
 *** [ ] Add a way (tab?) to expand/collapse JSON
 *** [ ] Add a way to show full diff for update file tool before confirming with formatting (custom formatter?)
 ** [X] We might have deadlock somewhere that does not break with ctrl+c

@@ -18,6 +18,7 @@ from .templates import write_default_config
 from vocode.state import LLMUsageStats
 from vocode.commands import CommandManager
 from .mcp.manager import MCPManager
+from .skills import Skill, discover_skills
 from .proc.manager import ProcessManager
 from .proc.base import EnvPolicy
 from .proto import Packet, PacketProjectOpStart, PacketProjectOpFinish
@@ -68,6 +69,8 @@ class Project:
         self.config_relpath: Path = config_relpath
         self.settings: Optional[Settings] = settings
         self.tools: Dict[str, "BaseTool"] = {}
+        # Skills discovered under .vocode/skills at project base path
+        self.skills: List[Skill] = discover_skills(self.base_path)
         self.know: KnowProject = KnowProject()
         self.mcp_manager: Optional[MCPManager] = None
         # Project-level shared state for executors
