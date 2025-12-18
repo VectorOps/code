@@ -6,10 +6,7 @@ from vocode.runner.executors.llm.preprocessors.base import get_preprocessor
 from vocode.runner.executors.llm.preprocessors import diff as diff_mod
 from vocode.models import PreprocessorSpec, Mode
 from vocode.state import Message
-
-class DummyProject:
-    def __init__(self):
-        pass
+from .fakes import TestProject
 
 @pytest.fixture
 def base_messages() -> List[Message]:
@@ -33,9 +30,9 @@ def test_diff_preprocessor_does_not_reinject(base_messages):
         return_value=" DIFF",
     ):
         # First call injects the content
-        out_messages = pp.func(DummyProject(), spec, base_messages)
+        out_messages = pp.func(TestProject(), spec, base_messages)
         assert out_messages[0].text == "system prompt DIFF"
 
         # Second call should not change the messages
-        final_messages = pp.func(DummyProject(), spec, out_messages)
+        final_messages = pp.func(TestProject(), spec, out_messages)
         assert final_messages[0].text == "system prompt DIFF"

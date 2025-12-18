@@ -10,6 +10,7 @@ from vocode.runner.models import ReqToolCall, ReqFinalMessage, RunInput
 from vocode.settings import Settings, WorkflowConfig, ToolSpec, ToolRuntimeSettings
 from vocode.state import Message, Assignment, Step, Activity, RunStatus, ToolCall
 from vocode.tools import BaseTool, ToolTextResponse
+from .fakes import TestProject
 
 
 class _ConcurrencyTool(BaseTool):
@@ -94,12 +95,6 @@ class _ToolExecExecutor(Executor):
 Executor.register("tool_exec_test", _ToolExecExecutor)
 
 
-class _DummyProject:
-    def __init__(self, settings: Settings, tool):
-        self.settings = settings
-        self.tools = {"concurrency_tool": tool}
-
-
 @pytest.mark.asyncio
 async def test_runner_tool_concurrency_respects_setting():
     counter = _Counter()
@@ -112,7 +107,10 @@ async def test_runner_tool_concurrency_respects_setting():
         tools_runtime=ToolRuntimeSettings(max_concurrent=2),
     )
 
-    project = _DummyProject(settings=settings, tool=_ConcurrencyTool(None, counter))
+    project = TestProject(
+        settings=settings,
+        tools={"concurrency_tool": _ConcurrencyTool(None, counter)},
+    )
 
     workflow = Workflow(name="test", graph=graph)
     runner = Runner(workflow, project)

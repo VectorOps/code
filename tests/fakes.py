@@ -3,6 +3,10 @@ import json
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Callable, Awaitable
 
+from vocode.settings import Settings, ExecToolSettings
+from vocode.state import LLMUsageStats
+from vocode.proc.manager import ProcessManager
+
 
 class FakeMCPClient:
     """
@@ -52,3 +56,44 @@ def make_fake_mcp_client_creator(client_instance: FakeMCPClient) -> callable:
         return client_instance
 
     return fake_create_client
+
+
+class TestProject:
+    """
+    Lightweight test double for vocode.project.Project.
+
+    Provides:
+      - settings: vocode.settings.Settings (with exec_tool defaults if not supplied)
+      - tools: mapping of tool name -> tool instance
+      - processes: ProcessManager, for tools like ExecTool
+      - llm_usage: LLMUsageStats, plus add_llm_usage() similar to real Project
+    """
+
+    # Prevent pytest from treating this helper as a test class.
+    __test__ = False
+
+    def __init__(
+        self,
+        settings: Optional[Settings] = None,
+        tools: Optional[Dict[str, Any]] = None,
+        process_manager: Optional[ProcessManager] = None,
+    ) -> None:
+        # Ensure exec_tool settings exist by default for ExecTool tests.
+        self.settings: Settings = settings or Settings(exec_tool=ExecToolSettings())
+        # Tools registry used by Runner._run_tools and similar code paths.
+        self.tools: Dict[str, Any] = tools or {}
+        # Process manager used by ExecTool.
+        self.processes: Optional[ProcessManager] = process_manager
+        # Aggregate LLM usage for LLMExecutor and related code paths.
+        self.llm_usage: LLMUsageStats = LLMUsageStats()
+
+    def add_llm_usage(
+        self,
+        prompt_delta: int = 0,
+        completion_delta: int = 0,
+        cost_delta: float = 0.0,
+    ) -> None:
+        stats = self.llm_usage
+        stats.prompt_tokens += int(prompt_delta or 0)
+        stats.completion_tokens += int(completion_delta or 0)
+        stats.cost_dollars += float(cost_delta or 0.0)

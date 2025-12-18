@@ -13,22 +13,15 @@ from vocode.settings import (
     Settings,
     ToolSpec,
 )
+from .fakes import TestProject
 
 pytestmark = [
     pytest.mark.skipif(os.name != "posix", reason="POSIX-only tests"),
 ]
-
-
-class _DummyProject:
-    def __init__(self, pm: ProcessManager):
-        self.processes = pm
-        self.settings = Settings(exec_tool=ExecToolSettings())
-
-
 def test_exec_tool_basic_stderr_and_timeout(tmp_path: Path):
     async def scenario():
         pm = ProcessManager(backend_name="local", default_cwd=tmp_path)
-        proj = _DummyProject(pm)
+        proj = TestProject(process_manager=pm)
         tool = ExecTool(proj)
         # Use a small timeout for CI speed; default is 60s for production use.
         spec = ToolSpec(name="exec", config={"timeout_s": 0.1})
@@ -70,7 +63,7 @@ def test_exec_tool_basic_stderr_and_timeout(tmp_path: Path):
 def test_exec_tool_output_truncation(tmp_path: Path):
     async def scenario():
         pm = ProcessManager(backend_name="local", default_cwd=tmp_path)
-        proj = _DummyProject(pm)
+        proj = TestProject(process_manager=pm)
         tool = ExecTool(proj)
         spec = ToolSpec(name="exec", config={"timeout_s": 1})
 
@@ -94,9 +87,11 @@ def test_exec_tool_output_truncation(tmp_path: Path):
 def test_exec_tool_output_truncation_respects_settings(tmp_path: Path):
     async def scenario():
         pm = ProcessManager(backend_name="local", default_cwd=tmp_path)
-        # Override project-level max_output_chars to a small value
-        proj = _DummyProject(pm)
-        proj.settings.exec_tool.max_output_chars = 100
+        # Override project-level max_output_chars to a small value.
+        settings = Settings(exec_tool=ExecToolSettings())
+        settings.exec_tool.max_output_chars = 100
+
+        proj = TestProject(settings=settings, process_manager=pm)
 
         tool = ExecTool(proj)
         spec = ToolSpec(name="exec", config={"timeout_s": 1})

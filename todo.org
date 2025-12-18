@@ -142,6 +142,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] Figure out how to express 3rd party dependencies and give access
 *** [X] Disable warnings
 *** [ ] Add a way to fully disable know so project is not parsed.
+*** [ ] File search does not seem to correctly handle virtual projects: search for file does not honor virtual prefix path
 ** [X] Add pattern matching rules to auto-approve rule calls
 ** [ ] Skills
 *** [ ] Skill parsers

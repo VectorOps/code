@@ -308,7 +308,8 @@ def setup_fault_handlers() -> None:
     Shared between terminal and other UIs.
     """
     faulthandler.enable(sys.stderr)
-    faulthandler.register(signal.SIGUSR1)
+    if hasattr(signal, "SIGUSR1"):
+        faulthandler.register(signal.SIGUSR1)
 
     # Fix litellm / Pydantic deprecation noise.
     from pydantic.warnings import (

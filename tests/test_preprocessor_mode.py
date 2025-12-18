@@ -10,6 +10,7 @@ from vocode.state import Message
 
 # Faking this import, since it's only used for test setup
 from vocode.runner.executors.llm.preprocessors import diff # noqa
+from .fakes import TestProject
 
 
 
@@ -41,14 +42,6 @@ def mark_preprocessor(project, spec: PreprocessorSpec, messages: List[Message]) 
 register_preprocessor(name="mark", description="append marker", func=mark_preprocessor)
 
 
-class DummyProject:
-    def __init__(self):
-        pass
-
-    def add_llm_usage(self, **kwargs):
-        pass
-
-
 @pytest.fixture
 def base_messages():
     return [
@@ -68,7 +61,7 @@ def test_preprocessor_mode_system(base_messages):
             PreprocessorSpec(name="mark", options={"suffix": " S"}, mode=Mode.System)
         ],
     )
-    executor = LLMExecutor(config=node, project=DummyProject())
+    executor = LLMExecutor(config=node, project=TestProject())
     # The system message is added by _build_base_messages from the node config,
     # so we only need to pass the user messages.
     result_messages = h_build_base_messages(node, base_messages[1:], executor.project)
@@ -87,7 +80,7 @@ def test_preprocessor_mode_user(base_messages):
             PreprocessorSpec(name="mark", options={"suffix": " U"}, mode=Mode.User)
         ],
     )
-    executor = LLMExecutor(config=node, project=DummyProject())
+    executor = LLMExecutor(config=node, project=TestProject())
     result_messages = h_build_base_messages(node, base_messages[1:], executor.project)
     assert result_messages[0]["content"] == "system prompt"
     assert result_messages[1]["content"] == "hello"
@@ -106,7 +99,7 @@ def test_preprocessor_mode_system_prepend(base_messages):
             )
         ],
     )
-    executor = LLMExecutor(config=node, project=DummyProject())
+    executor = LLMExecutor(config=node, project=TestProject())
     result_messages = h_build_base_messages(node, base_messages[1:], executor.project)
     assert result_messages[0]["content"] == "S system prompt"
     assert result_messages[1]["content"] == "hello"
@@ -124,7 +117,7 @@ def test_preprocessor_multiple_are_applied(base_messages):
             PreprocessorSpec(name="mark", options={"suffix": " S2"}),
         ],
     )
-    executor = LLMExecutor(config=node, project=DummyProject())
+    executor = LLMExecutor(config=node, project=TestProject())
     result_messages = h_build_base_messages(node, base_messages[1:], executor.project)
     assert result_messages[0]["content"] == "system prompt S1 S2"
     assert result_messages[1]["content"] == "hello"
@@ -140,7 +133,7 @@ def test_diff_preprocessor(base_messages):
             PreprocessorSpec(name="diff", options={"format": "test_format"})
         ],
     )
-    executor = LLMExecutor(config=node, project=DummyProject())
+    executor = LLMExecutor(config=node, project=TestProject())
 
     with patch(
         "vocode.runner.executors.llm.preprocessors.diff.get_supported_formats",
