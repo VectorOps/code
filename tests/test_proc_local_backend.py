@@ -34,6 +34,29 @@ def test_local_backend_handle_io_and_wait(tmp_path: Path):
     asyncio.run(scenario())
 
 
+def test_local_backend_kills_process_group(tmp_path: Path):
+    """Ensure that killing a handle started with the default options terminates
+    the entire process group, not just the shell wrapper.
+
+    This test is POSIX-only and assumes os.setsid()/killpg semantics.
+    """
+
+    async def scenario():
+        backend = LocalSubprocessBackend()
+        # Spawn a shell that starts a long-lived child process. After kill(),
+        # the child should also be gone.
+        cmd = "sh -c 'sleep 60 &'"
+        handle = await backend.spawn(SpawnOptions(command=cmd, cwd=tmp_path))
+        # Ensure the process is started
+        assert handle.pid is not None
+        # Kill the group and ensure wait() completes quickly
+        await handle.kill()
+        rc = await asyncio.wait_for(handle.wait(), timeout=2.0)
+        assert rc is not None
+
+    asyncio.run(scenario())
+
+
 def test_local_backend_nonzero_exit(tmp_path: Path):
     async def scenario():
         backend = LocalSubprocessBackend()

@@ -33,16 +33,14 @@ def _get_max_output_chars(project: "Project", spec: ToolSpec) -> int:
         return int(max_chars_cfg)
 
     # 2) Project-level setting
-    settings = getattr(project, "settings", None)
-    if settings is not None:
-        exec_cfg = getattr(settings, "exec_tool", None)
-        if exec_cfg is not None:
-            try:
-                max_chars = int(exec_cfg.max_output_chars)
-                if max_chars > 0:
-                    return max_chars
-            except (TypeError, ValueError):  # pragma: no cover - defensive
-                pass
+    settings = project.settings
+    if settings is not None and settings.exec_tool is not None:
+        try:
+            max_chars = int(settings.exec_tool.max_output_chars)
+            if max_chars > 0:
+                return max_chars
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            pass
 
     # 3) Fallback to default
     return EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT
@@ -91,12 +89,29 @@ class ExecTool(BaseTool):
             async for chunk in handle.iter_stderr():
                 stderr_parts.append(chunk)
 
-        # Determine timeout: allow override via tool spec config
+        # Determine timeout: allow override via tool spec config, then
+        # fall back to project-level settings, then constant default.
         cfg = spec.config or {}
-        try:
-            timeout_s = float(cfg.get("timeout_s", EXEC_TOOL_TIMEOUT_S))
-        except (TypeError, ValueError):
-            timeout_s = EXEC_TOOL_TIMEOUT_S
+        timeout_s: float
+        raw_timeout = cfg.get("timeout_s")
+        if raw_timeout is not None:
+            try:
+                timeout_s = float(raw_timeout)
+            except (TypeError, ValueError):
+                timeout_s = EXEC_TOOL_TIMEOUT_S
+        else:
+            settings = self.prj.settings
+            if (
+                settings is not None
+                and settings.exec_tool is not None
+                and settings.exec_tool.timeout_s is not None
+            ):
+                try:
+                    timeout_s = float(settings.exec_tool.timeout_s)
+                except (TypeError, ValueError):  # pragma: no cover - defensive
+                    timeout_s = EXEC_TOOL_TIMEOUT_S
+            else:
+                timeout_s = EXEC_TOOL_TIMEOUT_S
 
         readers = [
             asyncio.create_task(_read_stdout()),

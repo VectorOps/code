@@ -56,7 +56,16 @@ class ExecExecutor(Executor):
         self, inp: ExecRunInput
     ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: ExecNode = self.config  # type: ignore[assignment]
-        timeout_s = cfg.timeout_s if cfg.timeout_s is not None else 120.0
+        # Resolve timeout: node override -> process.shell.default_timeout_s -> fallback
+        timeout_s: float
+        if cfg.timeout_s is not None:
+            timeout_s = cfg.timeout_s
+        else:
+            settings = self.project.settings
+            if settings is not None and settings.process is not None:
+                timeout_s = float(settings.process.shell.default_timeout_s)
+            else:
+                timeout_s = 120.0
         # Debounce window: if the command finishes quickly, do not stream interims
         STREAM_DEBOUNCE_S = 0.25
 

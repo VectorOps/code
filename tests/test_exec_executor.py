@@ -6,6 +6,7 @@ import pytest
 
 from vocode.runner.executors.exec import ExecNode, ExecExecutor
 from vocode.proc.manager import ProcessManager
+from vocode.settings import ProcessSettings, Settings
 from vocode.state import Message
 from vocode.runner.models import ExecRunInput, PACKET_FINAL_MESSAGE
 
@@ -17,6 +18,9 @@ class _DummyProject:
     def __init__(self, base: Path):
         self.base_path = base
         self.processes = ProcessManager(backend_name="local", default_cwd=base)
+        # Minimal settings so ExecExecutor can resolve default timeout from
+        # process.shell.default_timeout_s.
+        self.settings = Settings(process=ProcessSettings())
 
 
 def test_exec_executor_success_and_timeout(tmp_path: Path):

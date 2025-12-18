@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import os
+import signal
 import uuid
 from pathlib import Path
 from typing import AsyncIterator, Optional, Dict
@@ -30,10 +31,17 @@ def _build_env(policy: EnvPolicy, overlay: Optional[Dict[str, str]]) -> Dict[str
 
 
 class LocalProcessHandle(ProcessHandle):
-    def __init__(self, proc: asyncio.subprocess.Process, name: Optional[str]) -> None:
+    def __init__(
+        self,
+        proc: asyncio.subprocess.Process,
+        name: Optional[str],
+        *,
+        use_process_group: bool = True,
+    ) -> None:
         self._proc = proc
         self.id = str(uuid.uuid4())
         self.name = name
+        self._use_pg = bool(use_process_group and os.name == "posix")
 
     @property
     def pid(self) -> Optional[int]:
@@ -85,7 +93,13 @@ class LocalProcessHandle(ProcessHandle):
             return
 
         try:
-            self._proc.terminate()
+            if self._use_pg and self._proc.pid is not None:
+                try:
+                    os.killpg(self._proc.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    return
+            else:
+                self._proc.terminate()
         except ProcessLookupError:
             return
 
@@ -104,7 +118,13 @@ class LocalProcessHandle(ProcessHandle):
             return
 
         try:
-            self._proc.kill()
+            if self._use_pg and self._proc.pid is not None:
+                try:
+                    os.killpg(self._proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                self._proc.kill()
         except ProcessLookupError:
             # Process was already gone before we could kill it.
             pass
@@ -130,6 +150,15 @@ class LocalSubprocessBackend(ProcessBackend):
         cwd: Optional[str | Path] = opts.cwd
         env = _build_env(self.env_policy, opts.env_overlay)
         # Shell-string execution
+        preexec_fn = None
+        if opts.use_process_group and os.name == "posix":
+            # Start the subprocess in a new process group so we can signal the
+            # entire tree via killpg in terminate()/kill().
+            def _preexec() -> None:  # pragma: no cover - trivial wrapper
+                os.setsid()
+
+            preexec_fn = _preexec
+
         proc = await asyncio.create_subprocess_shell(
             opts.command,
             stdin=asyncio.subprocess.PIPE,
@@ -137,5 +166,8 @@ class LocalSubprocessBackend(ProcessBackend):
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd) if cwd is not None else None,
             env=env,
+            preexec_fn=preexec_fn,  # type: ignore[arg-type]
         )
-        return LocalProcessHandle(proc, opts.name)
+        return LocalProcessHandle(
+            proc, opts.name, use_process_group=opts.use_process_group
+        )

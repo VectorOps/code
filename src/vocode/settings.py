@@ -213,6 +213,10 @@ class ExecToolSettings(BaseModel):
     # Maximum characters of combined stdout/stderr returned by the exec tool.
     # This guards against excessive subprocess output overwhelming callers.
     max_output_chars: int = EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT
+    # Optional default timeout (seconds) for exec tool invocations when the
+    # tool spec does not provide a per-call override. None => use tool-level
+    # constant default.
+    timeout_s: Optional[float] = None
 
 
 class ToolRuntimeSettings(BaseModel):
