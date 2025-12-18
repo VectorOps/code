@@ -12,27 +12,27 @@ DEFAULT_TOOL_CALL_FORMATTERS: Dict[str, "ToolCallFormatter"] = {
     "search_project": ToolCallFormatter(
         title="SymbolSearch",
         formatter="generic",
-        options={"field": "query"},
+        options={"fields": ["query"]},
     ),
     "read_files": ToolCallFormatter(
         title="ReadFile",
         formatter="generic",
-        options={"field": "path"},
+        options={"fields": ["path"]},
     ),
     "summarize_files": ToolCallFormatter(
         title="FileSummary",
         formatter="generic",
-        options={"field": "paths"},
+        options={"fields": ["paths"]},
     ),
     "list_files": ToolCallFormatter(
         title="ListFiles",
         formatter="generic",
-        options={"field": "pattern"},
+        options={"fields": ["pattern"]},
     ),
     "exec": ToolCallFormatter(
         title="Exec",
         formatter="generic",
-        options={"field": "command"},
+        options={"fields": ["command"]},
     ),
     "apply_patch": ToolCallFormatter(
         title="ApplyPatch",
@@ -42,7 +42,7 @@ DEFAULT_TOOL_CALL_FORMATTERS: Dict[str, "ToolCallFormatter"] = {
     "run_agent": ToolCallFormatter(
         title="RunAgent",
         formatter="generic",
-        options={"field": "name"},
+        options={"fields": ["name", "text"]},
     ),
     # Task plan tool: show a task list with a dedicated formatter.
     "update_plan": ToolCallFormatter(

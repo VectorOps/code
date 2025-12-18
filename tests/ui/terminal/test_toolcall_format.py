@@ -65,7 +65,9 @@ def test_truncate_params_to_width_no_truncation():
 
 
 def test_render_tool_call_fallback_no_formatter():
-    frags = tcf.render_tool_call("mytool", {"x": 1}, formatter_map=None, terminal_width=100)
+    frags = tcf.render_tool_call(
+        "mytool", {"x": 1}, formatter_map=None, terminal_width=100
+    )
     assert frags == [
         ("class:toolcall.name", "mytool"),
         ("class:toolcall.separator", "("),
@@ -119,6 +121,8 @@ def test_render_tool_call_truncates_params(monkeypatch):
         ("class:toolcall.parameter", "..."),
         ("class:toolcall.separator", ")"),
     ]
+
+
 def test_render_tool_call_missing_field_shows_ellipsis():
     formatter_map = {
         "mytool": ToolCallFormatter(
@@ -138,6 +142,7 @@ def test_render_tool_call_missing_field_shows_ellipsis():
         ("class:toolcall.parameter", "..."),
         ("class:toolcall.separator", ")"),
     ]
+
 
 def test_render_tool_call_print_source_appends_json():
     formatter_map = {
@@ -212,3 +217,26 @@ def test_apply_patch_formatter_renders_patch_body():
     assert "ApplyPatch" in joined
     # Patch body content present
     assert "*** Begin Patch" in joined
+
+
+def test_render_tool_call_multiple_fields_merged():
+    formatter_map = {
+        "mytool": ToolCallFormatter(
+            title="Run It",
+            formatter="generic",
+            options={"fields": ["a", "b"]},
+        )
+    }
+    args = {"a": "foo", "b": "bar"}
+
+    frags = tcf.render_tool_call(
+        "mytool", args, formatter_map=formatter_map, terminal_width=100
+    )
+    assert frags == [
+        ("class:toolcall.name", "Run It"),
+        ("class:toolcall.separator", "("),
+        ("class:toolcall.parameter", '"foo"'),
+        ("class:toolcall.separator", ", "),
+        ("class:toolcall.parameter", '"bar"'),
+        ("class:toolcall.separator", ")"),
+    ]

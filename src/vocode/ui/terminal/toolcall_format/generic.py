@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Iterable, List, Optional
 
 from prompt_toolkit.formatted_text import (
     AnyFormattedText,
@@ -16,14 +16,30 @@ from .base import BaseToolCallFormatter, register_formatter
 
 
 class GenericToolCallFormatter(BaseToolCallFormatter):
-    """
-    Default formatter that renders:
+    """Default formatter that renders ``<title>(<params>)``.
 
-        <title>(<params>)
-
-    where params come from a single argument field configured via
-    config.options["field"], matching the previous render_tool_call behavior.
+    Parameters are taken from one or more argument fields configured via
+    ``config.options["field"]`` (string) or ``config.options["fields"]``
+    (list of strings). When multiple fields are provided, their values are
+    concatenated and displayed comma separated.
     """
+
+    @staticmethod
+    def _iter_field_names(config: Optional[ToolCallFormatter]) -> Iterable[str]:
+        if config is None:
+            return []
+
+        opts = config.options or {}
+        # Backward-compatible: single "field" key
+        field = opts.get("field")
+        if isinstance(field, str) and field:
+            return [field]
+
+        fields = opts.get("fields")
+        if isinstance(fields, list):
+            return [str(f) for f in fields if str(f)]
+
+        return []
 
     def format_input(
         self,
@@ -37,9 +53,6 @@ class GenericToolCallFormatter(BaseToolCallFormatter):
         max_total = max(0, terminal_width - 10)
 
         title = tool_name if config is None else config.title
-        field_name: Optional[str] = None
-        if config is not None and "field" in config.options:
-            field_name = str(config.options["field"])
 
         prefix: FormattedText = [
             ("class:toolcall.name", title),
@@ -47,8 +60,8 @@ class GenericToolCallFormatter(BaseToolCallFormatter):
         ]
 
         extracted: List[Any] = []
-        if field_name:
-            extracted = _utils._extract_field_value(arguments, field_name)
+        for field_name in self._iter_field_names(config):
+            extracted.extend(_utils._extract_field_value(arguments, field_name))
 
         if not extracted:
             params: FormattedText = [("class:toolcall.parameter", "...")]
