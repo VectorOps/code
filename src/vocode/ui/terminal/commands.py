@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import shlex
+import json
 from typing import (
     Awaitable,
     Callable,
@@ -20,6 +21,7 @@ from vocode.ui.proto import (
     UIPacketUIReload,
 )
 from vocode.ui.terminal import rpc_helpers
+from vocode.settings import ToolSpec
 
 if TYPE_CHECKING:
     from vocode.ui.base import UIState
@@ -221,8 +223,9 @@ async def _reload(ctx: CommandContext, args: List[str]) -> None:
 
 
 async def _repos(ctx: CommandContext, args: List[str]) -> None:
+    usage = "Usage: /repo <list|add|remove|refresh|refresh_all> [args]"
     if not args:
-        await ctx.out("Usage: /repos <list|add|remove> [args]")
+        await ctx.out(usage)
         return
 
     sub = args[0]
@@ -231,19 +234,27 @@ async def _repos(ctx: CommandContext, args: List[str]) -> None:
             res = await rpc_helpers.rpc_repos_list(ctx.rpc)
         elif sub == "add":
             if len(args) < 3:
-                await ctx.out("Usage: /repos add <name> <path>")
+                await ctx.out("Usage: /repo add <name> <path>")
                 return
             name = args[1]
             path = args[2]
             res = await rpc_helpers.rpc_repos_add(ctx.rpc, name=name, path=path)
         elif sub == "remove":
             if len(args) < 2:
-                await ctx.out("Usage: /repos remove <name>")
+                await ctx.out("Usage: /repo remove <name>")
                 return
             name = args[1]
             res = await rpc_helpers.rpc_repos_remove(ctx.rpc, name=name)
+        elif sub == "refresh":
+            if len(args) < 2:
+                await ctx.out("Usage: /repo refresh <name>")
+                return
+            name = args[1]
+            res = await rpc_helpers.rpc_repos_refresh(ctx.rpc, name=name)
+        elif sub == "refresh_all":
+            res = await rpc_helpers.rpc_repos_refresh_all(ctx.rpc)
         else:
-            await ctx.out("Usage: /repos <list|add|remove> [args]")
+            await ctx.out(usage)
             return
     except Exception as e:
         await ctx.out(f"Repos command failed: {e}")
@@ -254,6 +265,112 @@ async def _repos(ctx: CommandContext, args: List[str]) -> None:
             await ctx.out(res.output)
     else:
         await ctx.out(res.error or "unknown error")
+
+
+async def _debug(ctx: CommandContext, args: List[str]) -> None:
+    usage = (
+        "Usage:\n"
+        "  /debug know search <query>\n"
+        "  /debug know summary <path> [more_paths...]\n"
+        "  /debug know list <glob-pattern>"
+    )
+
+    if not args or args[0] != "know":
+        await ctx.out(usage)
+        return
+    if len(args) < 2:
+        await ctx.out(usage)
+        return
+
+    sub = args[1]
+    sub_args = args[2:]
+
+    project = ctx.ui.project
+    tools = getattr(project, "tools", {}) or {}
+
+    async def _run_know_tool(tool_name: str, payload: Dict[str, object]) -> None:
+        tool = tools.get(tool_name)
+        if tool is None:
+            await ctx.out(f"Know tool '{tool_name}' is not available.")
+            return
+
+        try:
+            spec = ToolSpec(name=tool_name)
+        except Exception as e:
+            await ctx.out(f"Failed to construct ToolSpec: {e}")
+            return
+
+        try:
+            resp = await tool.run(spec, payload)
+        except Exception as e:
+            await ctx.out(f"Know tool '{tool_name}' raised: {e}")
+            return
+
+        if not resp:
+            await ctx.out("(no output)")
+            return
+
+        text = getattr(resp, "text", None)
+        if text is None:
+            await ctx.out("(no output)")
+            return
+
+        formatted = text
+        try:
+            obj = json.loads(text)
+        except Exception:
+            # Not JSON; fall back to raw structured/pretty text from knowlt.
+            pass
+        else:
+            formatted = json.dumps(obj, indent=2, sort_keys=True)
+
+        await ctx.out(formatted)
+
+    if sub == "search":
+        if not sub_args:
+            await ctx.out("Usage: /debug know search <query>")
+            return
+        query = " ".join(sub_args)
+        await _run_know_tool(
+            "search_project",
+            {
+                "query": query,
+                # Rely on knowlt defaults for other fields (global_search, limit, etc.).
+            },
+        )
+        return
+
+    if sub in ("summary", "summarize"):
+        if not sub_args:
+            await ctx.out("Usage: /debug know summary <path> [more_paths...]")
+            return
+        await _run_know_tool(
+            "summarize_files",
+            {
+                "paths": sub_args,
+            },
+        )
+        return
+
+    if sub in ("list", "files"):
+        if not sub_args:
+            await ctx.out("Usage: /debug know list <glob-pattern>")
+            return
+        pattern = sub_args[0]
+        await _run_know_tool(
+            "list_files",
+            {
+                "pattern": pattern,
+            },
+        )
+        return
+
+    await ctx.out(usage)
+    commands.register(
+        "/debug",
+        "Debug helpers for know tools",
+        "know <search|summary|list> ...",
+    )(_debug)
 
 
 def register_default_commands(
@@ -303,9 +420,15 @@ def register_default_commands(
     )(_handoff)
 
     commands.register(
-        "/repos",
+        "/repo",
         "Manage repositories",
-        "<list|add|remove> [args]",
+        "<list|add|remove|refresh|refresh_all> [args]",
     )(_repos)
+
+    commands.register(
+        "/debug",
+        "Debug helpers for know tools",
+        "know <search|summary|list> ...",
+    )(_debug)
 
     return commands

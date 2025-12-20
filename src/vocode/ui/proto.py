@@ -140,9 +140,9 @@ class UIPacketUIUseWithInputAction(BaseModel):
 
 class UIPacketUIReposAction(BaseModel):
     kind: Literal["ui_repos_action"] = PACKET_UI_REPOS_ACTION
-    # 'list' | 'add' | 'remove'
-    action: Literal["list", "add", "remove"]
-    # Optional parameters for add/remove.
+    # 'list' | 'add' | 'remove' | 'refresh' | 'refresh_all'
+    action: Literal["list", "add", "remove", "refresh", "refresh_all"]
+    # Optional parameters for add/remove/refresh.
     name: Optional[str] = None
     path: Optional[str] = None
 

@@ -82,3 +82,17 @@ async def rpc_repos_remove(rpc: RpcHelper, name: str):
         rpc,
         ui_proto.UIPacketUIReposAction(action="remove", name=name),
     )
+
+
+async def rpc_repos_refresh(rpc: RpcHelper, name: str):
+    return await _rpc_repos_common(
+        rpc,
+        ui_proto.UIPacketUIReposAction(action="refresh", name=name),
+    )
+
+
+async def rpc_repos_refresh_all(rpc: RpcHelper):
+    return await _rpc_repos_common(
+        rpc,
+        ui_proto.UIPacketUIReposAction(action="refresh_all"),
+    )
