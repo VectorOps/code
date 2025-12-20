@@ -14,8 +14,10 @@ class DummyKnow:
 
     async def shutdown(self):
         return None
+    async def refresh(self, repo=None, progress_sender=None, **_kwargs):
+        return None
 
-    async def refresh(self, repo=None):
+    async def refresh_all(self, progress_sender=None, **_kwargs):
         return None
 
 

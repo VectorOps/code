@@ -78,7 +78,10 @@ class KnowProject:
     ) -> None:
         """Asynchronously refresh all repositories."""
         await self._report_op(
-            self.pm.refresh_all, "Refreshing all projects", progress_sender
+            self.pm.refresh_all,
+            "Refreshing all projects",
+            progress_sender,
+            progress_supported=True,
         )
 
     async def maybe_refresh(
@@ -86,5 +89,8 @@ class KnowProject:
     ) -> None:
         """Asynchronously refresh if cooldown has passed."""
         await self._report_op(
-            self.pm.maybe_refresh, "Checking for project refresh", progress_sender
+            self.pm.maybe_refresh,
+            "Checking for project refresh",
+            progress_sender,
+            progress_supported=True,
         )

@@ -234,7 +234,7 @@ class Project:
         self.refresh_tools_from_registry()
 
         # Perform an initial refresh of all 'know' repositories on start
-        await self.know.refresh_all()
+        await self.know.refresh_all(progress_sender=self.send_message)
 
 
 def _find_project_root_with_config(start: Path, rel_config: Path) -> Optional[Path]:

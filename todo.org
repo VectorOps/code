@@ -148,13 +148,13 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [ ] File search does not seem to correctly handle virtual projects: search for file does not honor virtual prefix path
 ** [X] Add pattern matching rules to auto-approve rule calls
 ** [ ] Skills
-*** [ ] Skill parsers
+*** [X] Skill parsers
 *** [ ] Generate tool stubs for skills
 ** [ ] Web client tool
 ** [ ] Search tool
 *** [X] Specify that search tool does not support any special syntax
 ** [ ] Shell tool
-*** [ ] Shell tool does not handle timeouts?
+*** [X] Shell tool does not handle timeouts?
 *** [X] Limit how many lines are returned back to LLM
 *** [ ] Refresh know after shell command (could be slow)
 *** [ ] Add a way to approve similar tool calls within a session
