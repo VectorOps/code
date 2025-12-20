@@ -307,19 +307,19 @@ def setup_fault_handlers() -> None:
     Enable faulthandler and install default warning filters for UI entrypoints.
     Shared between terminal and other UIs.
     """
-    faulthandler.enable(sys.stderr)
-    if hasattr(signal, "SIGUSR1"):
-        faulthandler.register(signal.SIGUSR1)
-
     # Fix litellm / Pydantic deprecation noise.
     from pydantic.warnings import (
         PydanticDeprecatedSince211,
         PydanticDeprecatedSince20,
     )
 
+    warnings.filterwarnings(action="ignore", category=DeprecationWarning)
     warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince211)
     warnings.filterwarnings(action="ignore", category=PydanticDeprecatedSince20)
-    warnings.filterwarnings(action="ignore", category=DeprecationWarning)
+
+    faulthandler.enable(sys.stderr)
+    if hasattr(signal, "SIGUSR1"):
+        faulthandler.register(signal.SIGUSR1)
 
 
 def install_unhandled_exception_logging(

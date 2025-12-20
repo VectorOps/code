@@ -6,7 +6,7 @@ from other repos? Or just boost default repository results? (knowlt)
 ** [X] Commands to add/list/remove repos from the project
 ** [X] Figure out a way to list files in repos and/or push main repo files up (knowlt)
 ** [ ] Fix repos list output for primary repo
-** [ ] Change command to repo, instead of repos
+** [X] Change command to repo, instead of repos
 ** [ ] Add progress callback to refresh_all() (knowlt)
 ** [ ] Add repo refresh subcommand
 ** [ ] Fix auto-complete for virtual repos
@@ -142,7 +142,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [X] Maximum tool call rounds should be configurable per node
 ** [X] Update tool result formatter to, optionally, print tool calling results
 ** [ ] Integrate Know
-*** [ ] Figure out how to express 3rd party dependencies and give access
+*** [X] Figure out how to express 3rd party dependencies and give access
 *** [X] Disable warnings
 *** [ ] Add a way to fully disable know so project is not parsed.
 *** [ ] File search does not seem to correctly handle virtual projects: search for file does not honor virtual prefix path
