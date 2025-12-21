@@ -75,7 +75,13 @@ def test_skills_preprocessor_injects_list(
 
     text = out_messages[0].text
     assert "You have access to project skills" in text
-    assert "- example-skill: Example description" in text
+    skill_path = (
+        tmp_path / ".vocode" / "skills" / "example-skill" / "SKILL.md"
+    )
+    rel_path = skill_path.relative_to(tmp_path)
+    assert (
+        f"- example-skill: Example description (file: {rel_path})" in text
+    )
 
 
 def test_skills_preprocessor_noop_without_system_message(tmp_path: Path) -> None:

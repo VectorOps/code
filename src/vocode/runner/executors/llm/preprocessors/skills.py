@@ -10,6 +10,7 @@ from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 
 _DEFAULT_HEADER = (
     "\n\n## You have access to project skills that provide reusable expertise and workflows.\n"
+    "Always use an appropriate skill instead of making direct tool calls.\n"
     "The list of available skills is below:\n"
 )
 
@@ -25,7 +26,7 @@ def _skills_preprocessor(
     if not isinstance(project, Project):
         return messages
 
-    skills = getattr(project, "skills", None) or []
+    skills = project.skills
     if not skills:
         return messages
 
@@ -50,20 +51,32 @@ def _skills_preprocessor(
 
     item_format = opts.get("item_format")
     if not isinstance(item_format, str) or not item_format:
-        item_format = "- {name}: {description}"
+        item_format = "- {name}: {description} (file: {path})"
 
     separator = opts.get("separator")
     if not isinstance(separator, str) or not separator:
         separator = "\n"
 
     lines: List[str] = []
+    base_path = project.base_path
     for skill in skills:
-        name = getattr(skill, "name", "")
-        desc = getattr(skill, "description", "")
+        name = skill.name
+        desc = skill.description
+
+        path_value = skill.path
         try:
-            rendered = item_format.format(name=name, description=desc)
+            path_str = str(path_value.relative_to(base_path))
+        except ValueError:
+            path_str = str(path_value)
+
+        try:
+            rendered = item_format.format(
+                name=name,
+                description=desc,
+                path=path_str,
+            )
         except Exception:
-            rendered = f"- {name}: {desc}"
+            rendered = f"- {name}: {desc} (file: {path_str})"
         lines.append(rendered.rstrip())
 
     block = header + separator.join(lines)
