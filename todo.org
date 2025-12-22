@@ -5,10 +5,10 @@
 from other repos? Or just boost default repository results? (knowlt)
 ** [X] Commands to add/list/remove repos from the project
 ** [X] Figure out a way to list files in repos and/or push main repo files up (knowlt)
-** [ ] Fix repos list output for primary repo
+** [ ] Fix /repo list output for primary repo
 ** [X] Change command to repo, instead of repos
-** [ ] Add progress callback to refresh_all() (knowlt)
-** [ ] Add repo refresh subcommand
+** [X] Add progress callback to refresh_all() (knowlt)
+** [X] Add repo refresh subcommand
 ** [ ] Fix auto-complete for virtual repos
 * [X] Add a way to pass final output to a different workflow as an input in the UI
 * [ ] Cleanup and optimizations

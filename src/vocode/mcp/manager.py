@@ -112,6 +112,13 @@ class MCPManager:
             entry: Dict[str, Any] = {}
             if server.url:
                 entry["url"] = server.url
+                if server.headers:
+                    # Configure explicit transport so HTTP/S remote servers receive headers.
+                    entry["transport"] = {
+                        "type": "sse",
+                        "url": server.url,
+                        "headers": dict(server.headers),
+                    }
             if server.command:
                 entry["command"] = server.command
                 if server.args:

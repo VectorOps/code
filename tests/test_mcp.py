@@ -5,7 +5,8 @@ import sys
 import os
 
 from vocode.project import init_project
-from vocode.settings import ToolSpec
+from vocode.settings import ToolSpec, MCPSettings, MCPServerSettings
+from vocode.mcp.manager import MCPManager
 from .fakes import FakeMCPClient, make_fake_mcp_client_creator
 
 
@@ -29,13 +30,17 @@ mcp:
   servers:
     mcp:
       url: "tcp://127.0.0.1:8000"
+      headers:
+        Authorization: "Bearer TEST"
   tools_whitelist: ["mcp_echo"]
 """,
     )
     proj = init_project(tmp_path)
     assert proj.settings is not None and proj.settings.mcp is not None
     assert "mcp" in proj.settings.mcp.servers
-    assert proj.settings.mcp.servers["mcp"].url == "tcp://127.0.0.1:8000"
+    server = proj.settings.mcp.servers["mcp"]
+    assert server.url == "tcp://127.0.0.1:8000"
+    assert server.headers == {"Authorization": "Bearer TEST"}
     assert proj.settings.mcp.tools_whitelist == ["mcp_echo"]
 
 
@@ -96,6 +101,67 @@ tools:
     from vocode.tools import get_all_tools
 
     assert "mcp_echo" not in get_all_tools()
+
+
+@pytest.mark.asyncio
+async def test_mcp_manager_passes_headers_into_transport(
+    tmp_path: Path, monkeypatch
+):
+    captured_config: Dict[str, Any] = {}
+
+    class CapturingClient:
+        def __init__(self, config: Dict[str, Any]) -> None:
+            captured_config.update(config)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def close(self):
+            return None
+
+        async def list_tools(self):
+            return []
+
+    monkeypatch.setattr(
+        "vocode.mcp.manager.FastMCPClient",
+        CapturingClient,
+        raising=True,
+    )
+
+    settings = MCPSettings(
+        servers={
+            "remote": MCPServerSettings(
+                url="https://example.com/mcp",
+                headers={"Authorization": "Bearer token", "X-Test": "1"},
+            )
+        }
+    )
+    manager = MCPManager(settings)
+
+    class DummyProject:
+        def __init__(self, base_path: Path) -> None:
+            self.base_path = base_path
+
+    # Bypass MCPManager.start() to exercise _create_client directly.
+    manager._project = DummyProject(tmp_path)  # type: ignore[attr-defined]
+
+    client = await manager._create_client()
+    assert isinstance(client, CapturingClient)
+
+    server_cfg = captured_config["mcpServers"]["remote"]
+    assert server_cfg["url"] == "https://example.com/mcp"
+    assert "transport" in server_cfg
+
+    transport = server_cfg["transport"]
+    assert transport["type"] == "sse"
+    assert transport["url"] == "https://example.com/mcp"
+    assert transport["headers"] == {
+        "Authorization": "Bearer token",
+        "X-Test": "1",
+    }
 
 
 @pytest.mark.asyncio

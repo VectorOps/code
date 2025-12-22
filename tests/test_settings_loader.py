@@ -395,6 +395,25 @@ workflows:
     assert n.name == "envy"
 
 
+def test_variables_env_inline_interpolation(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("BEARER_TOKEN", "abc123")
+    cfg = _w(
+        tmp_path,
+        "vars_env_inline.yml",
+        """
+workflows:
+  api:
+    config:
+      auth_header: "Bearer ${env:BEARER_TOKEN}"
+    nodes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(cfg))
+    wf = settings.workflows["api"]
+    assert wf.config["auth_header"] == "Bearer abc123"
+
+
 def test_variables_env_in_variables_block(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("MODEL", "env-model")
     cfg = _w(
@@ -434,6 +453,29 @@ workflows:
     settings = load_settings(str(cfg))
     n = settings.workflows["t"].nodes[0]
     assert n.name == "${NOPE} and ${ALSO_NOPE}"
+
+
+def test_variables_interpolation_escape_dollar(tmp_path: Path):
+    cfg = _w(
+        tmp_path,
+        "vars_escape.yml",
+        """
+variables:
+  NAME: world
+workflows:
+  t:
+    config:
+      normal: "Hello ${NAME}"
+      escaped: "Escaped $${NAME}"
+    nodes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(cfg))
+    wf = settings.workflows["t"]
+    assert wf.config["normal"] == "Hello world"
+    # Escaped placeholder should be rendered literally without the extra '$'
+    assert wf.config["escaped"] == "Escaped ${NAME}"
 
 
 def test_include_disallow_parent_traversal(tmp_path: Path):

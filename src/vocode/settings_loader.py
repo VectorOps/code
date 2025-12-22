@@ -146,6 +146,13 @@ def _resolve_variables(vars_map: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _interpolate_string(s: str, vars_map: Dict[str, Any]) -> str:
+    """Interpolate ${...} placeholders inside arbitrary strings.
+
+    Escaping:
+      - '$${NAME}' renders as a literal '${NAME}' with no interpolation.
+      - The leading '$$' is collapsed to a single '$' in the final output.
+    """
+
     def repl(m: re.Match) -> str:
         name = m.group(1)
         found, val = _lookup_var_value(name, vars_map)
@@ -157,7 +164,9 @@ def _interpolate_string(s: str, vars_map: Dict[str, Any]) -> str:
             return json.dumps(val, ensure_ascii=False)
         return str(val)
 
-    return VAR_PATTERN.sub(repl, s)
+    interpolated = VAR_PATTERN.sub(repl, s)
+    # Turn escaped '$${' sequences into a literal '${' in the final result.
+    return interpolated.replace("$${", "${")
 
 
 def _apply_variables(obj: Any, vars_map: Dict[str, Any]) -> Any:

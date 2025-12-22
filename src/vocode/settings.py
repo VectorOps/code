@@ -26,8 +26,9 @@ TEMPLATE_INCLUDE_KEYS: Final[Set[str]] = {"template", "templates", "vocode"}
 # Supports:
 #   - ${NAME}
 #   - ${env:NAME}
+# Ignores '$${NAME}' so it can be used to escape a literal '${NAME}'.
 VAR_PATTERN = re.compile(
-    r"\$\{([A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?)\}"
+    r"(?<!\$)\$\{([A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?)\}"
 )
 
 INCLUDE_KEY: Final[str] = "$include"
@@ -176,6 +177,8 @@ class MCPServerSettings(BaseModel):
     command: Optional[str] = None
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
+    # Optional HTTP/S headers to send when connecting to URL-based MCP servers.
+    headers: Dict[str, str] = Field(default_factory=dict)
 
 
 class MCPSettings(BaseModel):
