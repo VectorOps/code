@@ -64,10 +64,7 @@ def test_child_workflows_preprocessor_uses_allowlist(
     out_messages = pp.func(project, spec, list(base_messages))
 
     text = out_messages[0].text
-    assert (
-        "You have access to specialized agents. Agents accept requests, perform the required work"
-        in text
-    )
+    assert "You have access to specialized agents." in text
     assert "- child_allowed: Allowed child" in text
     assert "- child_other: Other child" not in text
 

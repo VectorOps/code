@@ -18,6 +18,8 @@ variables:
 #  LLM_CODER_MODEL: gemini/gemini-2.5-flash
 #  LLM_DIFF_FORMAT: patch
 default_workflow: "architect"
+process:
+  #backend: docker
 tools:
   - name: read_files
     auto_approve: true

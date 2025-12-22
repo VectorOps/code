@@ -118,6 +118,8 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 (linter, etc)
 ** [ ] LLM node
 *** [ ] Make reasoning effort optional
+*** [ ] Think of a way that allows a user to interrupt LLM thinking.
+- Persist all previous history, including partial received text?
 *** [X] If call does not have correct payload that's not JSON - should respond back with an error immediately
 *** [X] Report tool token usage
 *** [X] Report % token usage
@@ -140,6 +142,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Better tool registration code
 ** [ ] Allow tools to inject system or user prompts. Prompt should be configurable/overridable.
 ** [ ] If tool can not be loaded or does not exist - print error for workflow
+** [ ] Add a way to deny a tool call with user-provided message
 ** [X] Maximum tool call rounds should be configurable per node
 ** [X] Update tool result formatter to, optionally, print tool calling results
 ** [ ] Integrate Know

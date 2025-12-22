@@ -210,11 +210,40 @@ class ShellSettings(BaseModel):
     default_timeout_s: int = 120
 
 
+class DockerSettings(BaseModel):
+    """Configuration for running long-lived task shells inside Docker.
+
+    The Docker-backed task executor mirrors ShellRunner's API but starts an
+    interactive shell inside a container instead of on the host:
+
+    - image: container image to run (must contain the configured shell)
+    - workdir: container path where the project directory is mounted and used
+      as the working directory
+    - shell_program / shell_args: program and args used inside the container
+      for the interactive shell
+    - docker_binary / docker_args: base CLI invocation for Docker itself
+    - default_timeout_s: per-command timeout when not overridden by callers
+    """
+
+    image: str = "bash:latest"
+    workdir: str = "/workspace"
+    shell_program: str = "bash"
+    shell_args: List[str] = Field(default_factory=lambda: ["--noprofile", "--norc"])
+    docker_binary: str = "docker"
+    docker_args: List[str] = Field(default_factory=lambda: ["run", "-i", "--rm"])
+    default_timeout_s: int = 120
+
+
 class ProcessSettings(BaseModel):
-    # Backend key in the process backend registry
-    backend: str = "local"
+    # Backend key in the process backend registry. The backend is responsible
+    # for spawning subprocesses via the EnvPolicy configured below.
+    backend: Literal["local", "docker"] = "local"
     env: ProcessEnvSettings = Field(default_factory=ProcessEnvSettings)
+    # Settings for long-lived interactive shells spawned through the process
+    # backend. These are used by higher-level helpers such as ShellRunner and
+    # DockerShellRunner rather than by the ProcessSettings itself.
     shell: ShellSettings = Field(default_factory=ShellSettings)
+    docker: Optional[DockerSettings] = Field(default=None)
 
 
 class ExecToolSettings(BaseModel):

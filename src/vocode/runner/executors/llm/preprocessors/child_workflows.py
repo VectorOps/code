@@ -9,9 +9,8 @@ from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 
 
 _DEFAULT_HEADER = (
-    "\n\n## You have access to specialized agents. Agents accept requests, perform the required work, "
-    "and return results. Always use an appropriate specialized agent instead of making direct tool calls. "
-    "Agents are more efficient and are the preferred—and expected—execution path.\n"
+    "\n\n## You have access to specialized agents. "
+    "Always use an appropriate specialized agent instead of making direct tool calls.\n"
     "The list of available agents is below:\n"
 )
 
