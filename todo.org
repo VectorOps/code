@@ -159,6 +159,13 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Search tool
 *** [X] Specify that search tool does not support any special syntax
 ** [ ] Shell tool
+*** [ ] Refactor
+**** [ ] Refactor shell specs to read from config, instead of having hardcoded parameters
+**** [ ] Create higher-level API that supports stderr/stdout streaming for shells
+**** [ ] Create shell manager per workflow
+- One-shot configuration mode, where individual command is ran and then process is killed, current behavior
+- Permanent local shell mode, one process per workflow
+- Permanent local docker mode, one process per workflow
 *** [X] Shell tool does not handle timeouts?
 *** [X] Limit how many lines are returned back to LLM
 *** [ ] Refresh know after shell command (could be slow)

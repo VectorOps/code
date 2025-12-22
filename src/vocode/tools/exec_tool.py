@@ -19,116 +19,6 @@ if TYPE_CHECKING:
 EXEC_TOOL_TIMEOUT_S: float = 60.0
 
 
-def _get_max_output_chars(project: "Project", spec: ToolSpec) -> int:
-    """Determine max output size for this exec tool invocation.
-
-    Priority:
-    1) Per-tool override via ToolSpec.config["max_output_chars"] if provided and valid.
-    2) Project-level Settings.exec_tool.max_output_chars if configured.
-    3) Repository default constant.
-    """
-
-    # 1) Per-tool override
-    cfg = spec.config or {}
-    max_chars_cfg = cfg.get("max_output_chars")
-    if isinstance(max_chars_cfg, (int, float)) and max_chars_cfg > 0:
-        return int(max_chars_cfg)
-
-    # 2) Project-level setting
-    settings = project.settings
-    if settings is not None and settings.exec_tool is not None:
-        try:
-            max_chars = int(settings.exec_tool.max_output_chars)
-            if max_chars > 0:
-                return max_chars
-        except (TypeError, ValueError):  # pragma: no cover - defensive
-            pass
-
-    # 3) Fallback to default
-    return EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT
-
-def _get_exec_backend_context(project: "Project") -> Dict[str, str]:
-    """Collect backend- and shell-related context for the exec tool."""
-    ctx: Dict[str, str] = {
-        "backend": "shell",
-        "os_name": platform.system() or "unknown OS",
-        "shell_program": "system default shell",
-        "shell_args_str": "",
-        "docker_image": "",
-        "docker_binary": "",
-        "docker_args_str": "",
-    }
-
-    settings = project.settings
-    if settings is None or settings.process is None:
-        return ctx
-
-    proc = settings.process
-
-    # Backend can be "shell", "docker", or other; treat unknown as "shell".
-    if proc.backend in ("shell", "docker"):
-        ctx["backend"] = proc.backend
-
-    # Host shell configuration
-    shell = proc.shell
-    if shell is not None:
-        ctx["shell_program"] = shell.program
-        ctx["shell_args_str"] = " ".join(shell.args or [])
-
-    # Docker configuration (may be used as backend)
-    docker = proc.docker
-    if docker is not None:
-        ctx["docker_image"] = docker.image
-        ctx["docker_binary"] = docker.docker_binary
-        ctx["docker_args_str"] = " ".join(docker.docker_args or [])
-        if ctx["backend"] == "docker":
-            ctx["shell_program"] = docker.shell_program
-            ctx["shell_args_str"] = " ".join(docker.shell_args or [])
-
-    return ctx
-
-
-def _format_shell_backend_description(ctx: Dict[str, str]) -> str:
-    base = (
-        "Commands run on the host operating system "
-        f"({ctx['os_name']}) using shell '{ctx['shell_program']}'"
-    )
-    shell_args = ctx.get("shell_args_str") or ""
-    if shell_args:
-        base += f" with args '{shell_args}'"
-    return base + "."
-
-
-def _format_docker_backend_description(ctx: Dict[str, str]) -> str:
-    docker_image = ctx.get("docker_image") or ""
-    docker_binary = ctx.get("docker_binary") or "docker"
-    docker_args_str = ctx.get("docker_args_str") or ""
-
-    parts: List[str] = []
-    if docker_image:
-        parts.append(f"inside a Docker container using image '{docker_image}'")
-    else:
-        parts.append("inside a Docker container")
-
-    cli = docker_binary
-    if docker_args_str:
-        cli = f"{cli} {docker_args_str}"
-    parts.append(f"invoked via '{cli}'.")
-
-    shell_desc = f"Inside the container, the tool uses shell '{ctx['shell_program']}"
-    shell_args = ctx.get("shell_args_str") or ""
-    if shell_args:
-        shell_desc += f" {shell_args}"
-    shell_desc += "'."
-
-    return "Commands run " + " ".join(parts) + " " + shell_desc
-
-
-_BACKEND_DESCRIPTION_BUILDERS: Dict[str, Callable[[Dict[str, str]], str]] = {
-    "shell": _format_shell_backend_description,
-    "docker": _format_docker_backend_description,
-}
-
 class ExecTool(BaseTool):
     """
     Execute a command in a subprocess using the project's ProcessManager.
@@ -228,18 +118,12 @@ class ExecTool(BaseTool):
         return ToolTextResponse(text=json.dumps(payload))
 
     async def openapi_spec(self, spec: ToolSpec) -> Dict[str, Any]:
-        ctx = _get_exec_backend_context(self.prj)
-        backend = ctx.get("backend", "shell")
-        builder = _BACKEND_DESCRIPTION_BUILDERS.get(
-            backend, _format_shell_backend_description
-        )
-        backend_details = builder(ctx)
         return {
             "name": self.name,
             "description": (
                 "Execute a shell command and return combined stdout/stderr, exit code, and timeout status. "
                 f"Timeout is configurable via tool config (timeout_s) and defaults to {EXEC_TOOL_TIMEOUT_S} seconds. "
-                "Output is truncated to ~10KB. " + backend_details
+                "Output is truncated to ~10KB. "
             ),
             "parameters": {
                 "type": "object",
