@@ -22,8 +22,13 @@ VOCODE_TEMPLATE_BASE: Path = (
 ).resolve()
 # Include spec keys for bundled templates. Support GitLab 'template', legacy 'vocode', and 'templates'
 TEMPLATE_INCLUDE_KEYS: Final[Set[str]] = {"template", "templates", "vocode"}
-# Variable replacement pattern: only support ${ABC}
-VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+# Variable replacement pattern.
+# Supports:
+#   - ${NAME}
+#   - ${env:NAME}
+VAR_PATTERN = re.compile(
+    r"\$\{([A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?)\}"
+)
 
 INCLUDE_KEY: Final[str] = "$include"
 

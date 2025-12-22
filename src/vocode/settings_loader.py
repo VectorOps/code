@@ -74,6 +74,32 @@ def _apply_var_prefix_to_map(
     return {f"{prefix}{k}": v for k, v in vars_map.items()}
 
 
+def _lookup_var_value(name: str, vars_map: Dict[str, Any]) -> tuple[bool, Any]:
+    """
+    Resolve a variable or environment-backed placeholder name.
+
+    Supports:
+      - NAME      -> from vars_map
+      - env:NAME  -> from environment (raw string)
+
+    Returns (found, value); callers should leave the placeholder unchanged when
+    found is False.
+    """
+    if name.startswith("env:"):
+        env_name = name[4:]
+        if not env_name:
+            return False, None
+        val = os.getenv(env_name)
+        if val is None:
+            return False, None
+        return True, val
+
+    if name in vars_map:
+        return True, vars_map[name]
+
+    return False, None
+
+
 def _resolve_variables(vars_map: Dict[str, Any]) -> Dict[str, Any]:
     """
     Resolve variables that reference other variables. Only supports full-match references:
@@ -97,7 +123,11 @@ def _resolve_variables(vars_map: Dict[str, Any]) -> Dict[str, Any]:
             m = VAR_PATTERN.fullmatch(val)
             if m:
                 ref = m.group(1)
-                if ref in vars_map:
+                if ref.startswith("env:"):
+                    found, env_val = _lookup_var_value(ref, vars_map)
+                    # Unknown env vars are left as the original placeholder string
+                    res = env_val if found else val
+                elif ref in vars_map:
                     res = resolve_one(ref)
                 else:
                     # Unknown variable refs are left as the placeholder string
@@ -118,9 +148,9 @@ def _resolve_variables(vars_map: Dict[str, Any]) -> Dict[str, Any]:
 def _interpolate_string(s: str, vars_map: Dict[str, Any]) -> str:
     def repl(m: re.Match) -> str:
         name = m.group(1)
-        if name not in vars_map:
+        found, val = _lookup_var_value(name, vars_map)
+        if not found:
             return m.group(0)
-        val = vars_map[name]
         if val is None:
             return ""
         if isinstance(val, (dict, list)):
@@ -135,8 +165,9 @@ def _apply_variables(obj: Any, vars_map: Dict[str, Any]) -> Any:
         m = VAR_PATTERN.fullmatch(obj)
         if m:
             name = m.group(1)
-            if name in vars_map:
-                return vars_map[name]
+            found, val = _lookup_var_value(name, vars_map)
+            if found:
+                return val
             return obj
         return _interpolate_string(obj, vars_map)
     if isinstance(obj, dict):

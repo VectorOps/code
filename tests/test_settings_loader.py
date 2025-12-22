@@ -374,6 +374,49 @@ workflows:
     assert n.name == "default"
 
 
+def test_variables_env_explicit(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("NAME", "envy")
+    cfg = _w(
+        tmp_path,
+        "vars_env_explicit.yml",
+        """
+workflows:
+  hello:
+    nodes:
+      - name: "${env:NAME}"
+        type: a
+        outcomes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(cfg))
+    n = settings.workflows["hello"].nodes[0]
+    # Explicit env reference should use environment value
+    assert n.name == "envy"
+
+
+def test_variables_env_in_variables_block(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("MODEL", "env-model")
+    cfg = _w(
+        tmp_path,
+        "vars_env_block.yml",
+        """
+variables:
+  MODEL: ${env:MODEL}
+workflows:
+  t:
+    config:
+      model: ${MODEL}
+    nodes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(cfg))
+    wf = settings.workflows["t"]
+    # Variable defined via env placeholder should resolve via env
+    assert wf.config["model"] == "env-model"
+
+
 def test_variables_unknown_left_unmodified(tmp_path: Path):
     cfg = _w(
         tmp_path,
@@ -487,6 +530,26 @@ workflows:
     wf = settings.workflows["t"]
     # Environment variables should not override file-defined variables
     assert wf.config["arr"] == [1, 2]
+
+
+def test_variables_env_structured_raw_string(monkeypatch, tmp_path: Path):
+    # Explicit env reference should always yield raw string values
+    monkeypatch.setenv("LIST", '["x","y"]')
+    cfg = _w(
+        tmp_path,
+        "vars_env_struct_explicit.yml",
+        """
+workflows:
+  t:
+    config:
+      arr: ${env:LIST}
+    nodes: []
+    edges: []
+""",
+    )
+    settings = load_settings(str(cfg))
+    wf = settings.workflows["t"]
+    assert wf.config["arr"] == '["x","y"]'
 
 
 def test_nested_include_under_nodes_list(tmp_path: Path):

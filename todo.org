@@ -34,6 +34,7 @@ from other repos? Or just boost default repository results? (knowlt)
 ** [ ] Better prompts for nested workflows
 *** [ ] Better built-in discovery tool
 *** [ ] Update agent node system prompt to always use discovery
+** [X] Add support for env variables
 ** [ ] Add a way to fully disable know integration
 ** [ ] Figure out why confirmation override for discovery did not work
 ** [ ] Prompts
@@ -172,7 +173,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Task management tool
 *** [X] Create output formatter
 *** [X] Do not show input parameters
-*** [ ] Update task protocol to allow overriding all tasks instead of merging
+*** [X] Update task protocol to allow overriding all tasks instead of merging
 ** [X] Parallel tool calling support
 ** [ ] MCP tool support
 *** [ ] Ensure that cwd is passed correctly
