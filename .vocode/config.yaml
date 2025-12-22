@@ -123,6 +123,7 @@ workflows:
         confirmation: loop
         max_rounds: 0
         preprocessors:
+          - name: system_details
           - name: child_workflows
           - name: skills
           - name: file_read
@@ -235,6 +236,7 @@ workflows:
           - exec
         reset_policy: keep_state
         preprocessors:
+          - name: system_details
           - name: child_workflows
           - name: skills
           - name: file_read
