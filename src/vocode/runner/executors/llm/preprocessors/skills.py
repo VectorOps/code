@@ -10,7 +10,8 @@ from vocode.runner.executors.llm.preprocessors.base import register_preprocessor
 
 _DEFAULT_HEADER = (
     "\n\n## You have access to project skills that provide reusable expertise and workflows.\n"
-    "Always use an appropriate skill instead of making direct tool calls.\n"
+    "Always use an appropriate skill instead of making direct tool calls. To use the skill, \n"
+    "read the provided skill file and follow instructions."
     "The list of available skills is below:\n"
 )
 

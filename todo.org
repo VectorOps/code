@@ -150,6 +150,7 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 ** [ ] Skills
 *** [X] Skill parsers
 *** [ ] Generate tool stubs for skills
+*** [ ] Support skills loading from home directory
 ** [ ] Web client tool
 ** [ ] Search tool
 *** [X] Specify that search tool does not support any special syntax

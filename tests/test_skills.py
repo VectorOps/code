@@ -138,3 +138,35 @@ def test_skills_preprocessor_respects_custom_header_and_format(
     assert "* example-skill" in text
     assert "* second-skill" in text
     assert " | " in text
+
+
+def test_invalid_skill_logs_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    skills_dir = tmp_path / ".vocode" / "skills" / "bad-skill"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    skill_path = skills_dir / "SKILL.md"
+    # Missing 'name' field in frontmatter -> invalid skill definition
+    skill_path.write_text(
+        dedent(
+            """\
+            ---
+            description: Bad skill without name
+            ---
+
+            # Bad skill
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(workflows={})
+    caplog.set_level("WARNING")
+    project = Project(
+        base_path=tmp_path,
+        config_relpath=Path(".vocode/config.yaml"),
+        settings=settings,
+    )
+
+    assert project.skills == []
+    messages = " ".join(record.getMessage() for record in caplog.records)
+    assert "Ignoring skill" in messages
+    assert "bad-skill" in messages or str(skill_path) in messages

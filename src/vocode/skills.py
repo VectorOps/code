@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field, field_validator
 
 from vocode.lib.markdown import parse_yaml_frontmatter
+
+
+logger = logging.getLogger(__name__)
 
 
 class Skill(BaseModel):
@@ -24,13 +28,13 @@ class Skill(BaseModel):
     @field_validator("name")
     @classmethod
     def _validate_name(cls, value: str) -> str:
-        # Lowercase letters, digits, and hyphens only; max length 64.
+        # Lowercase letters, digits, underscores and hyphens only; max length 64.
         if not value:
             raise ValueError("Skill name must be non-empty")
         if len(value) > 64:
             raise ValueError("Skill name must be at most 64 characters long")
         for ch in value:
-            if ch.islower() or ch.isdigit() or ch == "-":
+            if ch.islower() or ch.isdigit() or ch == "-" or ch == "_":
                 continue
             raise ValueError(
                 "Skill name may only contain lowercase letters, digits, and hyphens"
@@ -85,14 +89,20 @@ def discover_skills(base_path: Path) -> List[Skill]:
         skill_file = child / "SKILL.md"
         if not skill_file.is_file():
             continue
-
         frontmatter = parse_yaml_frontmatter(skill_file)
         if not isinstance(frontmatter, dict):
+            logger.warning(
+                "Ignoring skill at %s: missing or invalid YAML frontmatter", skill_file
+            )
             continue
 
         name = frontmatter.get("name")
         description = frontmatter.get("description")
         if not isinstance(name, str) or not isinstance(description, str):
+            logger.warning(
+                "Ignoring skill at %s: 'name' or 'description' missing or not a string",
+                skill_file,
+            )
             continue
 
         allowed_tools = _coerce_allowed_tools(frontmatter.get("allowed-tools"))
@@ -105,8 +115,13 @@ def discover_skills(base_path: Path) -> List[Skill]:
                 allowed_tools=allowed_tools,
                 frontmatter=frontmatter,
             )
-        except Exception:
+        except Exception as exc:
             # Skip invalid skills; callers only see successfully parsed entries.
+            logger.warning(
+                "Ignoring skill at %s due to validation error: %s",
+                skill_file,
+                exc,
+            )
             continue
 
         skills.append(skill)
