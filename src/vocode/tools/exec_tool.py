@@ -19,6 +19,35 @@ if TYPE_CHECKING:
 EXEC_TOOL_TIMEOUT_S: float = 60.0
 
 
+def _get_max_output_chars(project: "Project", spec: ToolSpec) -> int:
+    """Determine max output size for this exec tool invocation.
+
+    Priority:
+    1) Per-tool override via ToolSpec.config["max_output_chars"] if provided and valid.
+    2) Project-level Settings.exec_tool.max_output_chars if configured.
+    3) Repository default constant.
+    """
+
+    # 1) Per-tool override
+    cfg = spec.config or {}
+    max_chars_cfg = cfg.get("max_output_chars")
+    if isinstance(max_chars_cfg, (int, float)) and max_chars_cfg > 0:
+        return int(max_chars_cfg)
+
+    # 2) Project-level setting
+    settings = project.settings
+    if settings is not None and settings.exec_tool is not None:
+        try:
+            max_chars = int(settings.exec_tool.max_output_chars)
+            if max_chars > 0:
+                return max_chars
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            pass
+
+    # 3) Fallback to default
+    return EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT
+
+
 class ExecTool(BaseTool):
     """
     Execute a command in a subprocess using the project's ProcessManager.
