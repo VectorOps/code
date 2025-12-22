@@ -160,26 +160,29 @@ client_session: <aiohttp.client.ClientSession object at 0x131801dc0>
 *** [X] Specify that search tool does not support any special syntax
 ** [ ] Shell tool
 *** [ ] Refactor
+**** [ ] Rethink how shells are managed: individual processes are easy, permanent shell processes are not
+**** [ ] Even one-shot executions should be wrapped with a shell of choice instead of running directly
 **** [ ] Refactor shell specs to read from config, instead of having hardcoded parameters
 **** [ ] Create higher-level API that supports stderr/stdout streaming for shells
 **** [ ] Create shell manager per workflow
 - One-shot configuration mode, where individual command is ran and then process is killed, current behavior
 - Permanent local shell mode, one process per workflow
 - Permanent local docker mode, one process per workflow
+*** [ ] Docker support
+*** [ ] PTY support. Good for interactive tools, like debuggers
+- How to stream results back? Lack of output detection using timer to send answer back?
+*** [X] Add timeout support
+*** [ ] Figure out sandboxing
+**** [ ] Wrap stdio MCP servers in sandbox
+**** [ ] Wrap shell tool in sandbox
 *** [X] Shell tool does not handle timeouts?
 *** [X] Limit how many lines are returned back to LLM
+*** [X] Add streaming output support to processes
 *** [ ] Refresh know after shell command (could be slow)
 *** [ ] Add a way to approve similar tool calls within a session
 *** [ ] Windows shell support
 *** [ ] Non-POSIX shell support
-*** [ ] Docker support
-*** [ ] PTY support
-*** [ ] Add timeout
-*** [X] Add streaming output support
 *** [ ] Prevent access to files in .gitignore
-*** [ ] Figure out sandboxing
-**** [ ] Wrap stdio MCP servers in sandbox
-**** [ ] Wrap shell tool in sandbox
 ** [ ] Task management tool
 *** [X] Create output formatter
 *** [X] Do not show input parameters

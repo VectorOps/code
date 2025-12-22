@@ -152,7 +152,7 @@ class ExecTool(BaseTool):
             "description": (
                 "Execute a shell command and return combined stdout/stderr, exit code, and timeout status. "
                 f"Timeout is configurable via tool config (timeout_s) and defaults to {EXEC_TOOL_TIMEOUT_S} seconds. "
-                "Output is truncated to ~10KB. "
+                "Output is truncated to ~10KB."
             ),
             "parameters": {
                 "type": "object",
