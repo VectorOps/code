@@ -210,7 +210,7 @@ class ShellSettings(BaseModel):
     # How shell commands are executed:
     # - "direct": each command runs in its own subprocess
     # - "shell": commands run via a long-lived shell with wrapped markers
-    mode: ShellMode = ShellMode.shell
+    mode: ShellMode = ShellMode.direct
     # POSIX-only in v1; reserved for future shells
     type: Literal["bash"] = "bash"
     # Program and args to start the long-lived shell process

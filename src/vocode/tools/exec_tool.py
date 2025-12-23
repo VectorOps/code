@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import platform
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from typing import Callable
-
-from vocode.proc.manager import ProcessManager
 from vocode.tools.base import BaseTool, ToolTextResponse
 from vocode.settings import EXEC_TOOL_MAX_OUTPUT_CHARS_DEFAULT, ToolSpec
+from vocode.proc.shell import ShellManager
 
 if TYPE_CHECKING:
     from vocode.project import Project
@@ -50,8 +48,8 @@ def _get_max_output_chars(project: "Project", spec: ToolSpec) -> int:
 
 class ExecTool(BaseTool):
     """
-    Execute a command in a subprocess using the project's ProcessManager.
-    Collects combined stdout/stderr, enforces a fixed timeout, and returns a JSON string payload.
+    Execute a command via the project's ShellManager.
+    Collects combined stdout/stderr, enforces a per-call timeout, and returns a JSON string payload.
     """
 
     name = "exec"
@@ -59,10 +57,10 @@ class ExecTool(BaseTool):
     async def run(self, spec: ToolSpec, args: Any):
         if not isinstance(spec, ToolSpec):
             raise TypeError("ExecTool requires a resolved ToolSpec")
-        if self.prj.processes is None:
-            raise RuntimeError("ExecTool requires project.processes (ProcessManager)")
+        if self.prj.shells is None:
+            raise RuntimeError("ExecTool requires project.shells (ShellManager)")
 
-        pm: ProcessManager = self.prj.processes
+        shell_manager = self.prj.shells
 
         # Parse args
         command: Optional[str] = None
@@ -74,22 +72,6 @@ class ExecTool(BaseTool):
                 command = arg_cmd
         if not command:
             raise ValueError("ExecTool requires 'command' (string) argument")
-
-        # Spawn a one-off process (shell=True)
-        handle = await pm.spawn(
-            command=command, name="tool:exec", shell=True, use_pty=False
-        )
-
-        stdout_parts: List[str] = []
-        stderr_parts: List[str] = []
-
-        async def _read_stdout():
-            async for chunk in handle.iter_stdout():
-                stdout_parts.append(chunk)
-
-        async def _read_stderr():
-            async for chunk in handle.iter_stderr():
-                stderr_parts.append(chunk)
 
         # Determine timeout: allow override via tool spec config, then
         # fall back to project-level settings, then constant default.
@@ -115,6 +97,19 @@ class ExecTool(BaseTool):
             else:
                 timeout_s = EXEC_TOOL_TIMEOUT_S
 
+        handle = await shell_manager.run(command, timeout=timeout_s)
+
+        stdout_parts: List[str] = []
+        stderr_parts: List[str] = []
+
+        async def _read_stdout():
+            async for chunk in handle.iter_stdout():
+                stdout_parts.append(chunk)
+
+        async def _read_stderr():
+            async for chunk in handle.iter_stderr():
+                stderr_parts.append(chunk)
+
         readers = [
             asyncio.create_task(_read_stdout()),
             asyncio.create_task(_read_stderr()),
@@ -123,15 +118,10 @@ class ExecTool(BaseTool):
         timed_out = False
         rc: Optional[int] = None
         try:
-            rc = await asyncio.wait_for(handle.wait(), timeout=timeout_s)
+            rc = await handle.wait()
         except asyncio.TimeoutError:
             timed_out = True
-            try:
-                await handle.kill()
-            finally:
-                with contextlib.suppress(Exception):
-                    await handle.wait()
-                rc = None
+            rc = None
         finally:
             await asyncio.gather(*readers, return_exceptions=True)
 

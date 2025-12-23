@@ -42,6 +42,28 @@ def test_shell_manager_direct_mode_runs_command(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_shell_manager_accepts_timeout_argument(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        pm = ProcessManager(backend_name="local", default_cwd=tmp_path)
+        settings = ShellSettings(mode=ShellMode.direct)
+        manager = ShellManager(
+            process_manager=pm,
+            settings=settings,
+            default_cwd=tmp_path,
+        )
+
+        # Fast command; timeout should not trigger, but the call should succeed.
+        cmd = await manager.run("echo 'OK'", timeout=5.0)
+        out = await _read_all_stdout(cmd)
+        rc = await cmd.wait()
+
+        assert out.strip() == "OK"
+        assert rc == 0
+
+        await manager.stop()
+        await pm.shutdown()
+
+    asyncio.run(scenario())
 def test_shell_manager_shell_mode_reuses_long_lived_shell_and_strips_marker(
     tmp_path: Path,
 ) -> None:

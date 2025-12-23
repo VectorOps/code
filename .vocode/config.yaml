@@ -6,8 +6,8 @@ logging:
 variables:
   LLM_DISCOVERY_MODEL: gpt-5-mini
   LLM_ARCHITECT_MODEL: gpt-5.1
-  LLM_ARCHITECT_REASONING: high
-#  LLM_ARCHITECT_REASONING: medium
+#  LLM_ARCHITECT_REASONING: high
+  LLM_ARCHITECT_REASONING: medium
   LLM_CODER_MODEL: gpt-5-mini
 # OpenAI
 #  LLM_DISCOVERY_MODEL: openai/gpt-5-mini
@@ -57,7 +57,7 @@ workflows:
               paths:
                 - AGENTS.md
         function_tokens_pct: 25
-        reset_policy: keep_results
+        reset_policy: keep_state
       - $include:
           template: nodes/coder.yaml
         tools:

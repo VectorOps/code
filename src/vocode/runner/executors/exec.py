@@ -13,7 +13,6 @@ from vocode.runner.models import (
     ReqFinalMessage,
     ExecRunInput,
 )
-from vocode.proc.manager import ProcessManager
 
 
 class ExecNode(Node):
@@ -56,25 +55,16 @@ class ExecExecutor(Executor):
         self, inp: ExecRunInput
     ) -> AsyncIterator[tuple[ReqPacket, Optional[Any]]]:
         cfg: ExecNode = self.config  # type: ignore[assignment]
-        # Resolve timeout: node override -> process.shell.default_timeout_s -> fallback
-        timeout_s: float
-        if cfg.timeout_s is not None:
-            timeout_s = cfg.timeout_s
-        else:
-            settings = self.project.settings
-            if settings is not None and settings.process is not None:
-                timeout_s = float(settings.process.shell.default_timeout_s)
-            else:
-                timeout_s = 120.0
-        # Debounce window: if the command finishes quickly, do not stream interims
+        # Debounce window: if the command finishes quickly, do not stream interims.
         STREAM_DEBOUNCE_S = 0.25
 
-        pm: ProcessManager = self.project.processes
+        shell_manager = self.project.shells
+        if shell_manager is None:
+            raise RuntimeError("ExecExecutor requires project.shells (ShellManager)")
 
-        # Spawn a one-off process
-        handle = await pm.spawn(
-            command=cfg.command, name=f"exec:{cfg.name}", shell=True, use_pty=False
-        )
+        # Delegate timeout handling to ShellManager. When cfg.timeout_s is None,
+        # ShellSettings.default_timeout_s is used.
+        handle = await shell_manager.run(cfg.command, timeout=cfg.timeout_s)
 
         # Prepare streaming buffers and pumps
         parts: List[str] = []
@@ -107,12 +97,6 @@ class ExecExecutor(Executor):
         streaming_started = False
 
         while True:
-            # Handle timeout
-            if not wait_task.done() and timeout_s is not None:
-                if loop.time() - start_time > timeout_s:
-                    timed_out = True
-                    await handle.kill()
-
             # Drain available output
             try:
                 _, chunk = await asyncio.wait_for(queue.get(), timeout=0.1)
@@ -165,11 +149,14 @@ class ExecExecutor(Executor):
 
         # Ensure pumps finished
         await asyncio.gather(pump_out, pump_err, return_exceptions=True)
-        # Get return code
+        # Get return code / timeout status
         try:
             rc = wait_task.result()
+        except asyncio.TimeoutError:
+            timed_out = True
+            rc = None
         except Exception:
-            # In case wait_task raised due to cancellation/kill sequencing
+            # In case wait_task raised due to cancellation sequencing
             try:
                 rc = await handle.wait()
             except Exception:

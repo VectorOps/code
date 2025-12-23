@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Callable, Awaitable
 from vocode.settings import Settings, ExecToolSettings
 from vocode.state import LLMUsageStats
 from vocode.proc.manager import ProcessManager
+from vocode.proc.shell import ShellManager
 
 
 class FakeMCPClient:
@@ -82,10 +83,13 @@ class TestProject:
         self.settings: Settings = settings or Settings(exec_tool=ExecToolSettings())
         # Tools registry used by Runner._run_tools and similar code paths.
         self.tools: Dict[str, Any] = tools or {}
-        # Process manager used by ExecTool.
+        # Process and shell managers used by tools such as ExecTool.
         self.processes: Optional[ProcessManager] = process_manager
-        # Shell manager placeholder to mirror real Project API.
-        self.shells = None
+        self.shells = (
+            ShellManager(process_manager=process_manager)
+            if process_manager is not None
+            else None
+        )
         # Aggregate LLM usage for LLMExecutor and related code paths.
         self.llm_usage: LLMUsageStats = LLMUsageStats()
 

@@ -6,6 +6,7 @@ import pytest
 
 from vocode.runner.executors.exec import ExecNode, ExecExecutor
 from vocode.proc.manager import ProcessManager
+from vocode.proc.shell import ShellManager
 from vocode.settings import ProcessSettings, Settings
 from vocode.state import Message
 from vocode.runner.models import ExecRunInput, PACKET_FINAL_MESSAGE
@@ -17,10 +18,14 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="POSIX-only tests")
 class _DummyProject:
     def __init__(self, base: Path):
         self.base_path = base
-        self.processes = ProcessManager(backend_name="local", default_cwd=base)
-        # Minimal settings so ExecExecutor can resolve default timeout from
-        # process.shell.default_timeout_s.
+        # Minimal settings so ExecExecutor and ShellManager can resolve defaults.
         self.settings = Settings(process=ProcessSettings())
+        self.processes = ProcessManager(backend_name="local", default_cwd=base)
+        self.shells = ShellManager(
+            process_manager=self.processes,
+            settings=self.settings.process.shell,
+            default_cwd=base,
+        )
 
 
 def test_exec_executor_success_and_timeout(tmp_path: Path):
@@ -68,6 +73,7 @@ def test_exec_executor_success_and_timeout(tmp_path: Path):
         assert pkt2.message.text.splitlines()[0] == "> sleep 5"
 
         # cleanup
+        await proj.shells.stop()
         await proj.processes.shutdown()
 
     asyncio.run(scenario())
