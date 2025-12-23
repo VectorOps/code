@@ -21,6 +21,7 @@ from .mcp.manager import MCPManager
 from .skills import Skill, discover_skills
 from .proc.manager import ProcessManager
 from .proc.base import EnvPolicy
+from .proc.shell import ShellManager
 from .proto import Packet, PacketProjectOpStart, PacketProjectOpFinish
 
 
@@ -84,6 +85,8 @@ class Project:
         self.current_workflow: Optional[str] = None
         # Process manager
         self.processes: Optional[ProcessManager] = None
+        # Shell manager (built on top of ProcessManager)
+        self.shells: Optional[ShellManager] = None
         # Message queue
         self._queue = Queue()
 
@@ -108,6 +111,10 @@ class Project:
 
     async def shutdown(self) -> None:
         """Gracefully shut down project components."""
+        # Stop shell manager before underlying processes
+        if self.shells is not None:
+            await self.shells.stop()
+            self.shells = None
         # Stop processes first to release IO and resources
         if self.processes is not None:
             await self.processes.shutdown()
@@ -228,6 +235,19 @@ class Project:
                 backend_name=backend_name,
                 default_cwd=self.base_path,
                 env_policy=env_policy,
+            )
+
+        # Initialize shell manager (idempotent, depends on process manager)
+        if self.processes is not None and self.shells is None:
+            shell_settings = (
+                self.settings.process.shell
+                if (self.settings and self.settings.process)
+                else None
+            )
+            self.shells = ShellManager(
+                process_manager=self.processes,
+                settings=shell_settings,
+                default_cwd=self.base_path,
             )
 
         # Register tools

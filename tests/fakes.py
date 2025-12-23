@@ -84,6 +84,8 @@ class TestProject:
         self.tools: Dict[str, Any] = tools or {}
         # Process manager used by ExecTool.
         self.processes: Optional[ProcessManager] = process_manager
+        # Shell manager placeholder to mirror real Project API.
+        self.shells = None
         # Aggregate LLM usage for LLMExecutor and related code paths.
         self.llm_usage: LLMUsageStats = LLMUsageStats()
 

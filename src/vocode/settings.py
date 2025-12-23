@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional, Any, Union, Set, Final, Type, Literal
+from enum import Enum
 import re
 from pathlib import Path
 from os import PathLike
@@ -200,7 +201,16 @@ class ProcessEnvSettings(BaseModel):
     defaults: Dict[str, str] = Field(default_factory=dict)
 
 
+class ShellMode(str, Enum):
+    direct = "direct"
+    shell = "shell"
+
+
 class ShellSettings(BaseModel):
+    # How shell commands are executed:
+    # - "direct": each command runs in its own subprocess
+    # - "shell": commands run via a long-lived shell with wrapped markers
+    mode: ShellMode = ShellMode.shell
     # POSIX-only in v1; reserved for future shells
     type: Literal["bash"] = "bash"
     # Program and args to start the long-lived shell process

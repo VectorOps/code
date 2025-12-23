@@ -128,6 +128,7 @@ class FakeProject:
         self.llm_usage = _TestLLMUsage()
         self.project_state = ProjectState()
         self._q: asyncio.Queue = asyncio.Queue()
+        self.shells = None
 
     async def message_generator(self):
         while True:

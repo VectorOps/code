@@ -348,6 +348,8 @@ class UIState:
             # Task was cancelled but should have handled cleanup; ignore
             pass
         finally:
+            if self.project.shells is not None:
+                await self.project.shells.stop()
             self._drive_task = None
             self.runner = None
             self._last_status = None
@@ -1039,9 +1041,7 @@ class UIState:
             lines: list[str] = []
             for r in repos:
                 example_virtual = pm.construct_virtual_path(r.id, "")
-                lines.append(
-                    f"- {r.name}: {r.root_path} (virtual: {example_virtual})"
-                )
+                lines.append(f"- {r.name}: {r.root_path} (virtual: {example_virtual})")
             output = "\n".join(lines)
 
         return proto.UIPacketCommandResult(
