@@ -34,6 +34,17 @@ class PersistentShellCommand(ShellCommandHandle):
         self._returncode: Optional[int] = None
         self._done = asyncio.Event()
         self._stdout_consumed = False
+        # Background stdout pump and buffers. The pump always reads stdout so
+        # that we can detect the marker even when nobody calls iter_stdout().
+        self._stdout_task: Optional[asyncio.Task[None]] = None
+        self._stdout_buffer: list[str] = []
+        self._stdout_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
+        self._stdout_lock = asyncio.Lock()
+        # Background stderr pump and queue. Started lazily by iter_stderr().
+        self._stderr_consumed = False
+        self._stderr_task: Optional[asyncio.Task[None]] = None
+        self._stderr_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
+        self._stderr_lock = asyncio.Lock()
         self.id = str(uuid.uuid4())
         self.name = name
 
@@ -62,46 +73,141 @@ class PersistentShellCommand(ShellCommandHandle):
             return
         await handle.close_stdin()
 
+    def _stop_stderr_streaming(self) -> None:
+        """Cancel stderr pump (if running) and signal end-of-stream."""
+        stderr_task = self._stderr_task
+        if stderr_task is not None and not stderr_task.done():
+            stderr_task.cancel()
+        with contextlib.suppress(asyncio.QueueFull):
+            self._stderr_queue.put_nowait(None)
+
+    async def _ensure_stdout_pump(self) -> None:
+        # Start a single background task that consumes the persistent shell's
+        # stdout, detects the marker, and either buffers or queues lines.
+        async with self._stdout_lock:
+            if self._stdout_task is not None:
+                return
+
+            handle = self._processor.handle
+            if handle is None:
+                # Shell already gone; mark as failed and signal end-of-stream.
+                if not self._done.is_set():
+                    self._returncode = (
+                        self._returncode if self._returncode is not None else 1
+                    )
+                    self._done.set()
+                    self._processor.on_command_finished(self)
+                await self._stdout_queue.put(None)
+                return
+
+            stdout_iter = handle.iter_stdout()
+
+            async def _pump() -> None:
+                try:
+                    async for line in stdout_iter:
+                        text = line.rstrip("\r\n")
+                        if text.startswith(self._marker):
+                            suffix = text[len(self._marker) :]
+                            if suffix.startswith(":"):
+                                with contextlib.suppress(ValueError):
+                                    self._returncode = int(suffix[1:])
+                            if self._returncode is None:
+                                self._returncode = 0
+                            self._done.set()
+                            self._processor.on_command_finished(self)
+                            # Stop stderr streaming when the command ends.
+                            self._stop_stderr_streaming()
+                            break
+
+                        # If nobody is consuming yet, keep lines in a buffer.
+                        if not self._stdout_consumed:
+                            self._stdout_buffer.append(line)
+                        else:
+                            await self._stdout_queue.put(line)
+                finally:
+                    with contextlib.suppress(Exception):
+                        await stdout_iter.aclose()
+                    if not self._done.is_set():
+                        # Shell exited without emitting the marker; treat as unknown non-zero.
+                        self._returncode = (
+                            self._returncode if self._returncode is not None else 1
+                        )
+                        self._done.set()
+                        self._processor.on_command_finished(self)
+                        self._stop_stderr_streaming()
+                    # Always signal end-of-stream to any stdout consumer.
+                    await self._stdout_queue.put(None)
+
+            self._stdout_task = asyncio.create_task(_pump())
+
+    async def _ensure_stderr_pump(self) -> None:
+        # Start a single background task that consumes the persistent shell's
+        # stderr and forwards it to a per-command queue. The task is cancelled
+        # when the stdout marker is detected.
+        async with self._stderr_lock:
+            if self._stderr_task is not None:
+                return
+
+            handle = self._processor.handle
+            if handle is None:
+                await self._stderr_queue.put(None)
+                return
+
+            stderr_iter = handle.iter_stderr()
+
+            async def _pump_err() -> None:
+                try:
+                    async for line in stderr_iter:
+                        await self._stderr_queue.put(line)
+                finally:
+                    with contextlib.suppress(Exception):
+                        await stderr_iter.aclose()
+                    await self._stderr_queue.put(None)
+
+            self._stderr_task = asyncio.create_task(_pump_err())
+
     async def iter_stdout(self) -> AsyncIterator[str]:
-        handle = self._processor.handle
-        if handle is None:
-            return
+        # Expose a single consumer view over the background pump. If nobody
+        # ever calls iter_stdout(), wait() still completes because the pump
+        # runs independently and sees the marker.
         if self._stdout_consumed:
             return
         self._stdout_consumed = True
 
-        stdout_iter = handle.iter_stdout()
-        try:
-            async for line in stdout_iter:
-                text = line.rstrip("\r\n")
-                if text.startswith(self._marker):
-                    suffix = text[len(self._marker) :]
-                    if suffix.startswith(":"):
-                        with contextlib.suppress(ValueError):
-                            self._returncode = int(suffix[1:])
-                    if self._returncode is None:
-                        self._returncode = 0
-                    self._done.set()
-                    self._processor.on_command_finished(self)
-                    break
-                yield line
-        finally:
-            with contextlib.suppress(Exception):
-                await stdout_iter.aclose()
-            if not self._done.is_set():
-                # Shell exited without emitting the marker; treat as unknown non-zero.
-                self._returncode = self._returncode if self._returncode is not None else 1
-                self._done.set()
-                self._processor.on_command_finished(self)
+        await self._ensure_stdout_pump()
+
+        # First flush any buffered lines accumulated before the consumer attached.
+        for line in self._stdout_buffer:
+            yield line
+        self._stdout_buffer.clear()
+
+        # Then stream from the queue until the sentinel is seen.
+        while True:
+            item = await self._stdout_queue.get()
+            if item is None:
+                break
+            yield item
 
     async def iter_stderr(self) -> AsyncIterator[str]:
-        # stderr for wrapped commands is redirected to stdout (2>&1), but we
-        # still forward any shell-level stderr if present.
-        handle = self._processor.handle
-        if handle is None:
+        # Stream stderr lines for this command. The background stderr pump is
+        # cancelled when the stdout marker is detected, at which point a
+        # sentinel is pushed and this iterator terminates.
+        if self._stderr_consumed:
             return
-        async for line in handle.iter_stderr():
-            yield line
+        self._stderr_consumed = True
+        # If the command is already finished, do not start a new stderr pump.
+        # ExecExecutor/ExecTool start stderr consumption before waiting, so
+        # this mainly guards late callers from hanging.
+        if self._done.is_set():
+            return
+
+        await self._ensure_stderr_pump()
+
+        while True:
+            item = await self._stderr_queue.get()
+            if item is None:
+                break
+            yield item
 
     async def terminate(self, grace_s: float = 5.0) -> None:
         handle = self._processor.handle
@@ -124,6 +230,9 @@ class PersistentShellCommand(ShellCommandHandle):
             self._processor.on_command_finished(self)
 
     async def wait(self) -> int:
+        # Ensure stdout is being consumed so that the marker is detected even
+        # when callers never attach to iter_stdout().
+        await self._ensure_stdout_pump()
         await self._done.wait()
         assert self._returncode is not None
         return self._returncode
@@ -214,8 +323,8 @@ class PersistentShellProcessor(ShellProcessor):
 
     def _wrap_command_with_marker(self, command: str, marker: str) -> str:
         # Execute the user command in a fresh subshell to insulate parsing
-        # errors, capture its exit code, redirect stderr->stdout for payload,
-        # and always print a single-line marker with the exit code appended.
+        # errors, capture its exit code, and always print a single-line marker
+        # with the exit code appended.
         # Build inner invocation: <program> <args...> -c '<command>'
         tokens: list[str] = [
             self._settings.program,
@@ -228,7 +337,7 @@ class PersistentShellProcessor(ShellProcessor):
         # Emit a single marker line as "<marker>:<rc>"
         return (
             "rc=127; "
-            f"{{ {inner}; rc=$?; }} 2>&1; "
+            f"{{ {inner}; rc=$?; }}; "
             "echo "
             + shlex.quote(marker)
             + ':"$rc"\n'
