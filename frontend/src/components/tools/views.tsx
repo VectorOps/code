@@ -1,6 +1,7 @@
 import { object, text, type Json } from "../../models/json";
 import type { ToolProps, ToolView } from "./factory";
 import type { ReactNode } from "react";
+import { HighlightedCode } from "../HighlightedCode";
 
 function Summary({ items, fallback }: { items: string[]; fallback: string }) {
   const first = items[0] || fallback;
@@ -73,8 +74,22 @@ export function Fields({ data }: { data: Record<string, Json> }) {
   );
 }
 
-function Code({ value }: { value: Json | undefined }) {
-  return <pre className="tool-code">{display(value)}</pre>;
+function Code({
+  value,
+  language,
+}: {
+  value: Json | undefined;
+  language?: string;
+}) {
+  return (
+    <pre className="tool-code">
+      <HighlightedCode
+        language={language ?? (typeof value === "string" ? undefined : "json")}
+      >
+        {display(value)}
+      </HighlightedCode>
+    </pre>
+  );
 }
 
 export function Result({ tool }: ToolProps) {
@@ -272,7 +287,9 @@ export function ProcessDetails({ tool }: ToolProps) {
       tool={tool}
       request={
         <>
-          {requestedCommand !== undefined && <Code value={command(tool)} />}
+          {requestedCommand !== undefined && (
+            <Code value={command(tool)} language="bash" />
+          )}
           {tool.arguments === undefined ? (
             <p>Arguments were not recorded in this history.</p>
           ) : (
@@ -381,22 +398,7 @@ export function PlanDetails({ tool }: ToolProps) {
 function Diff({ lines }: { lines: string[] }) {
   return (
     <pre className="tool-diff">
-      {lines.map((line, index) => (
-        <span
-          key={index}
-          className={
-            line.startsWith("+")
-              ? "diff-add"
-              : line.startsWith("-")
-                ? "diff-remove"
-                : /^(\*\*\*|@@)/.test(line)
-                  ? "diff-heading"
-                  : ""
-          }
-        >
-          {line || " "}
-        </span>
-      ))}
+      <HighlightedCode language="diff">{lines.join("\n")}</HighlightedCode>
     </pre>
   );
 }

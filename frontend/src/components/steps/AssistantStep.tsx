@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { HighlightedCode } from "../HighlightedCode";
 import { object, text } from "../../models/json";
 import type { StepProps } from "./registry";
 
@@ -21,6 +22,14 @@ export function AssistantStep({ step, actions }: StepProps) {
           remarkPlugins={[remarkGfm]}
           skipHtml
           components={{
+            code: ({ children, className }) => (
+              <HighlightedCode
+                language={/\blanguage-([^\s]+)/.exec(className ?? "")?.[1]}
+                className={className}
+              >
+                {String(children ?? "")}
+              </HighlightedCode>
+            ),
             img: ({ alt }) => <span>[Image: {alt || "attachment"}]</span>,
             a: ({ children, href }) => (
               <a href={href} target="_blank" rel="noopener noreferrer">

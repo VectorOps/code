@@ -24,25 +24,8 @@
   white-space: pre;
   tab-size: 4;
 }
-.tool-diff span {
-  display: block;
-  min-width: max-content;
-}
 .tool-diff {
   line-height: 1.6;
-}
-.diff-add {
-  background: #e8f5e9;
-  color: #165b25;
-}
-.diff-remove {
-  background: #fff0ee;
-  color: #8a241c;
-}
-.diff-heading {
-  background: #edf2f7;
-  color: #334155;
-  font-weight: 600;
 }
 .tool-fields > div {
   display: grid;
