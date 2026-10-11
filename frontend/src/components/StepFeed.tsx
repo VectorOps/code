@@ -6,6 +6,12 @@ import {
   workflowPath,
 } from "../models/workflow-tree";
 import type { WorkflowNode } from "../models/workflow-tree";
+import {
+  groupTools,
+  defaultToolGrouping,
+  type ToolGrouping,
+} from "../models/tool-groups";
+import { ToolGroup } from "./ToolGroup";
 import { Decision } from "./Decision";
 import type { StepActions, StepRegistry } from "./steps/registry";
 import "./workflow.css";
@@ -44,11 +50,13 @@ function WorkflowBranch({
   registry,
   actions,
   active,
+  grouping,
 }: {
   node: WorkflowNode;
   registry: StepRegistry;
   actions: StepActions;
   active: boolean;
+  grouping: ToolGrouping;
 }) {
   const details = useRef<HTMLDetailsElement>(null);
   const [visited, setVisited] = useState(false);
@@ -87,6 +95,7 @@ function WorkflowBranch({
           registry={registry}
           actions={actions}
           active={active}
+          grouping={grouping}
         />
       )}
     </details>
@@ -98,16 +107,34 @@ function WorkflowContents({
   registry,
   actions,
   active,
+  grouping,
 }: {
   node: WorkflowNode;
   registry: StepRegistry;
   actions: StepActions;
   active: boolean;
+  grouping: ToolGrouping;
 }) {
   const inline = new Set<string>();
+  const entries = node.entries.filter(
+    (entry) =>
+      "entries" in entry ||
+      entry.kind === "llm.tool" ||
+      registry.resolve(entry) ||
+      node.requests.some((request) => request.request_id === entry.id),
+  );
   return (
     <>
-      {node.entries.map((entry) => {
+      {groupTools(entries, actions.pending, grouping).map((entry) => {
+        if ("steps" in entry)
+          return (
+            <ToolGroup
+              key={entry.id}
+              group={entry}
+              registry={registry}
+              actions={actions}
+            />
+          );
         if ("entries" in entry)
           return (
             <WorkflowBranch
@@ -116,6 +143,7 @@ function WorkflowContents({
               registry={registry}
               actions={actions}
               active={active}
+              grouping={grouping}
             />
           );
         const request = node.requests.find(
@@ -170,11 +198,13 @@ export function StepFeed({
   registry,
   actions,
   active,
+  grouping = defaultToolGrouping,
 }: {
   history: HistoryItem[];
   registry: StepRegistry;
   actions: StepActions;
   active: boolean;
+  grouping?: ToolGrouping;
 }) {
   const roots = useMemo(
     () => workflowTree(history, actions.pending),
@@ -230,6 +260,7 @@ export function StepFeed({
           registry={registry}
           actions={actions}
           active={active}
+          grouping={grouping}
         />
       ))}
       {!roots.length && (

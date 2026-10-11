@@ -2,13 +2,37 @@
 
 @layer components {
   .user-step {
-    @apply my-5 rounded-xl border-0 bg-neutral-100 px-5 py-4;
+    @apply my-1 rounded-xl border-0 bg-neutral-100 px-5 py-2;
   }
   .assistant-step {
-    @apply py-6;
+    @apply py-1;
   }
   .tool-step {
-    @apply my-3 rounded-lg border border-neutral-200 px-4 py-3;
+    @apply my-1 rounded-lg border border-neutral-200 px-4 py-1;
+  }
+  .tool-group {
+    @apply my-1 rounded-lg border border-neutral-200 px-4 py-1;
+  }
+  .tool-group > summary .entry-state {
+    @apply ml-3;
+  }
+  .tool-group-preview,
+  .tool-group-calls {
+    @apply my-1 ml-2 border-l-2 border-neutral-300 pl-3;
+  }
+  .tool-group-preview-call,
+  .tool-group-call {
+    @apply min-w-0 py-1;
+  }
+  .tool-group-preview-call + .tool-group-preview-call,
+  .tool-group-call + .tool-group-call {
+    @apply border-t border-neutral-200;
+  }
+  .tool-group-overflow {
+    @apply text-xs text-neutral-500;
+  }
+  .tool-group-call > .tool-step {
+    @apply m-0 rounded-none border-0 px-2;
   }
   .approval-actions {
     @apply mt-3 border-t border-neutral-200 pt-2;
@@ -20,17 +44,29 @@
     @apply mt-2 text-neutral-500;
   }
   .markdown-content {
-    @apply mt-4 text-sm leading-7;
+    @apply mt-1 text-sm leading-5;
     overflow-wrap: anywhere;
+  }
+  .markdown-content :where(p, pre, blockquote) {
+    @apply my-1;
+  }
+  .markdown-content :where(h1, h2, h3, h4, h5, h6) {
+    @apply mb-1 mt-2;
+  }
+  .markdown-content > :first-child {
+    @apply mt-0;
+  }
+  .markdown-content > :last-child {
+    @apply mb-0;
   }
   .markdown-content p {
     @apply text-neutral-900;
   }
   .markdown-content ul {
-    @apply my-3 list-disc pl-6;
+    @apply my-1 list-disc pl-6;
   }
   .markdown-content ol {
-    @apply my-3 list-decimal pl-6;
+    @apply my-1 list-decimal pl-6;
   }
   .markdown-content a {
     @apply underline underline-offset-2;
@@ -39,7 +75,7 @@
     @apply border-l-2 border-neutral-300 pl-4;
   }
   .markdown-content table {
-    @apply my-3 block overflow-x-auto border-collapse;
+    @apply my-1 block overflow-x-auto border-collapse;
   }
   .markdown-content th,
   .markdown-content td {
