@@ -114,6 +114,21 @@ export function Workspace({
     if (inspector) inspectorRef.current?.focus();
   }, [inspector?.kind]);
   useEffect(() => {
+    if (!inspector) return;
+    function dismissOutside(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        inspectorRef.current &&
+        !inspectorRef.current.contains(event.target)
+      ) {
+        setInspector(null);
+      }
+    }
+    document.addEventListener("pointerdown", dismissOutside, true);
+    return () =>
+      document.removeEventListener("pointerdown", dismissOutside, true);
+  }, [inspector]);
+  useEffect(() => {
     setInspector(null);
     setNewActivity(false);
     following.current = true;

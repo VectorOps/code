@@ -12,11 +12,11 @@ export function ToolStep({ step, actions }: StepProps) {
   if (!approval && formatter.visible?.(tool) === false) return null;
   const Summary = formatter.summary;
   return (
-    <section className="feed-entry tool-step">
-      <button
-        className="activity-heading"
-        onClick={() => actions.inspect(step.id)}
-      >
+    <section
+      className="feed-entry tool-step"
+      onClick={() => actions.inspect(step.id)}
+    >
+      <button className="activity-heading">
         <span>{factory.name(tool.name)}</span>
         <span className="entry-state">
           {approval ? "Needs approval" : tool.failed ? "Failed" : tool.state} /

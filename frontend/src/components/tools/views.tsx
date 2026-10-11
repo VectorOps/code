@@ -378,6 +378,29 @@ export function PlanDetails({ tool }: ToolProps) {
   );
 }
 
+function Diff({ lines }: { lines: string[] }) {
+  return (
+    <pre className="tool-diff">
+      {lines.map((line, index) => (
+        <span
+          key={index}
+          className={
+            line.startsWith("+")
+              ? "diff-add"
+              : line.startsWith("-")
+                ? "diff-remove"
+                : /^(\*\*\*|@@)/.test(line)
+                  ? "diff-heading"
+                  : ""
+          }
+        >
+          {line || " "}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
 export function PatchSummary({ tool }: ToolProps) {
   const patch = text(object(tool.arguments).text);
   const files = patch
@@ -387,14 +410,21 @@ export function PatchSummary({ tool }: ToolProps) {
         line,
       ),
     );
+  const preview = patch
+    .split("\n")
+    .filter((line) => /^[+-]/.test(line) && !/^(\+\+\+ |--- )/.test(line))
+    .slice(0, 3);
   return (
-    <Summary
-      items={files.map(
-        (line) =>
-          `${object(tool.arguments).reverse === true ? "Reverse patch / " : ""}${line.replace(/^(\*\*\* |\+\+\+ |--- )/, "")}`,
-      )}
-      fallback="Repository changes"
-    />
+    <>
+      <Summary
+        items={files.map(
+          (line) =>
+            `${object(tool.arguments).reverse === true ? "Reverse patch / " : ""}${line.replace(/^(\*\*\* |\+\+\+ |--- )/, "")}`,
+        )}
+        fallback="Repository changes"
+      />
+      {preview.length > 0 && <Diff lines={preview} />}
+    </>
   );
 }
 
@@ -408,24 +438,7 @@ export function PatchDetails({ tool }: ToolProps) {
           {object(tool.arguments).reverse === true && <p>Reverse patch</p>}
           <h3>Requested diff</h3>
           {patch ? (
-            <pre className="tool-diff">
-              {patch.split("\n").map((line, index) => (
-                <span
-                  key={index}
-                  className={
-                    line.startsWith("+")
-                      ? "diff-add"
-                      : line.startsWith("-")
-                        ? "diff-remove"
-                        : /^(\*\*\*|@@)/.test(line)
-                          ? "diff-heading"
-                          : ""
-                  }
-                >
-                  {line || " "}
-                </span>
-              ))}
-            </pre>
+            <Diff lines={patch.split("\n")} />
           ) : (
             <p>Patch text was not recorded in this history.</p>
           )}

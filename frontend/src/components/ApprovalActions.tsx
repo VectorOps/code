@@ -39,7 +39,7 @@ export function ApprovalActions({
   return (
     <div className="approval-actions">
       <p>{submitted ? "Decision acknowledged" : "Approval required"}</p>
-      <div>
+      <div onClick={(event) => event.stopPropagation()}>
         <button
           disabled={!enabled || submitted || sending}
           onClick={() => void decide(true, "call")}
