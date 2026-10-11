@@ -10,6 +10,47 @@ export type StepView = ReturnType<typeof activity> & {
   toolCall?: Json;
 };
 
+const toolCalls = new WeakMap<HistoryItem[], Map<HistoryItem, Json>>();
+const views = new WeakMap<HistoryItem, StepView>();
+
+function toolCallIndex(history: HistoryItem[]): Map<HistoryItem, Json> {
+  const cached = toolCalls.get(history);
+  if (cached) return cached;
+  const result = new Map<HistoryItem, Json>();
+  const latest = new Map<string, Json>();
+  for (const item of [...history].sort((a, b) => a.position - b.position)) {
+    const entry = activity(item);
+    if (entry.kind === "llm.generate") {
+      const generation = object(entry.outcome.result);
+      const response = object(
+        generation.response ?? generation.message ?? generation,
+      );
+      const seen = new Set<string>();
+      for (const block of Array.isArray(response.content)
+        ? response.content
+        : []) {
+        const call = object(block);
+        if (call.type !== "tool_call") continue;
+        const key = JSON.stringify([entry.workflow, call.id, call.name]);
+        if (!seen.has(key)) latest.set(key, block);
+        seen.add(key);
+      }
+    } else if (entry.kind === "llm.tool") {
+      const output = object(
+        entry.state === "streaming"
+          ? entry.outcome.state
+          : entry.outcome.result,
+      );
+      const call = latest.get(
+        JSON.stringify([entry.workflow, output.tool_call_id, output.tool_name]),
+      );
+      if (call !== undefined) result.set(item, call);
+    }
+  }
+  toolCalls.set(history, result);
+  return result;
+}
+
 export function stepView(
   item: HistoryItem,
   history: HistoryItem[] = [],
@@ -18,32 +59,13 @@ export function stepView(
   const output =
     entry.state === "streaming" ? entry.outcome.state : entry.outcome.result;
   const callId = text(object(output).tool_call_id);
-  let toolCall: Json | undefined;
-  if (entry.kind === "llm.tool" && callId) {
-    const candidates = history
-      .filter((candidate) => candidate.position < item.position)
-      .sort((a, b) => b.position - a.position);
-    for (const candidate of candidates) {
-      const source = activity(candidate);
-      if (source.workflow !== entry.workflow || source.kind !== "llm.generate")
-        continue;
-      const generation = object(source.outcome.result);
-      const response = object(
-        generation.response ?? generation.message ?? generation,
-      );
-      const blocks = Array.isArray(response.content) ? response.content : [];
-      toolCall = blocks.find((block) => {
-        const call = object(block);
-        return (
-          call.type === "tool_call" &&
-          call.id === callId &&
-          call.name === object(output).tool_name
-        );
-      });
-      if (toolCall) break;
-    }
-  }
-  return {
+  const toolCall =
+    entry.kind === "llm.tool" && callId
+      ? toolCallIndex(history).get(item)
+      : undefined;
+  const cached = views.get(item);
+  if (cached && cached.toolCall === toolCall) return cached;
+  const view = {
     ...entry,
     item,
     output,
@@ -51,6 +73,8 @@ export function stepView(
     input: object(entry.operation.input),
     toolCall,
   };
+  views.set(item, view);
+  return view;
 }
 
 export function isUserResponse(step: StepView): boolean {

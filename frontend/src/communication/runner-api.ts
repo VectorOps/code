@@ -50,17 +50,28 @@ export class RunnerApi {
       active,
     );
   }
-  async history(execution_id: string): Promise<models.HistoryPage> {
+  async history(
+    execution_id: string,
+    afterPosition = 0,
+    stepIds?: string[],
+    active = () => true,
+  ): Promise<models.HistoryPage> {
     const items: models.HistoryItem[] = [];
     let cursor: string | null = null;
     do {
       const page: models.HistoryPage = await this.connection.request(
         "history.query",
-        { execution_id, limit: 500, cursor },
+        {
+          execution_id,
+          limit: afterPosition > 0 ? 100 : 500,
+          cursor,
+          ...(stepIds ? { step_ids: stepIds } : {}),
+        },
       );
-      items.push(...page.items);
+      items.push(...page.items.filter((item) => item.position > afterPosition));
       cursor = page.next_cursor;
-    } while (cursor);
+      if (page.items.some((item) => item.position <= afterPosition)) break;
+    } while (cursor && active());
     return {
       items: items.sort((a, b) => a.position - b.position),
       next_cursor: null,

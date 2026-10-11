@@ -15,7 +15,7 @@ export class RunnerConnection {
   private attempts = 0;
   private sequence = 0;
   onReady = () => {};
-  onEvent = () => {};
+  onEvent = (_event: Params) => {};
   onStatus = (_status: string) => {};
 
   constructor(
@@ -60,7 +60,7 @@ export class RunnerConnection {
         } else if (packet.kind === "event") {
           if (packet.sequence <= this.sequence) return;
           this.sequence = packet.sequence;
-          this.onEvent();
+          this.onEvent(packet.event);
         } else if (packet.kind === "response" || packet.kind === "error") {
           const pending = this.pending.get(packet.id);
           if (!pending) return;

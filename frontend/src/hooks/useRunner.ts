@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { RunnerApi } from "../communication/runner-api";
 import { RunnerConnection } from "../communication/websocket";
+import { HistorySync } from "../communication/history-sync";
+import { object, text } from "../models/json";
 import type { Json, Params } from "../models/json";
 import type * as models from "../models/runner";
 
@@ -22,6 +24,8 @@ export function useRunner(initial: models.ConnectionSettings) {
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const startKey = useRef({ signature: "", key: "" });
+  const ready = useRef(false);
+  const refreshHistory = useRef((_reconcile: boolean, _event?: Params) => {});
 
   function connect(next: models.ConnectionSettings) {
     try {
@@ -55,20 +59,9 @@ export function useRunner(initial: models.ConnectionSettings) {
       try {
         do {
           dirty = false;
-          const id = selectedRef.current;
           const list = await api!.sessions(active);
           if (!alive) return;
           setSessions(list);
-          if (id) {
-            const [history, pending] = await Promise.all([
-              api!.history(id),
-              api!.pending(id, active),
-            ]);
-            if (alive && selectedRef.current === id) {
-              setHistory(history);
-              setPending(pending);
-            }
-          }
         } while (dirty && alive);
       } catch (reason) {
         if (alive) setError(String(reason));
@@ -78,11 +71,15 @@ export function useRunner(initial: models.ConnectionSettings) {
     }
     const connection = api.connection;
     connection.onStatus = (value) => {
+      if (value !== "Connected") ready.current = false;
       if (alive) setStatus(value);
     };
     connection.onReady = () => {
       void (async () => {
         await api.subscribe();
+        if (!alive) return;
+        ready.current = true;
+        refreshHistory.current(true);
         const list = await api.workflows(active);
         if (alive) {
           setWorkflows(list);
@@ -93,7 +90,8 @@ export function useRunner(initial: models.ConnectionSettings) {
         if (alive) setError(String(reason));
       });
     };
-    connection.onEvent = () => {
+    connection.onEvent = (event) => {
+      refreshHistory.current(false, event);
       dirty = true;
       if (!timer)
         timer = setTimeout(() => {
@@ -102,9 +100,14 @@ export function useRunner(initial: models.ConnectionSettings) {
         }, 150);
     };
     connection.connect();
-    const poll = setInterval(() => void refresh(), 5000);
+    const poll = setInterval(() => {
+      if (!ready.current) return;
+      void refresh();
+      refreshHistory.current(false);
+    }, 5000);
     return () => {
       alive = false;
+      ready.current = false;
       clearTimeout(timer);
       clearInterval(poll);
       connection.close();
@@ -114,27 +117,65 @@ export function useRunner(initial: models.ConnectionSettings) {
   useEffect(() => {
     setHistory({ items: [], next_cursor: null });
     setPending([]);
-  }, [selected, api]);
-  useEffect(() => {
-    if (!api || !selected || status !== "Connected") return;
+    if (!api || !selected) return;
+    const sync = new HistorySync(api, selected);
     let alive = true;
-    void Promise.all([
-      api.history(selected),
-      api.pending(selected, () => alive),
-    ])
-      .then(([history, pending]) => {
-        if (alive) {
+    let running = false;
+    let dirty = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const active = () => alive && selectedRef.current === selected;
+    async function refresh() {
+      if (!active() || !ready.current) return;
+      if (running) {
+        dirty = true;
+        return;
+      }
+      running = true;
+      try {
+        do {
+          dirty = false;
+          const [history, pending] = await Promise.all([
+            sync.refresh(active),
+            api!.pending(selected, active),
+          ]);
+          if (!active()) return;
           setHistory(history);
-          setPending(pending);
-        }
-      })
-      .catch((reason) => {
-        if (alive) setError(String(reason));
-      });
+          setPending((previous) =>
+            JSON.stringify(previous) === JSON.stringify(pending)
+              ? previous
+              : pending,
+          );
+        } while (dirty && active() && ready.current);
+      } catch (reason) {
+        if (active()) setError(String(reason));
+      } finally {
+        running = false;
+      }
+    }
+    const trigger = (reconcile: boolean, event?: Params) => {
+      if (event) {
+        if (event.execution_id !== selected) return;
+        sync.invalidate(text(object(event.step).id));
+      }
+      if (reconcile) sync.reconcile();
+      dirty = true;
+      if (!timer)
+        timer = setTimeout(() => {
+          timer = undefined;
+          void refresh();
+        }, 150);
+    };
+    refreshHistory.current = trigger;
+    if (ready.current) trigger(false);
     return () => {
       alive = false;
+      clearTimeout(timer);
+      if (refreshHistory.current === trigger) refreshHistory.current = () => {};
     };
-  }, [api, selected, status, revision]);
+  }, [api, selected]);
+  useEffect(() => {
+    if (revision) refreshHistory.current(false);
+  }, [revision]);
 
   async function action(
     operation: (api: RunnerApi) => Promise<void>,

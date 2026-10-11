@@ -51,6 +51,7 @@ function WorkflowBranch({
   active: boolean;
 }) {
   const details = useRef<HTMLDetailsElement>(null);
+  const [visited, setVisited] = useState(false);
   const requests = workflowRequests(node);
   const signature = requests.map((request) => request.request_id).join("/");
   useEffect(() => {
@@ -58,7 +59,13 @@ function WorkflowBranch({
   }, [signature]);
   const running = active && node.status === "Unfinished";
   return (
-    <details className="workflow-branch" ref={details}>
+    <details
+      className="workflow-branch"
+      ref={details}
+      onToggle={(event) => {
+        if (event.currentTarget.open) setVisited(true);
+      }}
+    >
       <summary>
         <span>{node.label}</span>
         <span className="workflow-status">
@@ -74,12 +81,14 @@ function WorkflowBranch({
           )}
         </span>
       </summary>
-      <WorkflowContents
-        node={node}
-        registry={registry}
-        actions={actions}
-        active={active}
-      />
+      {(visited || requests.length > 0) && (
+        <WorkflowContents
+          node={node}
+          registry={registry}
+          actions={actions}
+          active={active}
+        />
+      )}
     </details>
   );
 }
