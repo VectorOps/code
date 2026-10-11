@@ -1,0 +1,7 @@
+[environment]                                                                                                                                                                                                        
+kind = "local"                                                                                                                                                                                                       
+base_project_path = "/Users/serge/work/code"  
+
+[components.llm]                                                                                                                                                                                                     
+provider = "openai"                                                                                                                                                                                                  
+model = "gpt-6-luna:fast"   

@@ -1,0 +1,161 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    @apply bg-white font-sans text-neutral-950 antialiased;
+    color-scheme: light;
+  }
+
+  body {
+    @apply m-0;
+  }
+
+  h1 {
+    @apply mb-4 text-2xl font-semibold tracking-tight;
+  }
+
+  h2 {
+    @apply my-3 text-lg font-semibold;
+  }
+
+  h3 {
+    @apply mt-6 mb-3 text-base font-semibold;
+  }
+
+  h4 {
+    @apply mb-3 font-medium;
+  }
+
+  p {
+    @apply my-3 text-sm leading-relaxed text-neutral-600;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    @apply rounded-md border border-neutral-300 px-3 py-2 text-sm;
+  }
+
+  button {
+    @apply cursor-pointer bg-neutral-950 font-medium text-white transition-colors;
+  }
+
+  button:hover:not(:disabled) {
+    @apply bg-neutral-700;
+  }
+
+  button:disabled {
+    @apply cursor-not-allowed opacity-40;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  summary:focus-visible {
+    @apply outline-2 outline-offset-2 outline-black;
+  }
+
+  input,
+  select,
+  textarea {
+    @apply w-full bg-white text-neutral-950;
+  }
+
+  label {
+    @apply my-3 block text-sm font-medium;
+  }
+
+  textarea {
+    @apply mt-2 resize-y font-mono;
+  }
+
+  pre {
+    @apply max-h-[500px] overflow-auto rounded-md bg-neutral-100 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  details {
+    @apply py-2.5;
+  }
+
+  summary {
+    @apply cursor-pointer text-sm font-medium;
+  }
+
+  small {
+    @apply mt-1 block text-xs;
+  }
+}
+
+@layer components {
+  main {
+    @apply mx-auto max-w-[1700px] p-3 md:p-6;
+  }
+
+  header,
+  .toolbar,
+  .connection {
+    @apply flex flex-wrap items-center gap-4;
+  }
+
+  header {
+    @apply justify-between border-b border-neutral-200 pb-4;
+  }
+
+  header [role="status"] {
+    @apply rounded-full border border-neutral-300 px-3 py-1 text-xs;
+  }
+
+  .connection label {
+    @apply min-w-60 flex-1;
+  }
+
+  .layout {
+    @apply mt-6 grid grid-cols-1 gap-6 md:grid-cols-[290px_minmax(0,1fr)];
+  }
+
+  aside,
+  article,
+  form {
+    @apply rounded-lg border border-neutral-200 p-5;
+  }
+
+  aside {
+    @apply self-start;
+  }
+
+  nav {
+    @apply flex gap-2 overflow-x-auto pb-3;
+  }
+
+  nav button {
+    @apply min-w-40 bg-white text-left text-neutral-700;
+  }
+
+  nav button:hover:not(:disabled) {
+    @apply bg-neutral-100;
+  }
+
+  nav button[aria-selected="true"] {
+    @apply border-black bg-black text-white;
+  }
+
+  form {
+    @apply mb-4 bg-neutral-50;
+  }
+
+  .error {
+    @apply my-4 rounded-md border border-neutral-950 border-l-4 bg-neutral-100 p-3 text-sm;
+    overflow-wrap: anywhere;
+  }
+
+  .error button {
+    @apply ml-4;
+  }
+
+  .empty {
+    @apply p-9 text-center;
+  }
+}

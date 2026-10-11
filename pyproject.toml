@@ -1,0 +1,46 @@
+[project]
+name = "runner-desktop"
+version = "0.1.0"
+description = "Desktop and WebSocket clients for VectorOps Runner"
+requires-python = ">=3.13,<3.14"
+dependencies = ["vectorops-runner", "websockets>=15,<16", "jinja2>=3.1.6,<4"]
+
+[project.optional-dependencies]
+desktop = ["pywebview>=5,<7"]
+
+[project.scripts]
+runner-desktop = "runner_desktop.cli:main"
+runner-desktop-dev = "runner_desktop.dev:main"
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+runner_desktop = ["web/*", "web/assets/*"]
+
+[tool.uv.sources]
+vectorops-runner = { path = "../runner", editable = true }
+connect = { path = "../connect", editable = true }
+
+[dependency-groups]
+dev = ["black>=25", "mypy>=1.11,<2", "pytest>=8,<9", "pytest-asyncio>=0.23,<1", "watchfiles>=1,<2"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src/runner_desktop"]
+strict = true
+follow_imports = "silent"
+mypy_path = ["src", "../runner/src", "../connect/src"]
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["webview", "webview.*"]
+ignore_missing_imports = true

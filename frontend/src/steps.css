@@ -1,0 +1,54 @@
+@reference "./style.css";
+
+@layer components {
+  .user-step {
+    @apply my-5 rounded-xl border-0 bg-neutral-100 px-5 py-4;
+  }
+  .assistant-step {
+    @apply py-6;
+  }
+  .tool-step {
+    @apply my-3 rounded-lg border border-neutral-200 px-4 py-3;
+  }
+  .approval-actions {
+    @apply mt-3 border-t border-neutral-200 pt-2;
+  }
+  .approval-actions > div {
+    @apply flex flex-wrap gap-2;
+  }
+  .approval-actions small {
+    @apply mt-2 text-neutral-500;
+  }
+  .markdown-content {
+    @apply mt-4 text-sm leading-7;
+    overflow-wrap: anywhere;
+  }
+  .markdown-content p {
+    @apply text-neutral-900;
+  }
+  .markdown-content ul {
+    @apply my-3 list-disc pl-6;
+  }
+  .markdown-content ol {
+    @apply my-3 list-decimal pl-6;
+  }
+  .markdown-content a {
+    @apply underline underline-offset-2;
+  }
+  .markdown-content blockquote {
+    @apply border-l-2 border-neutral-300 pl-4;
+  }
+  .markdown-content table {
+    @apply my-3 block overflow-x-auto border-collapse;
+  }
+  .markdown-content th,
+  .markdown-content td {
+    @apply border border-neutral-300 px-3 py-1 text-left;
+  }
+  .markdown-content code {
+    @apply rounded bg-neutral-100 px-1 font-mono text-xs;
+  }
+  .markdown-content pre code {
+    @apply p-0;
+  }
+}

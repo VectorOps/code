@@ -1,0 +1,58 @@
+.workflow-branch {
+  border: 1px solid var(--border, #8886);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+}
+.workflow-branch > summary {
+  cursor: pointer;
+  padding: 4px;
+}
+.workflow-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+  font-size: 0.85em;
+}
+.workflow-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: workflow-spin 1s linear infinite;
+}
+@keyframes workflow-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workflow-spinner {
+    animation: none;
+  }
+}
+.workflow-attention {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: Canvas;
+  color: CanvasText;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 30vh;
+  overflow: auto;
+}
+.workflow-attention > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+.workflow-attention small {
+  display: block;
+  overflow-wrap: anywhere;
+}

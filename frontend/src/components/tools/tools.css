@@ -1,0 +1,107 @@
+.tool-summary {
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  color: #525252;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-details {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tool-details h3 {
+  margin: 1rem 0 0.5rem;
+}
+.tool-code,
+.tool-diff {
+  max-height: 65vh;
+  overflow: auto;
+  font-size: 0.8rem;
+  white-space: pre;
+  tab-size: 4;
+}
+.tool-diff span {
+  display: block;
+  min-width: max-content;
+}
+.tool-diff {
+  line-height: 1.6;
+}
+.diff-add {
+  background: #e8f5e9;
+  color: #165b25;
+}
+.diff-remove {
+  background: #fff0ee;
+  color: #8a241c;
+}
+.diff-heading {
+  background: #edf2f7;
+  color: #334155;
+  font-weight: 600;
+}
+.tool-fields > div {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) 3fr;
+  gap: 1rem;
+  border-bottom: 1px solid #eee;
+  padding: 0.4rem 0;
+}
+.tool-fields dt {
+  text-transform: capitalize;
+  margin: 0 !important;
+}
+.tool-fields dd {
+  white-space: pre-wrap;
+  margin: 0;
+}
+.tool-table {
+  overflow-x: auto;
+}
+.tool-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.tool-table th,
+.tool-table td {
+  text-align: left;
+  padding: 0.6rem;
+  border-bottom: 1px solid #eee;
+}
+.tool-image {
+  max-width: 100%;
+  max-height: 65vh;
+  object-fit: contain;
+}
+.tool-error,
+.tool-notice {
+  border-left: 3px solid #a16207;
+  background: #fffbeb;
+  padding: 0.7rem 1rem;
+  font-size: 0.85rem;
+}
+.tool-error p {
+  white-space: pre-wrap;
+}
+.tool-plan {
+  list-style: decimal;
+  padding-left: 1.5rem;
+}
+.tool-plan li {
+  padding: 0.6rem;
+}
+.tool-plan small {
+  display: block;
+  text-transform: capitalize;
+  color: #737373;
+}
+.tool-plan [data-state="completed"] > span {
+  text-decoration: line-through;
+  color: #737373;
+}
+.tool-plan [data-state="in_progress"] {
+  background: #f5f5f5;
+  font-weight: 600;
+}
