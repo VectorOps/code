@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Session } from "../models/runner";
+import { AppearanceControl } from "./Appearance";
 
 export function SessionSidebar({
   sessions,
@@ -82,6 +83,7 @@ export function SessionSidebar({
       </nav>
       {sessions.length === 0 && <p>No conversations yet.</p>}
       <div className="sidebar-footer">
+        <AppearanceControl />
         <span role="status">{status}</span>
         <button className="quiet-button" onClick={configure}>
           Connection settings

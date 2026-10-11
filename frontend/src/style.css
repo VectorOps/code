@@ -3,7 +3,28 @@
 @layer base {
   :root {
     @apply bg-white font-sans text-neutral-950 antialiased;
+    color-scheme: light dark;
+    --color-white: light-dark(#fff, #171717);
+    --color-black: light-dark(#000, #fafafa);
+    --color-neutral-50: light-dark(#fafafa, #1c1c1c);
+    --color-neutral-100: light-dark(#f5f5f5, #262626);
+    --color-neutral-200: light-dark(#e5e5e5, #363636);
+    --color-neutral-300: light-dark(#d4d4d4, #525252);
+    --color-neutral-400: light-dark(#a3a3a3, #a3a3a3);
+    --color-neutral-500: light-dark(#737373, #a3a3a3);
+    --color-neutral-600: light-dark(#525252, #bdbdbd);
+    --color-neutral-700: light-dark(#404040, #d4d4d4);
+    --color-neutral-800: light-dark(#262626, #e5e5e5);
+    --color-neutral-900: light-dark(#171717, #f5f5f5);
+    --color-neutral-950: light-dark(#0a0a0a, #fafafa);
+  }
+
+  :root[data-appearance="light"] {
     color-scheme: light;
+  }
+
+  :root[data-appearance="dark"] {
+    color-scheme: dark;
   }
 
   body {
