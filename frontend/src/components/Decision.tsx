@@ -3,6 +3,7 @@ import { inputResponse, type InputRequest } from "../models/runner";
 import { ApprovalActions } from "./ApprovalActions";
 import { LazyDetails } from "./LazyDetails";
 import { useRetainedState, useRetainedValue } from "./FeedState";
+import { useFocusRegion } from "../focus/FocusProvider";
 
 export function Decision({
   request,
@@ -17,6 +18,7 @@ export function Decision({
   change: (value: string) => void;
   reply: (response: Json, key: string) => Promise<boolean>;
 }) {
+  const focusRef = useFocusRegion<HTMLElement>("protected");
   const [error, setError] = useRetainedState(request, "error", () => "");
   const retry = useRetainedValue(request, "retry", () => ({
     current: { signature: "", key: "" },
@@ -34,7 +36,7 @@ export function Decision({
     }
   }
   return (
-    <section className="decision-card">
+    <section className="decision-card" ref={focusRef}>
       <h3>{request.channel}</h3>
       <small>Workflow {request.workflow_id?.slice(0, 8) || "unknown"}</small>
       <pre>{JSON.stringify(request.payload, null, 2)}</pre>

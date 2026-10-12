@@ -1,9 +1,12 @@
-import type { ComponentProps } from "react";
+import { StrictMode, useState, type ComponentProps } from "react";
 import { act, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as vitest from "vitest";
 import { Workspace } from "../src/screens/Workspace";
 import type { InputRequest } from "../src/models/runner";
+import { createPortal } from "react-dom";
+import { useFocusBlocker, useFocusRegion } from "../src/focus/FocusProvider";
+import { defaultStepRegistry } from "../src/components/steps/defaults";
 
 vitest.beforeEach(() => {
   vitest.vi.stubGlobal(
@@ -228,5 +231,361 @@ vitest.test(
     vitest
       .expect(view.getByLabelText("Message draft"))
       .toHaveProperty("value", "");
+  },
+);
+
+vitest.test(
+  "passive typing appends once, preserves the draft, and does not scroll",
+  async () => {
+    const view = render(
+      <StrictMode>
+        <Workspace {...workspaceProps()} pending={[]} />
+      </StrictMode>,
+    );
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft") as HTMLTextAreaElement;
+    const viewport = view.getByRole("region", { name: "Conversation history" });
+    await user.type(draft, "Saved");
+    draft.setSelectionRange(0, 5);
+    viewport.scrollTop = 37;
+    const focus = vitest.vi.spyOn(draft, "focus");
+    await user.click(view.getByText(/No messages yet/));
+    vitest.expect(document.activeElement).not.toBe(draft);
+    await user.keyboard(" Hello");
+    vitest.expect(document.activeElement).toBe(draft);
+    vitest.expect(draft.value).toBe("Saved Hello");
+    vitest.expect(draft.selectionStart).toBe(draft.value.length);
+    vitest.expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    vitest.expect(viewport.scrollTop).toBe(37);
+  },
+);
+
+vitest.test(
+  "search keeps typing and closing a slideout immediately allows chat entry",
+  async () => {
+    const view = render(
+      <Workspace
+        {...workspaceProps()}
+        settings={<input aria-label="Setting value" />}
+      />,
+    );
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft");
+    await user.type(view.getByLabelText("Find a session"), "search");
+    vitest.expect(draft).toHaveProperty("value", "");
+    const opener = view.getByRole("button", { name: "Settings" });
+    await user.click(opener);
+    await user.keyboard("ignored");
+    vitest.expect(draft).toHaveProperty("value", "");
+    await user.type(view.getByLabelText("Setting value"), "value");
+    await user.keyboard("{Escape}");
+    vitest.expect(view.queryByLabelText("Work inspector")).toBeNull();
+    vitest.expect(document.activeElement).toBe(opener);
+    await user.keyboard("message");
+    vitest.expect(draft).toHaveProperty("value", "message");
+  },
+);
+
+vitest.test(
+  "inline Review focus and response input are protected",
+  async () => {
+    const question: InputRequest = {
+      ...request,
+      request_id: "question",
+      request_type: undefined,
+      channel: "agent.question",
+    };
+    const view = render(
+      <Workspace {...workspaceProps()} pending={[question]} />,
+    );
+    const user = userEvent.setup();
+    mockScrollIntoView();
+    await user.click(view.getByRole("button", { name: /^Review$/ }));
+    const target = view.getByLabelText("Input required: agent.question");
+    vitest.expect(document.activeElement).toBe(target);
+    await user.keyboard("ignored");
+    const draft = view.getByLabelText("Message draft");
+    vitest.expect(draft).toHaveProperty("value", "");
+    await user.type(view.getByRole("textbox", { name: /Response/ }), "answer");
+    vitest.expect(draft).toHaveProperty("value", "");
+  },
+);
+
+function mockScrollIntoView() {
+  const original = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "scrollIntoView",
+  );
+  Object.defineProperty(Element.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vitest.vi.fn(),
+  });
+  vitest.onTestFinished(() => {
+    if (original)
+      Object.defineProperty(Element.prototype, "scrollIntoView", original);
+    else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  });
+}
+
+function PortalBlocker() {
+  const [open, setOpen] = useState(true);
+  useFocusBlocker(open);
+  return open
+    ? createPortal(
+        <div aria-label="Custom popup">
+          <button onClick={() => setOpen(false)}>Close popup</button>
+        </div>,
+        document.body,
+      )
+    : null;
+}
+
+function ProtectedWidget() {
+  const ref = useFocusRegion<HTMLDivElement>("protected");
+  return (
+    <div ref={ref} tabIndex={0}>
+      Custom widget
+    </div>
+  );
+}
+
+vitest.test(
+  "custom renderers can protect non-native keyboard surfaces",
+  async () => {
+    const registry = defaultStepRegistry.extend({
+      id: "protected-widget",
+      matches: () => true,
+      component: ProtectedWidget,
+    });
+    const view = render(
+      <Workspace
+        {...workspaceProps()}
+        stepRegistry={registry}
+        history={[
+          {
+            position: 1,
+            step: {
+              id: "step-1",
+              workflow_id: "root",
+              operation: { kind: "llm.generate" },
+              outcome: { kind: "completed", result: "Message" },
+            },
+          },
+        ]}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(view.getByText("Custom widget"));
+    await user.keyboard("ignored");
+    vitest
+      .expect(view.getByLabelText("Message draft"))
+      .toHaveProperty("value", "");
+    await user.click(
+      view.getByRole("region", { name: "Conversation history" }),
+    );
+    await user.keyboard("allowed");
+    vitest
+      .expect(view.getByLabelText("Message draft"))
+      .toHaveProperty("value", "allowed");
+  },
+);
+
+vitest.test(
+  "nested portal blockers prevent routing until the last popup closes",
+  async () => {
+    const props = workspaceProps();
+    const view = render(<Workspace {...props} settings={<PortalBlocker />} />);
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft");
+    await user.click(view.getByRole("button", { name: "Settings" }));
+    await user.click(
+      view.getByRole("region", { name: "Conversation history" }),
+    );
+    await user.keyboard("blocked");
+    vitest.expect(draft).toHaveProperty("value", "");
+    await user.click(view.getByRole("button", { name: "Close popup" }));
+    vitest.expect(view.queryByLabelText("Custom popup")).toBeNull();
+    await user.keyboard("still blocked");
+    vitest.expect(draft).toHaveProperty("value", "");
+    await user.click(view.getByRole("button", { name: "Close inspector" }));
+    await user.keyboard("allowed");
+    vitest.expect(draft).toHaveProperty("value", "allowed");
+  },
+);
+
+vitest.test(
+  "post-send recovery never overrides newer focus or a session switch",
+  async () => {
+    let finish: (value: boolean) => void = () => {};
+    const props = workspaceProps();
+    const onReply = vitest.vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const view = render(<Workspace {...props} onReply={onReply} />);
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft");
+    await user.type(draft, "First");
+    await user.click(view.getByRole("button", { name: "Send message" }));
+    const search = view.getByLabelText("Find a session");
+    await user.click(search);
+    await act(async () => finish(true));
+    vitest.expect(document.activeElement).toBe(search);
+    await user.type(draft, "Second");
+    await user.click(view.getByRole("button", { name: "Send message" }));
+    view.rerender(
+      <Workspace {...props} selected="session-b" onReply={onReply} />,
+    );
+    await act(async () => finish(true));
+    vitest.expect(document.activeElement).not.toBe(draft);
+  },
+);
+
+vitest.test(
+  "sending by mouse returns focus when the interaction has not changed",
+  async () => {
+    const view = render(<Workspace {...workspaceProps()} />);
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft");
+    await user.type(draft, "Hello");
+    await user.click(view.getByRole("button", { name: "Send message" }));
+    vitest.expect(document.activeElement).toBe(draft);
+  },
+);
+
+vitest.test(
+  "outside dismissal of step details allows typing without a transcript click",
+  async () => {
+    const view = render(
+      <Workspace
+        {...workspaceProps()}
+        history={[
+          {
+            position: 1,
+            step: {
+              id: "step-1",
+              workflow_id: "root",
+              operation: { kind: "llm.generate" },
+              outcome: { kind: "completed", result: "Message" },
+            },
+          },
+        ]}
+      />,
+    );
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft");
+    const opener = view.getByRole("button", { name: "View details" });
+    await user.click(opener);
+    await user.keyboard("blocked");
+    vitest.expect(draft).toHaveProperty("value", "");
+    await user.click(view.getByRole("button", { name: "Dismiss inspector" }));
+    vitest.expect(view.queryByLabelText("Work inspector")).toBeNull();
+    vitest.expect(document.activeElement).toBe(opener);
+    await user.keyboard("Hello");
+    vitest.expect(document.activeElement).toBe(draft);
+    vitest.expect(draft).toHaveProperty("value", "Hello");
+  },
+);
+
+vitest.test(
+  "sidebar navigation and its background allow typing while Space still activates buttons",
+  async () => {
+    const view = render(<Workspace {...workspaceProps()} />);
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft");
+    await user.click(view.getByRole("button", { name: "Collapse navigation" }));
+    await user.keyboard(" ");
+    vitest
+      .expect(view.getByRole("button", { name: "Collapse navigation" }))
+      .toBeTruthy();
+    vitest.expect(draft).toHaveProperty("value", "");
+    await user.keyboard("Hi");
+    vitest.expect(draft).toHaveProperty("value", "Hi");
+    await user.click(view.getByLabelText("Session navigation"));
+    await user.keyboard(" there");
+    vitest.expect(draft).toHaveProperty("value", "Hi there");
+  },
+);
+
+vitest.test(
+  "selecting a session allows immediate typing into that session's retained draft",
+  async () => {
+    const props = workspaceProps();
+    const sessions = ["a", "b"].map((name) => ({
+      execution_id: `session-${name}`,
+      reference: `chat:${name}`,
+      status: "running",
+      active: true,
+      pending_inputs: 0,
+    }));
+    const view = render(
+      <Workspace {...props} sessions={sessions} pending={[]} />,
+    );
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft");
+    await user.type(draft, "Session A");
+    await user.click(view.getByRole("button", { name: /chat:b/ }));
+    vitest.expect(props.onSelect).toHaveBeenCalledWith("session-b");
+    view.rerender(
+      <Workspace
+        {...props}
+        sessions={sessions}
+        selected="session-b"
+        pending={[]}
+      />,
+    );
+    await user.keyboard("Session B");
+    vitest.expect(draft).toHaveProperty("value", "Session B");
+    view.rerender(<Workspace {...props} sessions={sessions} pending={[]} />);
+    vitest.expect(draft).toHaveProperty("value", "Session A");
+  },
+);
+
+vitest.test(
+  "registered tool approval targets and their buttons retain keyboard ownership",
+  async () => {
+    mockScrollIntoView();
+    const call = { name: "exec", arguments: { command: "echo hello" } };
+    const approval: InputRequest = {
+      ...request,
+      request_id: "step-1",
+      request_type: "tool.approval.v1",
+      channel: "tool.approval",
+      response_type: "json",
+      payload: { call },
+    };
+    const view = render(
+      <Workspace
+        {...workspaceProps()}
+        pending={[approval]}
+        history={[
+          {
+            position: 1,
+            step: {
+              id: "step-1",
+              workflow_id: "root",
+              operation: { kind: "llm.tool", input: { call } },
+              outcome: {
+                kind: "completed",
+                result: { content: [{ type: "text", text: "Result" }] },
+              },
+            },
+          },
+        ]}
+      />,
+    );
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft");
+    await user.click(view.getByRole("button", { name: /^Review$/ }));
+    vitest.expect(document.activeElement?.id).toBe("decision-session-a-step-1");
+    await user.keyboard("ignored");
+    vitest.expect(draft).toHaveProperty("value", "");
+    const approve = view.getByRole("button", { name: "Approve once" });
+    act(() => approve.focus());
+    await user.keyboard("ignored");
+    vitest.expect(document.activeElement).toBe(approve);
+    vitest.expect(draft).toHaveProperty("value", "");
   },
 );

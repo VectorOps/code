@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { Session } from "../models/runner";
+import { useComposerTarget, useFocusCoordinator } from "../focus/FocusProvider";
 
 type Activity = "send" | "stop" | "resume" | "review" | "idle";
 type WorkflowState = Pick<Session, "status" | "active" | "pending_inputs">;
@@ -65,6 +67,25 @@ export function Composer({
   review: () => void;
 }) {
   const inFlight = useRef(false);
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const form = useRef<HTMLFormElement>(null);
+  const coordinator = useFocusCoordinator();
+  useComposerTarget(textarea, {
+    isEditable: () =>
+      Boolean(
+        textarea.current &&
+        !textarea.current.disabled &&
+        !textarea.current.readOnly,
+      ),
+    focus: () => textarea.current?.focus({ preventScroll: true }),
+    beginTyping: (text) => {
+      flushSync(() => change(value + text));
+      const element = textarea.current;
+      if (!element) return;
+      element.focus({ preventScroll: true });
+      element.setSelectionRange(element.value.length, element.value.length);
+    },
+  });
   const [operating, setOperating] = useState<Activity | null>(null);
   const activity = workflowActivity(selected, ready, pendingCount, session);
   const callback =
@@ -93,10 +114,15 @@ export function Composer({
 
   async function submit() {
     if (!canAct || !callback || inFlight.current) return;
+    const recover =
+      activity === "send" && form.current
+        ? coordinator?.captureComposerRecovery(form.current)
+        : undefined;
     inFlight.current = true;
     setOperating(activity);
     try {
       await callback();
+      recover?.();
     } finally {
       inFlight.current = false;
       setOperating(null);
@@ -112,6 +138,7 @@ export function Composer({
         </button>
       )}
       <form
+        ref={form}
         onSubmit={(event) => {
           event.preventDefault();
           if (activity === "send") void submit();
@@ -121,6 +148,7 @@ export function Composer({
           Message draft
         </label>
         <textarea
+          ref={textarea}
           id="message-draft"
           rows={3}
           placeholder={

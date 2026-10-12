@@ -12,6 +12,7 @@ import { Decision } from "./Decision";
 import type { StepActions, StepRegistry } from "./steps/registry";
 import "./workflow.css";
 import * as feedState from "./FeedState";
+import { FocusRegion } from "../focus/FocusProvider";
 
 function requestId(request: InputRequest) {
   return `decision-${request.execution_id}-${request.request_id}`;
@@ -26,7 +27,8 @@ function InlineDecision({
 }) {
   const [value, setValue] = feedState.useDecisionDraft(request);
   return (
-    <section
+    <FocusRegion
+      mode="protected"
       id={requestId(request)}
       tabIndex={-1}
       aria-label={`Input required: ${request.channel}`}
@@ -38,7 +40,7 @@ function InlineDecision({
         change={setValue}
         reply={(response, key) => actions.reply(request, response, key)}
       />
-    </section>
+    </FocusRegion>
   );
 }
 
@@ -184,7 +186,8 @@ function WorkflowContents({
         if (Component) {
           if (request) inline.add(request.request_id);
           return (
-            <section
+            <FocusRegion
+              mode={request ? "protected" : undefined}
               className="feed-item"
               key={entry.id}
               id={request ? requestId(request) : undefined}
@@ -195,7 +198,7 @@ function WorkflowContents({
                 actions={actions}
                 failuresRecovered={failuresRecovered}
               />
-            </section>
+            </FocusRegion>
           );
         }
         return null;

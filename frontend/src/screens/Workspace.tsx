@@ -16,6 +16,11 @@ import { useConversationScroll } from "../hooks/useConversationScroll";
 import { defaultToolFormatters } from "../components/tools/defaults";
 import type { ToolFormatterFactory } from "../components/tools/factory";
 import { approvalFor, stepView, toolDescription } from "../models/steps";
+import {
+  FocusProvider,
+  useFocusBlocker,
+  useFocusRegion,
+} from "../focus/FocusProvider";
 type Inspector =
   | { kind: "debug" }
   | { kind: "activity"; id: string }
@@ -25,7 +30,17 @@ type Inspector =
   | { kind: "settings" }
   | { kind: "connection" };
 
-export function Workspace({
+export function Workspace(
+  props: React.ComponentProps<typeof WorkspaceContent>,
+) {
+  return (
+    <FocusProvider scope={`${props.endpoint}/${props.selected}`}>
+      <WorkspaceContent {...props} />
+    </FocusProvider>
+  );
+}
+
+function WorkspaceContent({
   sessions,
   selected,
   onSelect,
@@ -76,7 +91,8 @@ export function Workspace({
   const [inspector, setInspector] = React.useState<Inspector | null>(null);
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
   const inspectorRef = React.useRef<HTMLElement>(null);
-  const restoreFocus = React.useRef<HTMLElement | null>(null);
+  const workspaceRef = useFocusRegion<HTMLElement>("workspace");
+  useFocusBlocker(inspector !== null, true);
   const retry = React.useRef({ signature: "", key: "" });
   const current = sessions.find((session) => session.execution_id === selected);
   const scope = `${endpoint}/${selected}`;
@@ -114,10 +130,6 @@ export function Workspace({
         : 420;
 
   const open = React.useCallback((next: Inspector) => {
-    restoreFocus.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
     setInspector(next);
   }, []);
   const inspect = React.useCallback(
@@ -136,7 +148,6 @@ export function Workspace({
   );
   function close() {
     setInspector(null);
-    restoreFocus.current?.focus();
   }
   React.useEffect(() => {
     if (inspector) inspectorRef.current?.focus();
@@ -160,7 +171,7 @@ export function Workspace({
   }
 
   return (
-    <main className="workspace-shell">
+    <main className="workspace-shell" ref={workspaceRef}>
       <SessionSidebar
         collapsed={!leftOpen}
         sessions={sessions}
