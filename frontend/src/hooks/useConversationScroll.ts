@@ -1,31 +1,32 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import * as React from "react";
 
 type Position = { top: number; following: boolean };
 
 export function useConversationScroll(scope: string, revision: unknown) {
-  const viewport = useRef<HTMLDivElement>(null);
-  const content = useRef<HTMLDivElement>(null);
-  const positions = useRef(new Map<string, Position>());
-  const previousRevision = useRef(revision);
-  const synchronize = useRef((_changed: boolean) => {});
-  const resume = useRef(() => {});
-  const [newActivity, setNewActivity] = useState(false);
+  const viewport = React.useRef<HTMLDivElement>(null);
+  const content = React.useRef<HTMLDivElement>(null);
+  const previousRevision = React.useRef(revision);
+  const synchronize = React.useRef((_changed: boolean) => {});
+  const resume = React.useRef(() => {});
+  const pause = React.useRef(() => {});
+  const [newActivity, setNewActivity] = React.useState(false);
+  const pauseFollowing = React.useCallback(() => pause.current(), []);
 
-  useLayoutEffect(() => {
+  React.useLayoutEffect(() => {
     const element = viewport.current;
     const body = content.current;
     if (!element || !body) return;
     const area = element;
-    const position = positions.current.get(scope) ?? {
+    const position: Position = {
       top: 0,
       following: true,
     };
-    positions.current.set(scope, position);
     previousRevision.current = revision;
     setNewActivity(false);
     let top = position.top;
-    let restoreTop = position.following ? undefined : position.top;
+    let restoreTop: number | undefined;
     let active = true;
+    let touchY = 0;
 
     function restoreIfClamped() {
       const maximum = Math.max(0, area.scrollHeight - area.clientHeight);
@@ -44,13 +45,8 @@ export function useConversationScroll(scope: string, revision: unknown) {
       return area.scrollHeight - area.clientHeight - area.scrollTop <= 2;
     }
 
-    function movedAway() {
-      return area.scrollTop < top && !atLatest();
-    }
-
-    function update(changed: boolean, forceFollow = false) {
+    function update(changed: boolean) {
       if (!active) return;
-      if (!forceFollow && movedAway()) position.following = false;
       restoreIfClamped();
       const restoring = restoreTop !== undefined;
       if (restoreTop !== undefined) {
@@ -74,8 +70,56 @@ export function useConversationScroll(scope: string, revision: unknown) {
     resume.current = () => {
       restoreTop = undefined;
       position.following = true;
-      update(false, true);
+      update(false);
     };
+    function pauseFollowing() {
+      if (!active) return;
+      restoreTop = undefined;
+      position.following = false;
+      top = area.scrollTop;
+      position.top = top;
+    }
+    pause.current = pauseFollowing;
+
+    function wheeled(event: WheelEvent) {
+      if (event.deltaY < 0) pauseFollowing();
+    }
+
+    function touched(event: TouchEvent) {
+      touchY = event.touches[0]?.clientY ?? 0;
+    }
+
+    function dragged(event: TouchEvent) {
+      const next = event.touches[0]?.clientY ?? touchY;
+      if (next > touchY) pauseFollowing();
+      touchY = next;
+    }
+
+    function keyed(event: KeyboardEvent) {
+      if (
+        event.defaultPrevented ||
+        (event.target instanceof HTMLElement &&
+          event.target.closest("input, textarea, select, [contenteditable]"))
+      )
+        return;
+      if (
+        event.key === "ArrowUp" ||
+        event.key === "PageUp" ||
+        event.key === "Home" ||
+        (event.key === " " && event.shiftKey)
+      )
+        pauseFollowing();
+    }
+
+    function pointed(event: PointerEvent) {
+      if (
+        event.button === 0 &&
+        event.target === area &&
+        area.offsetWidth > area.clientWidth &&
+        event.clientX >= area.getBoundingClientRect().left + area.clientWidth
+      )
+        pauseFollowing();
+    }
 
     function scrolled() {
       if (!active) return;
@@ -93,8 +137,6 @@ export function useConversationScroll(scope: string, revision: unknown) {
       if (atLatest()) {
         position.following = true;
         setNewActivity(false);
-      } else if (movedAway()) {
-        position.following = false;
       }
       update(false);
     }
@@ -103,16 +145,27 @@ export function useConversationScroll(scope: string, revision: unknown) {
     observer.observe(area);
     observer.observe(body);
     area.addEventListener("scroll", scrolled);
+    area.addEventListener("wheel", wheeled, { passive: true });
+    area.addEventListener("touchstart", touched, { passive: true });
+    area.addEventListener("touchmove", dragged, { passive: true });
+    area.addEventListener("keydown", keyed);
+    area.addEventListener("pointerdown", pointed);
     return () => {
       active = false;
       observer.disconnect();
       area.removeEventListener("scroll", scrolled);
+      area.removeEventListener("wheel", wheeled);
+      area.removeEventListener("touchstart", touched);
+      area.removeEventListener("touchmove", dragged);
+      area.removeEventListener("keydown", keyed);
+      area.removeEventListener("pointerdown", pointed);
       synchronize.current = () => {};
       resume.current = () => {};
+      pause.current = () => {};
     };
   }, [scope]);
 
-  useLayoutEffect(() => {
+  React.useLayoutEffect(() => {
     if (previousRevision.current === revision) return;
     previousRevision.current = revision;
     synchronize.current(true);
@@ -123,5 +176,6 @@ export function useConversationScroll(scope: string, revision: unknown) {
     content,
     newActivity,
     jumpToLatest: () => resume.current(),
+    pauseFollowing,
   };
 }

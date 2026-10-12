@@ -292,11 +292,13 @@ vitest.test(
       payload: { question: "Which command?" },
     };
     const callbacks = actions();
+    const onReview = vitest.vi.fn();
     const view = testing.render(
       <StepFeed
         history={history}
         registry={defaultStepRegistry}
         actions={callbacks}
+        onReview={onReview}
         active
       />,
     );
@@ -305,6 +307,7 @@ vitest.test(
         history={history}
         registry={defaultStepRegistry}
         actions={{ ...callbacks, pending: [request] }}
+        onReview={onReview}
         active
       />,
     );
@@ -317,6 +320,7 @@ vitest.test(
     vitest.expect(view.queryByRole("textbox")).toBeNull();
     const scroll = vitest.vi.mocked(Element.prototype.scrollIntoView);
     testing.fireEvent.click(view.getByRole("button", { name: "Review" }));
+    vitest.expect(onReview).toHaveBeenCalledTimes(1);
     vitest
       .expect(view.getByRole("textbox"))
       .toHaveProperty("value", "Saved response");

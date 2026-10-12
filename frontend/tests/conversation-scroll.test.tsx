@@ -66,6 +66,12 @@ function resize() {
   });
 }
 
+function scrollUp(area: HTMLElement, top: number, notify = true) {
+  fireEvent.wheel(area, { deltaY: -100 });
+  area.scrollTop = top;
+  if (notify) fireEvent.scroll(area);
+}
+
 function message(position: number): HistoryItem {
   return {
     position,
@@ -147,8 +153,7 @@ vitest.test(
     const props = workspaceProps();
     const view = render(<Workspace {...props} />);
     const area = view.getByRole("region", { name: "Conversation history" });
-    area.scrollTop = 200;
-    fireEvent.scroll(area);
+    scrollUp(area, 200);
     view.rerender(<Workspace {...props} busy />);
     visible = 300;
     resize();
@@ -178,8 +183,7 @@ vitest.test("user scroll intent wins even while new content is growing", () => {
   const view = render(<Workspace {...props} />);
   const area = view.getByRole("region", { name: "Conversation history" });
   height = 1500;
-  area.scrollTop = 300;
-  fireEvent.scroll(area);
+  scrollUp(area, 300);
   resize();
   view.rerender(<Workspace {...props} history={[message(1), message(2)]} />);
   vitest.expect(area.scrollTop).toBe(300);
@@ -194,7 +198,7 @@ vitest.test(
     const props = workspaceProps();
     const view = render(<Workspace {...props} />);
     const area = view.getByRole("region", { name: "Conversation history" });
-    area.scrollTop = 250;
+    scrollUp(area, 250, false);
     height = 1500;
     resize();
     fireEvent.scroll(area);
@@ -212,7 +216,7 @@ vitest.test(
     const props = workspaceProps();
     const view = render(<Workspace {...props} />);
     const area = view.getByRole("region", { name: "Conversation history" });
-    area.scrollTop = 250;
+    scrollUp(area, 250, false);
     height = 1500;
     view.rerender(<Workspace {...props} history={[message(1), message(2)]} />);
     vitest.expect(area.scrollTop).toBe(250);
@@ -229,8 +233,7 @@ vitest.test(
     const props = workspaceProps();
     const view = render(<Workspace {...props} />);
     const area = view.getByRole("region", { name: "Conversation history" });
-    area.scrollTop = 200;
-    fireEvent.scroll(area);
+    scrollUp(area, 200);
     height = 1300;
     view.rerender(<Workspace {...props} history={[message(1), message(2)]} />);
     area.scrollTop = height - visible;
@@ -245,38 +248,80 @@ vitest.test(
 );
 
 vitest.test(
-  "session switching restores reading position and following state independently",
+  "switching workflows always starts at the bottom and clears new activity",
   () => {
     const props = workspaceProps();
     const view = render(<Workspace {...props} />);
     const area = view.getByRole("region", { name: "Conversation history" });
-    area.scrollTop = 200;
-    fireEvent.scroll(area);
+    scrollUp(area, 200);
+    height = 1200;
+    view.rerender(<Workspace {...props} history={[message(1), message(2)]} />);
+    vitest
+      .expect(view.getByRole("button", { name: /Jump to latest/ }))
+      .toBeTruthy();
     height = 1400;
     view.rerender(<Workspace {...props} selected="session-b" />);
     vitest.expect(area.scrollTop).toBe(1000);
+    vitest
+      .expect(view.queryByRole("button", { name: /Jump to latest/ }))
+      .toBeNull();
+    scrollUp(area, 300);
     height = 1000;
     view.rerender(<Workspace {...props} />);
-    vitest.expect(area.scrollTop).toBe(200);
+    vitest.expect(area.scrollTop).toBe(600);
     vitest
       .expect(view.queryByRole("button", { name: /Jump to latest/ }))
       .toBeNull();
     height = 1800;
     view.rerender(<Workspace {...props} selected="session-b" />);
     vitest.expect(area.scrollTop).toBe(1400);
+    height = 2000;
+    resize();
+    vitest.expect(area.scrollTop).toBe(1600);
   },
 );
 
 vitest.test(
-  "a saved reading position survives the empty history while a session reloads",
+  "workflow switching follows the bottom through empty history and delayed loading",
   () => {
     const props = workspaceProps();
     const view = render(<Workspace {...props} />);
     const area = view.getByRole("region", { name: "Conversation history" });
-    area.scrollTop = 200;
-    fireEvent.scroll(area);
-    view.rerender(<Workspace {...props} selected="session-b" />);
-    view.rerender(<Workspace {...props} history={[message(2)]} />);
+    scrollUp(area, 200);
+    height = 400;
+    view.rerender(<Workspace {...props} selected="session-b" history={[]} />);
+    resize();
+    vitest.expect(area.scrollTop).toBe(0);
+    height = 1000;
+    view.rerender(
+      <Workspace {...props} selected="session-b" history={[message(2)]} />,
+    );
+    resize();
+    vitest.expect(area.scrollTop).toBe(600);
+    scrollUp(area, 200);
+    height = 400;
+    view.rerender(<Workspace {...props} history={[]} />);
+    vitest.expect(area.scrollTop).toBe(0);
+    height = 1200;
+    view.rerender(<Workspace {...props} />);
+    resize();
+    vitest.expect(area.scrollTop).toBe(800);
+    height = 1600;
+    resize();
+    vitest.expect(area.scrollTop).toBe(1200);
+    vitest
+      .expect(view.queryByRole("button", { name: /Jump to latest/ }))
+      .toBeNull();
+  },
+);
+
+vitest.test(
+  "the current workflow preserves reading position during temporary content shrinkage",
+  () => {
+    const props = workspaceProps();
+    const view = render(<Workspace {...props} />);
+    const area = view.getByRole("region", { name: "Conversation history" });
+    scrollUp(area, 200);
     height = 400;
     view.rerender(<Workspace {...props} history={[]} />);
     resize();
@@ -290,6 +335,95 @@ vitest.test(
       .toBeNull();
   },
 );
+
+vitest.test(
+  "layout clamping between callbacks does not stop following a switched workflow",
+  () => {
+    const props = workspaceProps();
+    const view = render(<Workspace {...props} />);
+    const area = view.getByRole("region", { name: "Conversation history" });
+    scrollUp(area, 200);
+    height = 2000;
+    view.rerender(<Workspace {...props} selected="session-b" />);
+    vitest.expect(area.scrollTop).toBe(1600);
+    height = 400;
+    area.scrollTop = area.scrollTop;
+    height = 3000;
+    fireEvent.scroll(area);
+    resize();
+    vitest.expect(area.scrollTop).toBe(2600);
+    vitest
+      .expect(view.queryByRole("button", { name: /Jump to latest/ }))
+      .toBeNull();
+    scrollUp(area, 500);
+    view.rerender(<Workspace {...props} />);
+    height = 400;
+    area.scrollTop = area.scrollTop;
+    height = 2400;
+    resize();
+    fireEvent.scroll(area);
+    vitest.expect(area.scrollTop).toBe(2000);
+  },
+);
+
+vitest.test(
+  "a history render follows layout movement before the queued scroll event",
+  () => {
+    const props = workspaceProps();
+    const view = render(<Workspace {...props} />);
+    const area = view.getByRole("region", { name: "Conversation history" });
+    height = 400;
+    area.scrollTop = area.scrollTop;
+    height = 1800;
+    view.rerender(<Workspace {...props} history={[message(1), message(2)]} />);
+    fireEvent.scroll(area);
+    vitest.expect(area.scrollTop).toBe(1400);
+    vitest
+      .expect(view.queryByRole("button", { name: /Jump to latest/ }))
+      .toBeNull();
+  },
+);
+
+vitest.test.each(["ArrowUp", "PageUp", "Home", " "])(
+  "%s keyboard scrolling pauses following",
+  (key) => {
+    const view = render(<Workspace {...workspaceProps()} />);
+    const area = view.getByRole("region", { name: "Conversation history" });
+    fireEvent.keyDown(area, { key, shiftKey: key === " " });
+    area.scrollTop = 200;
+    height = 1800;
+    resize();
+    fireEvent.scroll(area);
+    vitest.expect(area.scrollTop).toBe(200);
+  },
+);
+
+vitest.test("touch scrolling pauses following before resize delivery", () => {
+  const view = render(<Workspace {...workspaceProps()} />);
+  const area = view.getByRole("region", { name: "Conversation history" });
+  fireEvent.touchStart(area, { touches: [{ clientY: 100 }] });
+  fireEvent.touchMove(area, { touches: [{ clientY: 200 }] });
+  area.scrollTop = 200;
+  height = 1800;
+  resize();
+  fireEvent.scroll(area);
+  vitest.expect(area.scrollTop).toBe(200);
+});
+
+vitest.test("dragging the scrollbar pauses following", () => {
+  vitest.vi.stubGlobal("PointerEvent", MouseEvent);
+  vitest.vi
+    .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+    .mockReturnValue(420);
+  const view = render(<Workspace {...workspaceProps()} />);
+  const area = view.getByRole("region", { name: "Conversation history" });
+  fireEvent.pointerDown(area, { button: 0, clientX: 410 });
+  area.scrollTop = 200;
+  height = 1800;
+  resize();
+  fireEvent.scroll(area);
+  vitest.expect(area.scrollTop).toBe(200);
+});
 
 vitest.test(
   "pending decisions update the feed without falsely stopping follow mode",
@@ -331,8 +465,7 @@ vitest.test(
     const previous = ObservedResize.instances[0];
     view.rerender(<Workspace {...props} selected="session-b" />);
     vitest.expect(previous.targets.size).toBe(0);
-    area.scrollTop = 200;
-    fireEvent.scroll(area);
+    scrollUp(area, 200);
     height = 1500;
     act(() => previous.notify());
     vitest.expect(area.scrollTop).toBe(200);

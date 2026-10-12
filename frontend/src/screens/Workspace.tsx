@@ -279,6 +279,7 @@ function WorkspaceContent({
                 registry={stepRegistry}
                 actions={actions}
                 projection={projection}
+                onReview={feed.pauseFollowing}
               />
             </div>
           )}

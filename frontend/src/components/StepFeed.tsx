@@ -223,6 +223,7 @@ type FeedProps = {
   active: boolean;
   grouping?: ToolGrouping;
   projection?: workflows.WorkflowProjection;
+  onReview?: () => void;
 };
 
 export const StepFeed = React.memo(function StepFeed(props: FeedProps) {
@@ -240,6 +241,7 @@ function FeedContents({
   active,
   grouping = defaultToolGrouping,
   projection,
+  onReview,
 }: FeedProps) {
   const roots = React.useMemo(
     () => projection?.roots ?? workflows.workflowTree(history, actions.pending),
@@ -277,6 +279,7 @@ function FeedContents({
     setReviewing(null);
   }, [reviewing]);
   function review(request: InputRequest, node: WorkflowNode) {
+    onReview?.();
     let ancestor: WorkflowNode | undefined = node;
     while (ancestor) {
       expand?.(ancestor.id, true);
