@@ -1,12 +1,13 @@
 .workflow-branch {
-  border: 1px solid var(--border, #8886);
-  border-radius: 8px;
-  padding: 12px;
-  margin: 12px 0;
+  border-left: 2px solid var(--color-neutral-200);
+  padding-left: 12px;
+  margin: 8px 0;
 }
 .workflow-branch > summary {
   cursor: pointer;
-  padding: 4px;
+  padding: 4px 0;
+  font-size: 0.85rem;
+  color: var(--color-neutral-500);
 }
 .workflow-status {
   display: inline-flex;

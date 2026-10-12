@@ -162,7 +162,7 @@ test("process context refreshes when exec history becomes available", () => {
   assert.equal(stepView(poll, history), after);
 });
 
-test("mixed group previews identify each tool and show the related command", () => {
+test("collapsed groups show one command preview and the call count", () => {
   const exec = tool(
     "exec",
     1,
@@ -189,8 +189,9 @@ test("mixed group previews identify each tool and show the related command", () 
     />,
   );
   assert.match(html, /Run Command/);
-  assert.match(html, /Poll Process/);
-  assert.equal((html.match(/title="echo hello"/g) ?? []).length, 2);
+  assert.match(html, /2 calls/);
+  assert.equal((html.match(/title="echo hello"/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /completed|tool-group-preview/);
   assert.doesNotMatch(html, /process-a/);
 });
 

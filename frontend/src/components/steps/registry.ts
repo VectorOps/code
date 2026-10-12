@@ -15,7 +15,11 @@ export type StepActions = {
     key: string,
   ) => Promise<boolean>;
 };
-export type StepProps = { step: StepView; actions: StepActions };
+export type StepProps = {
+  step: StepView;
+  actions: StepActions;
+  failuresRecovered?: boolean;
+};
 export type StepRenderer = {
   id: string;
   matches: (step: StepView) => boolean;

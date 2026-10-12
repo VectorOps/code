@@ -2,37 +2,69 @@
 
 @layer components {
   .user-step {
-    @apply my-1 rounded-xl border-0 bg-neutral-100 px-5 py-2;
+    @apply my-1 flow-root rounded-xl border-0 bg-neutral-100 px-5 py-2;
   }
   .assistant-step {
-    @apply my-3 py-3;
+    @apply my-4 flow-root py-2 text-[0.9375rem] leading-6 text-neutral-900;
+  }
+  .assistant-controls {
+    @apply float-right ml-3 flex items-center gap-2 text-xs text-neutral-500;
+  }
+  .step-details-button {
+    @apply flex items-center justify-center rounded border-0 bg-transparent p-1 text-neutral-400;
+  }
+  .step-details-button:hover:not(:disabled),
+  .step-details-button:focus-visible {
+    @apply bg-neutral-100 text-neutral-700;
   }
   .tool-step {
-    @apply my-1 rounded-lg border border-neutral-200 px-4 py-1;
+    @apply my-1 border-l-2 border-neutral-200 pl-3 py-1 text-sm text-neutral-500;
   }
   .tool-group {
-    @apply my-1 rounded-lg border border-neutral-200 px-4 py-1;
+    @apply my-1 border-l-2 border-neutral-200 pl-3 py-1 text-sm text-neutral-500;
   }
-  .tool-group > summary .entry-state {
-    @apply ml-3;
+  .tool-activity-row,
+  .tool-group-heading {
+    @apply flex min-w-0 items-center gap-2;
   }
-  .tool-group-preview,
+  .tool-group > details > summary {
+    @apply cursor-pointer;
+  }
+  .tool-group > details {
+    @apply p-0;
+  }
+  .tool-group-heading {
+    @apply inline-flex align-middle;
+    width: calc(100% - 1.25rem);
+  }
+  .tool-activity-label {
+    @apply shrink-0 font-normal;
+  }
+  .tool-activity-row > .entry-state {
+    @apply ml-auto;
+  }
+  .tool-group-running {
+    @apply inline-flex shrink-0 items-center gap-2 text-xs;
+  }
+  .tool-failure-marker,
+  .tool-step .entry-state > [aria-label="Failed"] {
+    @apply shrink-0 text-xs;
+    color: light-dark(#a16207, #fbbf24);
+  }
   .tool-group-calls {
     @apply my-1;
   }
-  .tool-group-preview-call,
   .tool-group-call {
     @apply min-w-0 py-1;
   }
-  .tool-group-preview-call + .tool-group-preview-call,
-  .tool-group-call + .tool-group-call {
-    @apply border-t border-neutral-200;
-  }
-  .tool-group-overflow {
-    @apply text-xs text-neutral-500;
-  }
   .tool-group-call > .tool-step {
-    @apply m-0 rounded-none border-0 px-0;
+    @apply m-0 border-0 pl-0;
+  }
+  .tool-approval {
+    @apply my-3 rounded-lg border border-neutral-300 bg-neutral-100 p-4 text-neutral-900;
+  }
+  .tool-approval .tool-activity-label {
+    @apply font-semibold;
   }
   .approval-actions {
     @apply mt-3 border-t border-neutral-200 pt-2;
@@ -44,14 +76,23 @@
     @apply mt-2 text-neutral-500;
   }
   .markdown-content {
-    @apply mt-1 text-sm leading-5;
+    @apply text-[0.9375rem] leading-6;
     overflow-wrap: anywhere;
   }
   .markdown-content :where(p, pre, blockquote) {
-    @apply my-1;
+    @apply my-2;
   }
   .markdown-content :where(h1, h2, h3, h4, h5, h6) {
-    @apply mb-1 mt-2;
+    @apply mb-2 mt-4 font-semibold;
+  }
+  .markdown-content h1 {
+    @apply text-2xl;
+  }
+  .markdown-content h2 {
+    @apply text-xl;
+  }
+  .markdown-content h3 {
+    @apply text-lg;
   }
   .markdown-content > :first-child {
     @apply mt-0;
@@ -60,7 +101,7 @@
     @apply mb-0;
   }
   .markdown-content p {
-    @apply text-neutral-900;
+    @apply text-[0.9375rem] leading-6 text-neutral-900;
   }
   .markdown-content ul {
     @apply my-1 list-disc pl-6;

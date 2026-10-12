@@ -14,18 +14,25 @@ export function ToolStep({ step, actions }: StepProps) {
   const Summary = formatter.summary;
   return (
     <section
-      className="feed-entry tool-step"
-      onClick={() => actions.inspect(step.id)}
+      className={`feed-entry tool-step${approval ? " tool-approval" : ""}`}
+      aria-busy={
+        !approval && (tool.state === "pending" || tool.state === "streaming")
+      }
     >
-      <button className="activity-heading">
-        <span>{factory.name(tool.name)}</span>
+      <div className="tool-activity-row">
+        <span className="tool-activity-label">
+          {approval
+            ? `Approve ${factory.name(tool.name)}`
+            : factory.activity(tool)}
+        </span>
+        <Summary tool={tool} />
         <StepIndicators
           state={
             approval ? "Needs approval" : tool.failed ? "Failed" : tool.state
           }
+          inspect={() => actions.inspect(step.id)}
         />
-      </button>
-      <Summary tool={tool} />
+      </div>
       {approval && (
         <ApprovalActions
           key={approval.request_id}

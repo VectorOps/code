@@ -110,3 +110,7 @@ export function workflowPath(node: WorkflowNode): string {
   const label = node.label;
   return node.parent ? `${workflowPath(node.parent)} / ${label}` : label;
 }
+
+export function workflowFailuresRecovered(node: WorkflowNode): boolean {
+  return node.status === "Completed" && workflowRequests(node).length === 0;
+}

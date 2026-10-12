@@ -22,6 +22,7 @@ const generic: ToolFormatter = {
 };
 const process: ToolFormatter = {
   summary: views.ProcessSummary,
+  activity: { completed: "Ran", running: "Running" },
   details: views.ProcessDetails,
   width: 760,
 };
@@ -38,23 +39,36 @@ export const defaultToolFormatters = new ToolFormatterFactory(
   {
     read_file: {
       summary: views.FileSummary,
+      activity: { completed: "Read", running: "Reading" },
       details: views.FileDetails,
       width: 760,
     },
     list_files: {
       summary: views.FileSummary,
+      activity: { completed: "Listed", running: "Listing" },
       details: views.FilesDetails,
       width: 600,
     },
     apply_patch: {
       summary: views.PatchSummary,
+      activity: { completed: "Requested patch", running: "Patching" },
       details: views.PatchDetails,
       width: 1120,
     },
     exec: process,
-    poll_process: process,
-    kill_process: process,
-    write_stdin: { ...process, details: views.GenericDetails },
+    poll_process: {
+      ...process,
+      activity: { completed: "Checked", running: "Checking" },
+    },
+    kill_process: {
+      ...process,
+      activity: { completed: "Stopped", running: "Stopping" },
+    },
+    write_stdin: {
+      ...process,
+      activity: { completed: "Sent input to", running: "Sending input to" },
+      details: views.GenericDetails,
+    },
     list_processes: { ...generic, details: views.ProcessesDetails },
     web_fetch: {
       summary: views.WebSummary,
@@ -63,6 +77,7 @@ export const defaultToolFormatters = new ToolFormatterFactory(
     },
     update_plan: {
       summary: views.PlanSummary,
+      activity: { completed: "Updated plan", running: "Updating plan" },
       details: views.PlanDetails,
       width: 520,
     },

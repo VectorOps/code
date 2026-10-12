@@ -17,12 +17,10 @@ const actions: StepActions = {
 
 test("status and details use icons with accessible labels and hover titles", () => {
   for (const state of [
-    "completed",
     "failed",
     "streaming",
     "pending",
     "Needs approval",
-    "Authorized",
     "cancelled",
     "unknown",
   ]) {
@@ -35,17 +33,23 @@ test("status and details use icons with accessible labels and hover titles", () 
     assert.match(html, /aria-label="View details" title="View details"/);
     assert.equal((html.match(/<svg/g) ?? []).length, 2);
     assert.doesNotMatch(html, />[^<]*(completed|Details)[^<]*</);
-    assert.equal(html.includes("animate-spin"), state === "streaming");
+    assert.equal(
+      html.includes("animate-spin"),
+      ["streaming", "pending"].includes(state),
+    );
   }
 });
 
 test("details-only indicators omit the status icon", () => {
-  const html = renderToStaticMarkup(<StepIndicators />);
-  assert.equal((html.match(/<svg/g) ?? []).length, 1);
-  assert.match(html, /aria-label="View details"/);
+  for (const state of [undefined, "completed", "Authorized"]) {
+    const html = renderToStaticMarkup(<StepIndicators state={state} />);
+    assert.equal((html.match(/<svg/g) ?? []).length, 1);
+    assert.match(html, /aria-label="View details"/);
+    assert.doesNotMatch(html, /aria-label="Completed|aria-label="Authorized/);
+  }
 });
 
-test("chat headings retain message labels without visible status or details text", () => {
+test("chat entries omit generic headings and completed status but retain details buttons", () => {
   const step = stepView({
     position: 1,
     step: {
@@ -62,8 +66,15 @@ test("chat headings retain message labels without visible status or details text
     const html = renderToStaticMarkup(
       <Component step={step} actions={actions} />,
     );
-    assert.match(html, /Assistant|Run Command|You/);
+    assert.doesNotMatch(
+      html,
+      /activity-heading|>Assistant<|>Run Command<|>You<|aria-label="Completed"/,
+    );
+    assert.match(html, /<button[^>]*aria-label="View details"/);
     assert.match(html, /aria-label="View details"/);
     assert.doesNotMatch(html, />completed|\/ Details|>Details</);
   }
+  const tool = renderToStaticMarkup(<ToolStep step={step} actions={actions} />);
+  assert.match(tool, />Ran<\/span>/);
+  assert.match(tool, /<code>echo hello<\/code>/);
 });

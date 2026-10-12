@@ -9,13 +9,13 @@ export function AssistantStep({ step, actions }: StepProps) {
   const streaming = step.state === "streaming" || step.state === "pending";
   return (
     <section className="feed-entry assistant-step" aria-busy={streaming}>
-      <button
-        className="activity-heading"
-        onClick={() => actions.inspect(step.id)}
-      >
-        <span>Assistant</span>
-        <StepIndicators state={step.state} />
-      </button>
+      <div className="assistant-controls">
+        {streaming && <span>{step.message ? "Writing" : "Thinking"}</span>}
+        <StepIndicators
+          state={step.state}
+          inspect={() => actions.inspect(step.id)}
+        />
+      </div>
       <div className="markdown-content">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
@@ -42,7 +42,8 @@ export function AssistantStep({ step, actions }: StepProps) {
       </div>
       {step.state === "failed" && (
         <p className="failure-text">
-          {text(object(step.outcome.error).message)}
+          {text(object(step.outcome.error).message) ||
+            "The agent could not finish its response."}
         </p>
       )}
     </section>

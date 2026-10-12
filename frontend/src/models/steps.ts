@@ -172,3 +172,22 @@ export function toolDescription(step: StepView, approval?: InputRequest) {
     error: text(object(step.outcome.error).message),
   };
 }
+
+export function toolFailureMessage(
+  tool: ReturnType<typeof toolDescription>,
+): string {
+  const result = toolPayload(tool.output);
+  const data = object(result);
+  return (
+    tool.error ||
+    text(data.error) ||
+    text(object(data.error).message) ||
+    (data.timed_out === true
+      ? "The process exceeded its execution timeout."
+      : typeof data.returncode === "number" && data.returncode !== 0
+        ? `Process exited with code ${data.returncode}.`
+        : typeof result === "string"
+          ? result
+          : "The tool reported an unsuccessful result. Review the details for more information.")
+  );
+}

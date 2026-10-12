@@ -80,13 +80,7 @@
     @apply w-full max-w-none pb-1;
   }
   .feed-entry {
-    @apply border-b border-neutral-100 py-1;
-  }
-  .activity-heading {
-    @apply flex w-full items-start justify-between gap-4 border-0 bg-transparent p-0 text-left text-sm font-medium text-neutral-800;
-  }
-  .activity-heading:hover:not(:disabled) {
-    @apply bg-transparent underline;
+    @apply py-1;
   }
   .entry-state {
     @apply shrink-0 text-xs font-normal text-neutral-500;

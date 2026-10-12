@@ -1,5 +1,5 @@
 import { object, text, type Json } from "../../models/json";
-import { toolPayload } from "../../models/steps";
+import { toolFailureMessage, toolPayload } from "../../models/steps";
 import type { ToolProps, ToolView } from "./factory";
 import type { ReactNode } from "react";
 import { HighlightedCode } from "../HighlightedCode";
@@ -10,10 +10,12 @@ function Summary({ items, fallback }: { items: string[]; fallback: string }) {
   const shortened =
     compact.length > 120 ? `${compact.slice(0, 117)}...` : compact;
   return (
-    <p className="tool-summary" title={items.join(" / ") || fallback}>
-      {shortened}
-      {items.length > 1 ? " ..." : ""}
-    </p>
+    <span className="tool-summary" title={items.join(" / ") || fallback}>
+      <code>
+        {shortened}
+        {items.length > 1 ? " ..." : ""}
+      </code>
+    </span>
   );
 }
 
@@ -408,21 +410,14 @@ export function PatchSummary({ tool }: ToolProps) {
         line,
       ),
     );
-  const preview = patch
-    .split("\n")
-    .filter((line) => /^[+-]/.test(line) && !/^(\+\+\+ |--- )/.test(line))
-    .slice(0, 3);
   return (
-    <>
-      <Summary
-        items={files.map(
-          (line) =>
-            `${object(tool.arguments).reverse === true ? "Reverse patch / " : ""}${line.replace(/^(\*\*\* |\+\+\+ |--- )/, "")}`,
-        )}
-        fallback="Repository changes"
-      />
-      {preview.length > 0 && <Diff lines={preview} />}
-    </>
+    <Summary
+      items={files.map(
+        (line) =>
+          `${object(tool.arguments).reverse === true ? "Reverse patch / " : ""}${line.replace(/^(\*\*\* |\+\+\+ |--- )/, "")}`,
+      )}
+      fallback="Repository changes"
+    />
   );
 }
 
@@ -462,18 +457,7 @@ export function WorkflowSummary({ tool }: ToolProps) {
 }
 
 export function ToolError({ tool }: ToolProps) {
-  const result = payload(tool),
-    data = object(result);
-  const message =
-    tool.error ||
-    text(data.error) ||
-    (data.timed_out === true
-      ? "The process exceeded its execution timeout."
-      : typeof data.returncode === "number" && data.returncode !== 0
-        ? `Process exited with code ${data.returncode}.`
-        : typeof result === "string"
-          ? result
-          : "The tool reported an unsuccessful result. Review the details below.");
+  const message = toolFailureMessage(tool);
   return (
     <section className="tool-error" aria-label="Tool error">
       <h3>Tool could not complete successfully</h3>

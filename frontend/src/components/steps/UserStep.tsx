@@ -4,13 +4,9 @@ import { StepIndicators } from "./StepIndicators";
 export function UserStep({ step, actions }: StepProps) {
   return (
     <section className="feed-entry user-step">
-      <button
-        className="activity-heading"
-        onClick={() => actions.inspect(step.id)}
-      >
-        <span>You</span>
-        <StepIndicators />
-      </button>
+      <div className="assistant-controls">
+        <StepIndicators inspect={() => actions.inspect(step.id)} />
+      </div>
       <div className="message-text">
         {step.message || "Message with attachments"}
       </div>

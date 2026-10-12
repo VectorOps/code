@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { HistoryItem, InputRequest } from "../models/runner";
-import {
-  workflowTree,
-  workflowRequests,
-  workflowPath,
-} from "../models/workflow-tree";
+import * as workflows from "../models/workflow-tree";
 import type { WorkflowNode } from "../models/workflow-tree";
 import {
   groupTools,
@@ -60,7 +56,7 @@ function WorkflowBranch({
 }) {
   const details = useRef<HTMLDetailsElement>(null);
   const [visited, setVisited] = useState(false);
-  const requests = workflowRequests(node);
+  const requests = workflows.workflowRequests(node);
   const signature = requests.map((request) => request.request_id).join("/");
   useEffect(() => {
     if (signature && details.current) details.current.open = true;
@@ -84,7 +80,7 @@ function WorkflowBranch({
               <span className="workflow-spinner" aria-hidden="true" />
               Running
             </>
-          ) : (
+          ) : node.status === "Completed" ? null : (
             node.status
           )}
         </span>
@@ -133,6 +129,7 @@ function WorkflowContents({
               group={entry}
               registry={registry}
               actions={actions}
+              failuresRecovered={workflows.workflowFailuresRecovered(node)}
             />
           );
         if ("entries" in entry)
@@ -174,7 +171,11 @@ function WorkflowContents({
               id={request ? requestId(request) : undefined}
               tabIndex={request ? -1 : undefined}
             >
-              <Component step={entry} actions={actions} />
+              <Component
+                step={entry}
+                actions={actions}
+                failuresRecovered={workflows.workflowFailuresRecovered(node)}
+              />
             </section>
           );
         }
@@ -207,7 +208,7 @@ export function StepFeed({
   grouping?: ToolGrouping;
 }) {
   const roots = useMemo(
-    () => workflowTree(history, actions.pending),
+    () => workflows.workflowTree(history, actions.pending),
     [history, actions.pending],
   );
   const requests: { request: InputRequest; path: string }[] = [];
@@ -215,7 +216,7 @@ export function StepFeed({
     requests.push(
       ...node.requests.map((request) => ({
         request,
-        path: workflowPath(node),
+        path: workflows.workflowPath(node),
       })),
     );
     node.entries.forEach((entry) => {
