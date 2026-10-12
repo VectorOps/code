@@ -80,7 +80,8 @@ function Authentication({
   const [name, setName] = useState("");
   const [credentials, setCredentials] = useState<auth.Credential[]>([]);
   const [logins, setLogins] = useState<auth.Login[]>([]);
-  const [provider, setProvider] = useState("openai");
+  const [providers, setProviders] = useState<auth.Provider[]>([]);
+  const [provider, setProvider] = useState("");
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -104,15 +105,26 @@ function Authentication({
     const selected = listing.profiles.includes(profile)
       ? profile
       : listing.active_profile;
-    const [entries, pending] = await Promise.all([
+    const [entries, pending, available] = await Promise.all([
       api.credentials(selected),
       api.logins(),
+      api.providers(),
     ]);
     if (!alive.current || current !== generation.current) return;
     setProfiles(listing);
     setProfile(selected);
     setCredentials(entries);
     setLogins(pending.requests);
+    setProviders(available.providers);
+    setProvider((current) =>
+      available.providers.some(
+        (item) =>
+          item.provider === current &&
+          item.credential_kinds.includes("api_key"),
+      )
+        ? current
+        : "",
+    );
   }
 
   useEffect(() => {
@@ -186,6 +198,10 @@ function Authentication({
   }
 
   const pending = logins.filter((login) => login.profile === profile);
+  const keyProviders = providers.filter((item) =>
+    item.credential_kinds.includes("api_key"),
+  );
+  const oauthProviders = providers.filter((item) => item.oauth_login);
   return (
     <>
       <p>
@@ -317,6 +333,9 @@ function Authentication({
                 Check status
               </button>
               <button
+                disabled={
+                  !keyProviders.some((item) => item.provider === entry.provider)
+                }
                 onClick={() => {
                   setProvider(entry.provider);
                   setSecret("");
@@ -345,6 +364,8 @@ function Authentication({
         <form
           onSubmit={(event) => {
             event.preventDefault();
+            if (!keyProviders.some((item) => item.provider === provider))
+              return;
             if (
               credentials.some((entry) => entry.provider === provider) &&
               !window.confirm(
@@ -363,14 +384,26 @@ function Authentication({
           <h4>Import or replace API key</h4>
           <label>
             Provider
-            <input
+            <select
               required
-              pattern="[a-z][a-z0-9_-]{0,63}"
-              maxLength={64}
               value={provider}
-              onChange={(event) => setProvider(event.target.value)}
-            />
+              disabled={!keyProviders.length}
+              onChange={(event) => {
+                setProvider(event.target.value);
+                setSecret("");
+              }}
+            >
+              <option value="" disabled>
+                Select a provider
+              </option>
+              {keyProviders.map((item) => (
+                <option key={item.provider} value={item.provider}>
+                  {item.display_name}
+                </option>
+              ))}
+            </select>
           </label>
+          {!keyProviders.length && <p>No API-key providers available.</p>}
           <label>
             API key
             <input
@@ -382,7 +415,7 @@ function Authentication({
               onChange={(event) => setSecret(event.target.value)}
             />
           </label>
-          <button>Save API key</button>
+          <button disabled={!provider}>Save API key</button>
         </form>
       </fieldset>
       <fieldset disabled={busy || !profile}>
@@ -393,20 +426,24 @@ function Authentication({
           </p>
         )}
         <p>
-          ChatGPT browser authorization stores tokens in the runner. Existing
-          OAuth credentials can refresh automatically when used.
+          Browser authorization stores tokens in the runner. Existing OAuth
+          credentials can refresh automatically when used.
         </p>
-        <button
-          disabled={Boolean(oauth)}
-          onClick={() =>
-            void action(async () => {
-              const login = await api.login("chatgpt", profile);
-              void authorize(login);
-            }, "")
-          }
-        >
-          Sign in with ChatGPT
-        </button>
+        {oauthProviders.map((item) => (
+          <button
+            key={item.provider}
+            disabled={Boolean(oauth)}
+            onClick={() =>
+              void action(async () => {
+                const login = await api.login(item.provider, profile);
+                void authorize(login);
+              }, "")
+            }
+          >
+            Sign in with {item.display_name}
+          </button>
+        ))}
+        {!oauthProviders.length && <p>No browser-login providers available.</p>}
         {!pending.length && <p>No pending logins.</p>}
         {pending.map((login) => (
           <article key={login.id}>

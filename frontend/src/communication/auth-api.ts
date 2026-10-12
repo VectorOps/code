@@ -5,6 +5,18 @@ export interface Profiles {
   profiles: string[];
 }
 
+export interface Provider {
+  provider: string;
+  display_name: string;
+  credential_kinds: ("api_key" | "oauth2")[];
+  oauth_login: boolean;
+}
+
+export interface Providers {
+  providers: Provider[];
+  custom_api_key_providers: boolean;
+}
+
 export interface Credential {
   provider: string;
   profile: string;
@@ -29,6 +41,10 @@ export interface Login {
 
 export class AuthApi {
   constructor(private connection: RunnerConnection) {}
+
+  providers() {
+    return this.connection.request<Providers>("auth.providers");
+  }
 
   profiles() {
     return this.connection.request<Profiles>("auth.profile.list");
