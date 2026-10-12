@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
+import { fireEvent, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Json } from "../src/models/json";
 import type { HistoryItem } from "../src/models/runner";
@@ -60,7 +61,13 @@ test("poll summaries and details show the matching exec command", () => {
   const details = renderToStaticMarkup(<ProcessDetails tool={description} />);
   assert.match(details, /npm run build/);
   assert.match(details, /process-a/);
-  assert.match(details, /No new output/);
+  assert.doesNotMatch(details, /No new output/);
+  const view = render(<ProcessDetails tool={description} />);
+  const disclosure = view.getByText("Result / output").closest("details");
+  assert.ok(disclosure);
+  disclosure.open = true;
+  fireEvent(disclosure, new Event("toggle"));
+  assert.ok(view.getByText("No new output."));
 });
 
 test("process commands resolve from presentation and generated tool calls", () => {

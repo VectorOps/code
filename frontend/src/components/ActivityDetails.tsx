@@ -4,8 +4,10 @@ import { approvalFor, stepView, toolDescription } from "../models/steps";
 import { defaultToolFormatters } from "./tools/defaults";
 import type { ToolFormatterFactory } from "./tools/factory";
 import { ToolDetails } from "./tools/ToolDetails";
+import { LazyDetails } from "./LazyDetails";
+import { memo } from "react";
 
-export function ActivityDetails({
+export const ActivityDetails = memo(function ActivityDetails({
   item,
   pending = [],
   history = [],
@@ -42,10 +44,9 @@ export function ActivityDetails({
       <pre>{JSON.stringify(entry.operation, null, 2)}</pre>
       <h3>Result</h3>
       <pre>{JSON.stringify(entry.outcome, null, 2)}</pre>
-      <details>
-        <summary>Complete record</summary>
-        <pre>{JSON.stringify(item.step, null, 2)}</pre>
-      </details>
+      <LazyDetails summary="Complete record">
+        {() => <pre>{JSON.stringify(item.step, null, 2)}</pre>}
+      </LazyDetails>
     </>
   );
-}
+});

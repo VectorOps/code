@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
 import type { Json } from "../models/json";
 import type { InputRequest } from "../models/runner";
+import { useRetainedState, useRetainedValue } from "./FeedState";
 
 export function ApprovalActions({
   request,
@@ -15,10 +15,22 @@ export function ApprovalActions({
     key: string,
   ) => Promise<boolean>;
 }) {
-  const [submitted, setSubmitted] = useState(false);
-  const [sending, setSending] = useState(false);
-  const inFlight = useRef(false);
-  const keys = useRef(new Map<string, string>());
+  const [submitted, setSubmitted] = useRetainedState(
+    request,
+    "approval-submitted",
+    () => false,
+  );
+  const [sending, setSending] = useRetainedState(
+    request,
+    "approval-sending",
+    () => false,
+  );
+  const inFlight = useRetainedValue(request, "approval-flight", () => ({
+    current: false,
+  }));
+  const keys = useRetainedValue(request, "approval-keys", () => ({
+    current: new Map<string, string>(),
+  }));
   async function decide(
     approved: boolean,
     scope: "call" | "workflow" | "workspace",

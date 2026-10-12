@@ -1,8 +1,9 @@
 import { object, text, type Json } from "../../models/json";
 import { toolFailureMessage, toolPayload } from "../../models/steps";
 import type { ToolProps, ToolView } from "./factory";
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { HighlightedCode } from "../HighlightedCode";
+import { LazyDetails } from "../LazyDetails";
 
 function Summary({ items, fallback }: { items: string[]; fallback: string }) {
   const first = items[0] || fallback;
@@ -10,7 +11,15 @@ function Summary({ items, fallback }: { items: string[]; fallback: string }) {
   const shortened =
     compact.length > 120 ? `${compact.slice(0, 117)}...` : compact;
   return (
-    <span className="tool-summary" title={items.join(" / ") || fallback}>
+    <span
+      className="tool-summary"
+      title={
+        items
+          .map((item) => item.slice(0, 240))
+          .join(" / ")
+          .slice(0, 600) || fallback
+      }
+    >
       <code>
         {shortened}
         {items.length > 1 ? " ..." : ""}
@@ -33,10 +42,7 @@ function RequestResult({
         ) : (
           <Fields data={object(tool.arguments)} />
         ))}
-      <details>
-        <summary>Result / output</summary>
-        {children}
-      </details>
+      <LazyDetails summary="Result / output">{() => children}</LazyDetails>
     </>
   );
 }
@@ -130,15 +136,24 @@ export function Result({ tool }: ToolProps) {
   );
 }
 
-export function GenericSummary({ tool }: ToolProps) {
+export const GenericSummary = memo(function GenericSummary({
+  tool,
+}: ToolProps) {
   const args = object(tool.arguments);
   const keys = Object.keys(args);
   return (
     <Summary
-      items={keys.map((key) => `${key}: ${display(args[key])}`)}
+      items={keys.slice(0, 3).map((key) => `${key}: ${preview(args[key])}`)}
       fallback="Open details to inspect this call"
     />
   );
+});
+
+function preview(value: Json | undefined): string {
+  if (typeof value === "string") return value.slice(0, 240);
+  if (Array.isArray(value)) return `[${value.length} items]`;
+  if (value && typeof value === "object") return "{…}";
+  return String(value ?? "");
 }
 
 export function GenericDetails({ tool }: ToolProps) {
@@ -149,9 +164,8 @@ export function GenericDetails({ tool }: ToolProps) {
   );
 }
 
-export function FileSummary({ tool }: ToolProps) {
-  const args = object(tool.arguments),
-    result = object(payload(tool));
+export const FileSummary = memo(function FileSummary({ tool }: ToolProps) {
+  const args = object(tool.arguments);
   const paths = [
     args.pattern,
     args.path,
@@ -162,18 +176,30 @@ export function FileSummary({ tool }: ToolProps) {
     .filter(Boolean);
   return (
     <Summary
-      items={paths.length ? paths : [text(result.path)].filter(Boolean)}
+      items={
+        paths.length
+          ? paths
+          : [text(object(payload(tool)).path)].filter(Boolean)
+      }
       fallback="File details"
     />
   );
-}
+});
 
 export function FileDetails({ tool }: ToolProps) {
-  const result = object(payload(tool));
-  if (!Object.keys(result).length) return <GenericDetails tool={tool} />;
-  const { content, text: lines, ...metadata } = result;
   return (
     <RequestResult tool={tool}>
+      <FileOutput tool={tool} />
+    </RequestResult>
+  );
+}
+
+function FileOutput({ tool }: ToolProps) {
+  const result = object(payload(tool));
+  if (!Object.keys(result).length) return <Result tool={tool} />;
+  const { content, text: lines, ...metadata } = result;
+  return (
+    <>
       <Fields data={metadata} />
       {result.truncated === true && (
         <p className="tool-notice">
@@ -181,24 +207,31 @@ export function FileDetails({ tool }: ToolProps) {
         </p>
       )}
       {result.encoding === "base64" ? (
-        <details>
-          <summary>Binary content (base64)</summary>
-          <Code value={content} />
-        </details>
+        <LazyDetails summary="Binary content (base64)">
+          {() => <Code value={content} />}
+        </LazyDetails>
       ) : content !== undefined || lines !== undefined ? (
         <Code value={content ?? lines} />
       ) : (
         <Result tool={tool} />
       )}
-    </RequestResult>
+    </>
   );
 }
 
 export function FilesDetails({ tool }: ToolProps) {
-  const result = object(payload(tool));
-  if (!Array.isArray(result.entries)) return <GenericDetails tool={tool} />;
   return (
     <RequestResult tool={tool}>
+      <FilesOutput tool={tool} />
+    </RequestResult>
+  );
+}
+
+function FilesOutput({ tool }: ToolProps) {
+  const result = object(payload(tool));
+  if (!Array.isArray(result.entries)) return <Result tool={tool} />;
+  return (
+    <>
       <div className="tool-table">
         <table>
           <thead>
@@ -228,7 +261,7 @@ export function FilesDetails({ tool }: ToolProps) {
           Listing limit reached. Some entries are not shown.
         </p>
       )}
-    </RequestResult>
+    </>
   );
 }
 
@@ -252,33 +285,20 @@ function command(tool: ToolView): string {
   );
 }
 
-export function ProcessSummary({ tool }: ToolProps) {
+export const ProcessSummary = memo(function ProcessSummary({
+  tool,
+}: ToolProps) {
   return (
     <Summary
       items={[command(tool)].filter(Boolean)}
       fallback="Process details"
     />
   );
-}
+});
 
 export function ProcessDetails({ tool }: ToolProps) {
-  const result = object(payload(tool)),
-    args = object(tool.arguments);
-  const { chunks, ...metadata } = result;
+  const args = object(tool.arguments);
   const { command: requestedCommand, ...options } = args;
-  const streams = new Map<
-    string,
-    { stream: string; encoding: string; parts: string[] }
-  >();
-  for (const value of values(chunks)) {
-    const chunk = object(value);
-    const stream = text(chunk.stream),
-      encoding = text(chunk.encoding);
-    const key = `${stream}/${encoding}`;
-    const group = streams.get(key) ?? { stream, encoding, parts: [] };
-    group.parts.push(text(chunk.data));
-    streams.set(key, group);
-  }
   return (
     <RequestResult
       tool={tool}
@@ -296,6 +316,29 @@ export function ProcessDetails({ tool }: ToolProps) {
         </>
       }
     >
+      <ProcessOutput tool={tool} />
+    </RequestResult>
+  );
+}
+
+function ProcessOutput({ tool }: ToolProps) {
+  const result = object(payload(tool));
+  const { chunks, ...metadata } = result;
+  const streams = new Map<
+    string,
+    { stream: string; encoding: string; parts: string[] }
+  >();
+  for (const value of values(chunks)) {
+    const chunk = object(value);
+    const stream = text(chunk.stream),
+      encoding = text(chunk.encoding);
+    const key = `${stream}/${encoding}`;
+    const group = streams.get(key) ?? { stream, encoding, parts: [] };
+    group.parts.push(text(chunk.data));
+    streams.set(key, group);
+  }
+  return (
+    <>
       <Fields data={metadata} />
       {result.timed_out === true && (
         <p className="tool-notice">Execution timed out.</p>
@@ -320,15 +363,23 @@ export function ProcessDetails({ tool }: ToolProps) {
       })}
       {chunks !== undefined && !values(chunks).length && <p>No new output.</p>}
       {chunks === undefined && <Result tool={tool} />}
-    </RequestResult>
+    </>
   );
 }
 
 export function ProcessesDetails({ tool }: ToolProps) {
-  const result = payload(tool);
-  if (!Array.isArray(result)) return <GenericDetails tool={tool} />;
   return (
     <RequestResult tool={tool}>
+      <ProcessesOutput tool={tool} />
+    </RequestResult>
+  );
+}
+
+function ProcessesOutput({ tool }: ToolProps) {
+  const result = payload(tool);
+  if (!Array.isArray(result)) return <Result tool={tool} />;
+  return (
+    <>
       {!result.length && <p>No retained processes.</p>}
       {result.map((value, index) => (
         <section key={index}>
@@ -336,22 +387,21 @@ export function ProcessesDetails({ tool }: ToolProps) {
           <Fields data={object(value)} />
         </section>
       ))}
-    </RequestResult>
+    </>
   );
 }
 
-export function WebSummary({ tool }: ToolProps) {
-  const args = object(tool.arguments),
-    result = object(payload(tool));
+export const WebSummary = memo(function WebSummary({ tool }: ToolProps) {
+  const args = object(tool.arguments);
   return (
     <Summary
       items={[
-        `${text(args.method) || "GET"} ${text(args.url) || text(result.url) || "Web resource"}`,
+        `${text(args.method) || "GET"} ${text(args.url) || text(object(payload(tool)).url) || "Web resource"}`,
       ]}
       fallback="Web resource"
     />
   );
-}
+});
 
 export function WebDetails({ tool }: ToolProps) {
   return <FileDetails tool={tool} />;
@@ -374,10 +424,18 @@ export function PlanSummary({ tool }: ToolProps) {
 }
 
 export function PlanDetails({ tool }: ToolProps) {
-  const items = todos(tool);
-  if (!items.length) return <GenericDetails tool={tool} />;
   return (
     <RequestResult tool={tool}>
+      <PlanOutput tool={tool} />
+    </RequestResult>
+  );
+}
+
+function PlanOutput({ tool }: ToolProps) {
+  const items = todos(tool);
+  if (!items.length) return <Result tool={tool} />;
+  return (
+    <>
       <ol className="tool-plan">
         {items.map((value, index) => {
           const todo = object(value);
@@ -389,7 +447,7 @@ export function PlanDetails({ tool }: ToolProps) {
           );
         })}
       </ol>
-    </RequestResult>
+    </>
   );
 }
 
@@ -401,15 +459,14 @@ function Diff({ lines }: { lines: string[] }) {
   );
 }
 
-export function PatchSummary({ tool }: ToolProps) {
+export const PatchSummary = memo(function PatchSummary({ tool }: ToolProps) {
   const patch = text(object(tool.arguments).text);
-  const files = patch
-    .split("\n")
-    .filter((line) =>
-      /^(\*\*\* (Add|Update|Delete|Move to) File:|\*\*\* Move to:|\+\+\+ |--- )/.test(
-        line,
-      ),
-    );
+  const files = Array.from(
+    patch.matchAll(
+      /^(\*\*\* (Add|Update|Delete|Move to) File:|\*\*\* Move to:|\+\+\+ |--- )[^\n]*/gm,
+    ),
+    (match) => match[0],
+  );
   return (
     <Summary
       items={files.map(
@@ -419,7 +476,7 @@ export function PatchSummary({ tool }: ToolProps) {
       fallback="Repository changes"
     />
   );
-}
+});
 
 export function PatchDetails({ tool }: ToolProps) {
   const patch = text(object(tool.arguments).text);
@@ -463,10 +520,9 @@ export function ToolError({ tool }: ToolProps) {
       <h3>Tool could not complete successfully</h3>
       <p>{message.slice(0, 600)}</p>
       {message.length > 600 && (
-        <details>
-          <summary>Full error</summary>
-          <Code value={message} />
-        </details>
+        <LazyDetails summary="Full error">
+          {() => <Code value={message} />}
+        </LazyDetails>
       )}
     </section>
   );

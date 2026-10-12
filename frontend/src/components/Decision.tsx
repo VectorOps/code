@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
 import type { Json } from "../models/json";
 import { inputResponse, type InputRequest } from "../models/runner";
 import { ApprovalActions } from "./ApprovalActions";
+import { LazyDetails } from "./LazyDetails";
+import { useRetainedState, useRetainedValue } from "./FeedState";
 
 export function Decision({
   request,
@@ -16,8 +17,10 @@ export function Decision({
   change: (value: string) => void;
   reply: (response: Json, key: string) => Promise<boolean>;
 }) {
-  const [error, setError] = useState("");
-  const retry = useRef({ signature: "", key: "" });
+  const [error, setError] = useRetainedState(request, "error", () => "");
+  const retry = useRetainedValue(request, "retry", () => ({
+    current: { signature: "", key: "" },
+  }));
   async function submit() {
     try {
       const response = inputResponse(request, value);
@@ -64,10 +67,9 @@ export function Decision({
         </form>
       )}
       {request.response_schema && (
-        <details>
-          <summary>Response schema</summary>
-          <pre>{JSON.stringify(request.response_schema, null, 2)}</pre>
-        </details>
+        <LazyDetails summary="Response schema">
+          {() => <pre>{JSON.stringify(request.response_schema, null, 2)}</pre>}
+        </LazyDetails>
       )}
     </section>
   );

@@ -1,7 +1,13 @@
 import type { HistoryItem } from "../models/runner";
 import { activity } from "../models/activity";
+import { LazyDetails } from "./LazyDetails";
+import { memo } from "react";
 
-export function DebugSteps({ history }: { history: HistoryItem[] }) {
+export const DebugSteps = memo(function DebugSteps({
+  history,
+}: {
+  history: HistoryItem[];
+}) {
   return (
     <>
       <p>
@@ -11,14 +17,14 @@ export function DebugSteps({ history }: { history: HistoryItem[] }) {
       {history.map((item) => {
         const step = activity(item);
         return (
-          <details key={step.id}>
-            <summary>
-              {item.position}. {step.kind} / {step.state}
-            </summary>
-            <pre>{JSON.stringify(item.step, null, 2)}</pre>
-          </details>
+          <LazyDetails
+            key={step.id}
+            summary={`${item.position}. ${step.kind} / ${step.state}`}
+          >
+            {() => <pre>{JSON.stringify(item.step, null, 2)}</pre>}
+          </LazyDetails>
         );
       })}
     </>
   );
-}
+});

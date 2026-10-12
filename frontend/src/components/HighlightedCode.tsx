@@ -2,6 +2,8 @@ import hljs from "highlight.js/lib/common";
 import { memo } from "react";
 import "highlight.js/styles/github.css";
 
+const maximumHighlightedLength = 20_000;
+
 export const HighlightedCode = memo(function HighlightedCode({
   children,
   language,
@@ -13,7 +15,8 @@ export const HighlightedCode = memo(function HighlightedCode({
 }) {
   const name = language?.toLowerCase();
   const recognized = name && hljs.getLanguage(name);
-  if (!recognized) return <code className={className}>{children}</code>;
+  if (!recognized || children.length > maximumHighlightedLength)
+    return <code className={className}>{children}</code>;
   return (
     <code
       className={`hljs ${className}`}

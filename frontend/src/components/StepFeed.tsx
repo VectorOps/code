@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import * as React from "react";
 import type { HistoryItem, InputRequest } from "../models/runner";
 import * as workflows from "../models/workflow-tree";
 import type { WorkflowNode } from "../models/workflow-tree";
@@ -11,6 +11,7 @@ import { ToolGroup } from "./ToolGroup";
 import { Decision } from "./Decision";
 import type { StepActions, StepRegistry } from "./steps/registry";
 import "./workflow.css";
+import * as feedState from "./FeedState";
 
 function requestId(request: InputRequest) {
   return `decision-${request.execution_id}-${request.request_id}`;
@@ -23,7 +24,7 @@ function InlineDecision({
   request: InputRequest;
   actions: StepActions;
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = feedState.useDecisionDraft(request);
   return (
     <section
       id={requestId(request)}
@@ -54,20 +55,25 @@ function WorkflowBranch({
   active: boolean;
   grouping: ToolGrouping;
 }) {
-  const details = useRef<HTMLDetailsElement>(null);
-  const [visited, setVisited] = useState(false);
-  const requests = workflows.workflowRequests(node);
+  const requests = React.useMemo(
+    () => workflows.workflowRequests(node),
+    [node],
+  );
+  const [expanded, setExpanded] = feedState.useFeedExpansion(
+    node.id,
+    requests.length > 0,
+  );
   const signature = requests.map((request) => request.request_id).join("/");
-  useEffect(() => {
-    if (signature && details.current) details.current.open = true;
-  }, [signature]);
+  React.useEffect(() => {
+    if (signature) setExpanded(true);
+  }, [signature, setExpanded]);
   const running = active && node.status === "Unfinished";
   return (
     <details
-      className="workflow-branch"
-      ref={details}
+      className="workflow-branch feed-item"
+      open={expanded}
       onToggle={(event) => {
-        if (event.currentTarget.open) setVisited(true);
+        setExpanded(event.currentTarget.open);
       }}
     >
       <summary>
@@ -85,7 +91,7 @@ function WorkflowBranch({
           )}
         </span>
       </summary>
-      {(visited || requests.length > 0) && (
+      {expanded && (
         <WorkflowContents
           node={node}
           registry={registry}
@@ -112,16 +118,28 @@ function WorkflowContents({
   grouping: ToolGrouping;
 }) {
   const inline = new Set<string>();
-  const entries = node.entries.filter(
-    (entry) =>
-      "entries" in entry ||
-      entry.kind === "llm.tool" ||
-      registry.resolve(entry) ||
-      node.requests.some((request) => request.request_id === entry.id),
+  const entries = React.useMemo(
+    () =>
+      node.entries.filter(
+        (entry) =>
+          "entries" in entry ||
+          entry.kind === "llm.tool" ||
+          registry.resolve(entry) ||
+          node.requests.some((request) => request.request_id === entry.id),
+      ),
+    [node, registry],
+  );
+  const grouped = React.useMemo(
+    () => groupTools(entries, actions.pending, grouping),
+    [entries, actions.pending, grouping],
+  );
+  const failuresRecovered = React.useMemo(
+    () => workflows.workflowFailuresRecovered(node),
+    [node],
   );
   return (
     <>
-      {groupTools(entries, actions.pending, grouping).map((entry) => {
+      {grouped.map((entry) => {
         if ("steps" in entry)
           return (
             <ToolGroup
@@ -129,7 +147,7 @@ function WorkflowContents({
               group={entry}
               registry={registry}
               actions={actions}
-              failuresRecovered={workflows.workflowFailuresRecovered(node)}
+              failuresRecovered={failuresRecovered}
             />
           );
         if ("entries" in entry)
@@ -167,6 +185,7 @@ function WorkflowContents({
           if (request) inline.add(request.request_id);
           return (
             <section
+              className="feed-item"
               key={entry.id}
               id={request ? requestId(request) : undefined}
               tabIndex={request ? -1 : undefined}
@@ -174,7 +193,7 @@ function WorkflowContents({
               <Component
                 step={entry}
                 actions={actions}
-                failuresRecovered={workflows.workflowFailuresRecovered(node)}
+                failuresRecovered={failuresRecovered}
               />
             </section>
           );
@@ -194,46 +213,73 @@ function WorkflowContents({
   );
 }
 
-export function StepFeed({
-  history,
-  registry,
-  actions,
-  active,
-  grouping = defaultToolGrouping,
-}: {
+type FeedProps = {
   history: HistoryItem[];
   registry: StepRegistry;
   actions: StepActions;
   active: boolean;
   grouping?: ToolGrouping;
-}) {
-  const roots = useMemo(
-    () => workflows.workflowTree(history, actions.pending),
-    [history, actions.pending],
+  projection?: workflows.WorkflowProjection;
+};
+
+export const StepFeed = React.memo(function StepFeed(props: FeedProps) {
+  return (
+    <feedState.FeedStateProvider requests={props.actions.pending}>
+      <FeedContents {...props} />
+    </feedState.FeedStateProvider>
   );
-  const requests: { request: InputRequest; path: string }[] = [];
-  function collect(node: WorkflowNode) {
-    requests.push(
-      ...node.requests.map((request) => ({
-        request,
-        path: workflows.workflowPath(node),
-      })),
-    );
-    node.entries.forEach((entry) => {
-      if ("entries" in entry) collect(entry);
-    });
-  }
-  roots.forEach(collect);
-  function review(request: InputRequest) {
-    const target = document.getElementById(requestId(request));
-    if (!target) return;
-    let parent = target.parentElement;
-    while (parent) {
-      if (parent instanceof HTMLDetailsElement) parent.open = true;
-      parent = parent.parentElement;
+});
+
+function FeedContents({
+  history,
+  registry,
+  actions,
+  active,
+  grouping = defaultToolGrouping,
+  projection,
+}: FeedProps) {
+  const roots = React.useMemo(
+    () => projection?.roots ?? workflows.workflowTree(history, actions.pending),
+    [history, actions.pending, projection],
+  );
+  const requests = React.useMemo(() => {
+    const requests: {
+      request: InputRequest;
+      path: string;
+      node: WorkflowNode;
+    }[] = [];
+    function collect(node: WorkflowNode) {
+      requests.push(
+        ...node.requests.map((request) => ({
+          request,
+          path: workflows.workflowPath(node),
+          node,
+        })),
+      );
+      node.entries.forEach((entry) => {
+        if ("entries" in entry) collect(entry);
+      });
     }
+    roots.forEach(collect);
+    return requests;
+  }, [roots]);
+  const expand = feedState.useExpandWorkflows();
+  const [reviewing, setReviewing] = React.useState<InputRequest | null>(null);
+  React.useLayoutEffect(() => {
+    if (!reviewing) return;
+    const target = document.getElementById(requestId(reviewing));
+    if (!target) return;
     target.focus({ preventScroll: true });
     target.scrollIntoView({ block: "center", behavior: "smooth" });
+    setReviewing(null);
+  }, [reviewing]);
+  function review(request: InputRequest, node: WorkflowNode) {
+    let ancestor: WorkflowNode | undefined = node;
+    while (ancestor) {
+      expand?.(ancestor.id, true);
+      ancestor = ancestor.parent;
+    }
+    setReviewing(request);
   }
   return (
     <>
@@ -243,13 +289,13 @@ export function StepFeed({
           aria-label="Pending workflow decisions"
         >
           <strong role="status">Needs your input ({requests.length})</strong>
-          {requests.map(({ request, path }) => (
+          {requests.map(({ request, path, node }) => (
             <div key={request.request_id}>
               <span>
                 {request.channel}
                 <small>{path}</small>
               </span>
-              <button onClick={() => review(request)}>Review</button>
+              <button onClick={() => review(request, node)}>Review</button>
             </div>
           ))}
         </aside>

@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo } from "react";
 import type { ToolGroup as Group } from "../models/tool-groups";
 import { toolDescription } from "../models/steps";
 import type { StepActions, StepRegistry } from "./steps/registry";
 import { defaultToolFormatters } from "./tools/defaults";
+import { useFeedExpansion } from "./FeedState";
 
 export function ToolGroup({
   group,
@@ -15,9 +16,12 @@ export function ToolGroup({
   actions: StepActions;
   failuresRecovered?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useFeedExpansion(group.id);
   const factory = actions.tools ?? defaultToolFormatters;
-  const tools = group.steps.map((step) => toolDescription(step));
+  const tools = useMemo(
+    () => group.steps.map((step) => toolDescription(step)),
+    [group],
+  );
   const failures = tools.filter((tool) => tool.failed);
   const running = tools.filter((tool) =>
     ["pending", "streaming"].includes(tool.state),
@@ -25,8 +29,11 @@ export function ToolGroup({
   const latest = running.at(-1) ?? tools.at(-1);
   const Summary = latest ? factory.resolve(latest).summary : undefined;
   return (
-    <div className="tool-group">
-      <details onToggle={(event) => setExpanded(event.currentTarget.open)}>
+    <div className="tool-group feed-item">
+      <details
+        open={expanded}
+        onToggle={(event) => setExpanded(event.currentTarget.open)}
+      >
         <summary>
           <span className="tool-group-heading">
             <span className="tool-activity-label">

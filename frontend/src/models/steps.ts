@@ -18,6 +18,11 @@ type HistoryIndex = {
 
 const historyIndexes = new WeakMap<HistoryItem[], HistoryIndex>();
 const views = new WeakMap<HistoryItem, StepView>();
+const descriptions = new WeakMap<
+  StepView,
+  ReturnType<typeof createToolDescription>
+>();
+const payloads = new WeakMap<object, Json>();
 
 function historyIndex(history: HistoryItem[]): HistoryIndex {
   const cached = historyIndexes.get(history);
@@ -114,6 +119,17 @@ export function stepView(
 }
 
 export function toolPayload(output: Json | undefined): Json | undefined {
+  if (output !== null && typeof output === "object") {
+    const cached = payloads.get(output);
+    if (cached !== undefined) return cached;
+    const payload = parseToolPayload(output);
+    if (payload !== undefined) payloads.set(output, payload);
+    return payload;
+  }
+  return parseToolPayload(output);
+}
+
+function parseToolPayload(output: Json | undefined): Json | undefined {
   const content = object(output).content;
   const first = text(
     object(Array.isArray(content) ? content[0] : undefined).text,
@@ -148,6 +164,15 @@ export function approvalFor(
 }
 
 export function toolDescription(step: StepView, approval?: InputRequest) {
+  if (approval) return createToolDescription(step, approval);
+  const cached = descriptions.get(step);
+  if (cached) return cached;
+  const description = createToolDescription(step);
+  descriptions.set(step, description);
+  return description;
+}
+
+function createToolDescription(step: StepView, approval?: InputRequest) {
   const presentation = object(object(step.item.step).presentation);
   const call = object(
     object(approval?.payload).call ??

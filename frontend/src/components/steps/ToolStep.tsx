@@ -4,8 +4,9 @@ import type { StepProps } from "./registry";
 import { defaultToolFormatters } from "../tools/defaults";
 import { StepIndicators } from "./StepIndicators";
 import "../tools/tools.css";
+import { memo } from "react";
 
-export function ToolStep({ step, actions }: StepProps) {
+export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
   const approval = approvalFor(step, actions.pending);
   const tool = toolDescription(step, approval);
   const factory = actions.tools ?? defaultToolFormatters;
@@ -43,4 +44,4 @@ export function ToolStep({ step, actions }: StepProps) {
       )}
     </section>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import * as React from "react";
 import { RunnerApi } from "../communication/runner-api";
 import { RunnerConnection } from "../communication/websocket";
 import { HistorySync } from "../communication/history-sync";
@@ -7,25 +7,27 @@ import type { Json, Params } from "../models/json";
 import type * as models from "../models/runner";
 
 export function useRunner(initial: models.ConnectionSettings) {
-  const [settings, setSettings] = useState(initial);
-  const [api, setApi] = useState<RunnerApi>();
-  const [status, setStatus] = useState("Disconnected");
-  const [error, setError] = useState("");
-  const [workflows, setWorkflows] = useState<models.Workflow[]>([]);
-  const [sessions, setSessions] = useState<models.Session[]>([]);
-  const [selected, setSelected] = useState("");
-  const [history, setHistory] = useState<models.HistoryPage>({
+  const [settings, setSettings] = React.useState(initial);
+  const [api, setApi] = React.useState<RunnerApi>();
+  const [status, setStatus] = React.useState("Disconnected");
+  const [error, setError] = React.useState("");
+  const [workflows, setWorkflows] = React.useState<models.Workflow[]>([]);
+  const [sessions, setSessions] = React.useState<models.Session[]>([]);
+  const [selected, setSelected] = React.useState("");
+  const [history, setHistory] = React.useState<models.HistoryPage>({
     items: [],
     next_cursor: null,
   });
-  const [pending, setPending] = useState<models.InputRequest[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [revision, setRevision] = useState(0);
-  const selectedRef = useRef(selected);
+  const [pending, setPending] = React.useState<models.InputRequest[]>([]);
+  const [busy, setBusy] = React.useState(false);
+  const [revision, setRevision] = React.useState(0);
+  const selectedRef = React.useRef(selected);
   selectedRef.current = selected;
-  const startKey = useRef({ signature: "", key: "" });
-  const ready = useRef(false);
-  const refreshHistory = useRef((_reconcile: boolean, _event?: Params) => {});
+  const startKey = React.useRef({ signature: "", key: "" });
+  const ready = React.useRef(false);
+  const refreshHistory = React.useRef(
+    (_reconcile: boolean, _event?: Params) => {},
+  );
 
   function connect(next: models.ConnectionSettings) {
     try {
@@ -40,10 +42,10 @@ export function useRunner(initial: models.ConnectionSettings) {
     }
   }
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (initial.token) connect(initial);
   }, []);
-  useEffect(() => {
+  React.useEffect(() => {
     if (!api) return;
     let alive = true,
       running = false,
@@ -114,7 +116,7 @@ export function useRunner(initial: models.ConnectionSettings) {
     };
   }, [api]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     setHistory({ items: [], next_cursor: null });
     setPending([]);
     if (!api || !selected) return;
@@ -173,27 +175,37 @@ export function useRunner(initial: models.ConnectionSettings) {
       if (refreshHistory.current === trigger) refreshHistory.current = () => {};
     };
   }, [api, selected]);
-  useEffect(() => {
+  React.useEffect(() => {
     if (revision) refreshHistory.current(false);
   }, [revision]);
 
-  async function action(
-    operation: (api: RunnerApi) => Promise<void>,
-  ): Promise<boolean> {
-    if (!api) return false;
-    setBusy(true);
-    setError("");
-    try {
-      await operation(api);
-      setRevision((value) => value + 1);
-      return true;
-    } catch (reason) {
-      setError(String(reason));
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }
+  const action = React.useCallback(
+    async function action(
+      operation: (api: RunnerApi) => Promise<void>,
+    ): Promise<boolean> {
+      if (!api) return false;
+      setBusy(true);
+      setError("");
+      try {
+        await operation(api);
+        setRevision((value) => value + 1);
+        return true;
+      } catch (reason) {
+        setError(String(reason));
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [api],
+  );
+  const reply = React.useCallback(
+    (request: models.InputRequest, response: Json, key: string) =>
+      action(async (api) => {
+        await api.respond(request, response, key);
+      }),
+    [action],
+  );
 
   function start(reference: string, input: Params) {
     return action(async (api) => {
@@ -227,9 +239,6 @@ export function useRunner(initial: models.ConnectionSettings) {
       action(async (api) => {
         await api.stop(selected);
       }),
-    reply: (request: models.InputRequest, response: Json, key: string) =>
-      action(async (api) => {
-        await api.respond(request, response, key);
-      }),
+    reply,
   };
 }

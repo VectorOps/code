@@ -1,7 +1,8 @@
 import type { StepProps } from "./registry";
 import { StepIndicators } from "./StepIndicators";
+import { memo } from "react";
 
-export function UserStep({ step, actions }: StepProps) {
+export const UserStep = memo(function UserStep({ step, actions }: StepProps) {
   return (
     <section className="feed-entry user-step">
       <div className="assistant-controls">
@@ -12,4 +13,4 @@ export function UserStep({ step, actions }: StepProps) {
       </div>
     </section>
   );
-}
+});

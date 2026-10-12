@@ -83,6 +83,10 @@
   .feed-entry {
     @apply py-1;
   }
+  .feed-item {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 80px;
+  }
   .entry-state {
     @apply shrink-0 text-xs font-normal text-neutral-500;
   }

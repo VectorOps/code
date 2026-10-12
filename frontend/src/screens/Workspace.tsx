@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import * as React from "react";
 import type { Json } from "../models/json";
 import type { Session, InputRequest, HistoryItem } from "../models/runner";
 import { inputResponse } from "../models/runner";
-import { workflowInputs } from "../models/workflow-tree";
+import { workflowProjection } from "../models/workflow-tree";
 import { activity } from "../models/activity";
 import { StepFeed } from "../components/StepFeed";
 import { DebugSteps } from "../components/DebugSteps";
@@ -63,36 +63,40 @@ export function Workspace({
     response: Json,
     key: string,
   ) => Promise<boolean>;
-  newSession: ReactNode;
-  connection: ReactNode;
-  settings?: ReactNode;
+  newSession: React.ReactNode;
+  connection: React.ReactNode;
+  settings?: React.ReactNode;
   error: string;
   dismiss: () => void;
   hasOlder: boolean;
 }) {
-  const [leftOpen, setLeftOpen] = useState(true);
-  const [inspector, setInspector] = useState<Inspector | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const inspectorRef = useRef<HTMLElement>(null);
-  const restoreFocus = useRef<HTMLElement | null>(null);
-  const retry = useRef({ signature: "", key: "" });
+  const [leftOpen, setLeftOpen] = React.useState(true);
+  const [inspector, setInspector] = React.useState<Inspector | null>(null);
+  const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const inspectorRef = React.useRef<HTMLElement>(null);
+  const restoreFocus = React.useRef<HTMLElement | null>(null);
+  const retry = React.useRef({ signature: "", key: "" });
   const current = sessions.find((session) => session.execution_id === selected);
   const scope = `${endpoint}/${selected}`;
   const draft = drafts[scope] || "";
-  const { chat: chatRequests, decisions } = useMemo(
-    () => workflowInputs(history, pending),
+  const projection = React.useMemo(
+    () => workflowProjection(history, pending),
     [history, pending],
   );
-  const feedRevision = useMemo(
+  const { chat: chatRequests, decisions } = projection;
+  const feedRevision = React.useMemo(
     () => ({ history, pending }),
     [history, pending],
   );
   const feed = useConversationScroll(scope, feedRevision);
   const chat = chatRequests.length === 1 ? chatRequests[0] : undefined;
-  const inspectedItem =
-    inspector?.kind === "activity"
-      ? history.find((value) => activity(value).id === inspector.id)
-      : undefined;
+  const inspectedItem = React.useMemo(
+    () =>
+      inspector?.kind === "activity"
+        ? history.find((value) => activity(value).id === inspector.id)
+        : undefined,
+    [history, inspector],
+  );
   const inspectedStep = inspectedItem
     ? stepView(inspectedItem, history)
     : undefined;
@@ -107,21 +111,35 @@ export function Workspace({
         ? toolFormatters.resolve(inspectedTool).width
         : 420;
 
-  function open(next: Inspector) {
+  const open = React.useCallback((next: Inspector) => {
     restoreFocus.current =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
     setInspector(next);
-  }
+  }, []);
+  const inspect = React.useCallback(
+    (id: string) => open({ kind: "activity", id }),
+    [open],
+  );
+  const actions = React.useMemo(
+    () => ({
+      tools: toolFormatters,
+      pending: decisions,
+      enabled,
+      reply: onReply,
+      inspect,
+    }),
+    [toolFormatters, decisions, enabled, onReply, inspect],
+  );
   function close() {
     setInspector(null);
     restoreFocus.current?.focus();
   }
-  useEffect(() => {
+  React.useEffect(() => {
     if (inspector) inspectorRef.current?.focus();
   }, [inspector?.kind]);
-  useEffect(() => {
+  React.useEffect(() => {
     setInspector(null);
   }, [scope]);
 
@@ -249,13 +267,8 @@ export function Workspace({
                 history={history}
                 active={Boolean(current?.active)}
                 registry={stepRegistry}
-                actions={{
-                  tools: toolFormatters,
-                  pending: decisions,
-                  enabled,
-                  reply: onReply,
-                  inspect: (id) => open({ kind: "activity", id }),
-                }}
+                actions={actions}
+                projection={projection}
               />
             </div>
           )}

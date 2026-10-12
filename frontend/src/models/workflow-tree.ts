@@ -12,6 +12,9 @@ export type WorkflowNode = {
   status: string;
 };
 
+type WorkflowInputs = { chat: InputRequest[]; decisions: InputRequest[] };
+const inputViews = new WeakMap<InputRequest[], WorkflowInputs>();
+
 export function workflowTree(history: HistoryItem[], pending: InputRequest[]) {
   const nodes = new Map<string, WorkflowNode>();
   const calls = new Map<string, { name: string; description: string }[]>();
@@ -88,14 +91,45 @@ export function workflowInputs(
   history: HistoryItem[],
   pending: InputRequest[],
 ) {
+  const { chat, decisions } = workflowProjection(history, pending);
+  return { chat, decisions };
+}
+
+export function workflowProjection(
+  history: HistoryItem[],
+  pending: InputRequest[],
+) {
   const roots = workflowTree(history, pending);
   const chat = roots.flatMap((root) => root.requests.filter(isChatRequest));
   const composerRequests = new Set(chat);
+  for (const root of roots)
+    root.requests = root.requests.filter(
+      (request) => !composerRequests.has(request),
+    );
+  const decisions = pending.filter((request) => !composerRequests.has(request));
+  const previous = inputViews.get(pending);
+  const inputs = {
+    chat: previous && sameRequests(previous.chat, chat) ? previous.chat : chat,
+    decisions:
+      previous && sameRequests(previous.decisions, decisions)
+        ? previous.decisions
+        : decisions,
+  };
+  inputViews.set(pending, inputs);
   return {
-    chat,
-    decisions: pending.filter((request) => !composerRequests.has(request)),
+    roots,
+    ...inputs,
   };
 }
+
+function sameRequests(previous: InputRequest[], next: InputRequest[]) {
+  return (
+    previous.length === next.length &&
+    previous.every((request, index) => request === next[index])
+  );
+}
+
+export type WorkflowProjection = ReturnType<typeof workflowProjection>;
 
 export function workflowRequests(node: WorkflowNode): InputRequest[] {
   return [

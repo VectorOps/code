@@ -1,8 +1,10 @@
 import type { ToolFormatterFactory, ToolView } from "./factory";
 import { ToolError } from "./views";
+import { LazyDetails } from "../LazyDetails";
 import "./tools.css";
+import { memo } from "react";
 
-export function ToolDetails({
+export const ToolDetails = memo(function ToolDetails({
   tool,
   factory,
 }: {
@@ -16,10 +18,9 @@ export function ToolDetails({
       <p className="entry-state">{tool.failed ? "Failed" : tool.state}</p>
       {tool.failed && <ToolError tool={tool} />}
       <Details tool={tool} />
-      <details>
-        <summary>Raw call and result</summary>
-        <pre>{JSON.stringify(tool, null, 2)}</pre>
-      </details>
+      <LazyDetails summary="Raw call and result">
+        {() => <pre>{JSON.stringify(tool, null, 2)}</pre>}
+      </LazyDetails>
     </div>
   );
-}
+});
