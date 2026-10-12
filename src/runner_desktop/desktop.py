@@ -8,6 +8,7 @@ from urllib.parse import urlencode, urlsplit
 from vectorops.runner.control.auth import validate_token
 
 from runner_desktop.assets import AssetServer
+from runner_desktop.oauth import OAuthBridge
 from runner_desktop.worker import Worker
 
 
@@ -46,7 +47,11 @@ def launch(
                 endpoint = worker.start()
             fragment = urlencode({"endpoint": endpoint, "token": token})
             webview.create_window(
-                "Runner", f"{assets.origin}/#{fragment}", width=1200, height=820
+                "Runner",
+                f"{assets.origin}/#{fragment}",
+                width=1200,
+                height=820,
+                js_api=OAuthBridge(assets.origin),
             )
             webview.start()
         finally:

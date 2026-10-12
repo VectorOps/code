@@ -3,8 +3,9 @@
 import asyncio
 import struct
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, Union
 
+from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 from websockets.typing import Origin
@@ -16,7 +17,7 @@ from vectorops.runner.control.service import RunnerService
 class WebSocketStream:
     """Adapt message framing without duplicating runner dispatch or authentication."""
 
-    def __init__(self, socket: ServerConnection) -> None:
+    def __init__(self, socket: Union[ServerConnection, ClientConnection]) -> None:
         self.socket = socket
         self.buffer = bytearray()
 

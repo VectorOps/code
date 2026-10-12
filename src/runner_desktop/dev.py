@@ -65,7 +65,9 @@ async def run(
         origin,
     ]
     templates = TemplateServer(
-        environment["RUNNER_LOCAL_ENDPOINT"], environment["RUNNER_DESKTOP_TOKEN"]
+        environment["RUNNER_LOCAL_ENDPOINT"],
+        environment["RUNNER_DESKTOP_TOKEN"],
+        origin,
     )
     environment["RUNNER_TEMPLATE_URL"] = templates.url
     frontend = await asyncio.create_subprocess_exec(

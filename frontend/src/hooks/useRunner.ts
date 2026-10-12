@@ -208,6 +208,7 @@ export function useRunner(initial: models.ConnectionSettings) {
   }
 
   return {
+    api,
     settings,
     connect,
     status,

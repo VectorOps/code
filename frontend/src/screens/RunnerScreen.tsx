@@ -4,6 +4,7 @@ import { useRunner } from "../hooks/useRunner";
 import { ConnectionForm } from "../components/ConnectionForm";
 import { NewSessionForm } from "../components/NewSessionForm";
 import { Workspace } from "./Workspace";
+import { Settings } from "./Settings";
 
 export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
   const runner = useRunner(initial);
@@ -11,6 +12,13 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
   const [draft, setDraft] = useState({ reference: "", input: "{}" });
   return (
     <Workspace
+      settings={
+        <Settings
+          api={runner.api}
+          connected={runner.status === "Connected"}
+          connection={runner.settings}
+        />
+      }
       sessions={runner.sessions}
       selected={runner.selected}
       onSelect={runner.select}

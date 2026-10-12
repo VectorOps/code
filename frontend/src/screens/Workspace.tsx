@@ -21,6 +21,7 @@ type Inspector =
   | { kind: "decisions" }
   | { kind: "session" }
   | { kind: "new" }
+  | { kind: "settings" }
   | { kind: "connection" };
 
 export function Workspace({
@@ -37,6 +38,7 @@ export function Workspace({
   onReply,
   newSession,
   connection,
+  settings,
   error,
   dismiss,
   hasOlder,
@@ -62,6 +64,7 @@ export function Workspace({
   ) => Promise<boolean>;
   newSession: ReactNode;
   connection: ReactNode;
+  settings?: ReactNode;
   error: string;
   dismiss: () => void;
   hasOlder: boolean;
@@ -95,9 +98,12 @@ export function Workspace({
     inspectedStep?.kind === "llm.tool"
       ? toolDescription(inspectedStep, approvalFor(inspectedStep, pending))
       : undefined;
-  const inspectorWidth = inspectedTool
-    ? toolFormatters.resolve(inspectedTool).width
-    : 420;
+  const inspectorWidth =
+    inspector?.kind === "settings"
+      ? 850
+      : inspectedTool
+        ? toolFormatters.resolve(inspectedTool).width
+        : 420;
 
   function open(next: Inspector) {
     restoreFocus.current =
@@ -151,28 +157,19 @@ export function Workspace({
 
   return (
     <main className="workspace-shell">
-      {leftOpen && (
-        <SessionSidebar
-          sessions={sessions}
-          selected={selected}
-          status={status}
-          select={onSelect}
-          collapse={() => setLeftOpen(false)}
-          create={() => open({ kind: "new" })}
-          configure={() => open({ kind: "connection" })}
-        />
-      )}
+      <SessionSidebar
+        collapsed={!leftOpen}
+        sessions={sessions}
+        selected={selected}
+        status={status}
+        select={onSelect}
+        collapse={() => setLeftOpen((value) => !value)}
+        create={() => open({ kind: "new" })}
+        configure={() => open({ kind: "connection" })}
+      />
       <section className="chat-workspace" aria-label="Conversation">
         <header className="session-header">
           <div>
-            {!leftOpen && (
-              <button
-                className="quiet-button"
-                onClick={() => setLeftOpen(true)}
-              >
-                Show navigation
-              </button>
-            )}
             <h1>{current?.reference || "Your workspace"}</h1>
             <span className="session-subtitle">
               {current
@@ -181,6 +178,25 @@ export function Workspace({
             </span>
           </div>
           <div className="header-actions">
+            <button
+              className="quiet-button"
+              aria-label="Settings"
+              title="Settings"
+              onClick={() => open({ kind: "settings" })}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                aria-hidden="true"
+              >
+                <path d="m9 3-.5 2-2 1-2-.5-2 3 1.5 1.5v3L2.5 15l2 3 2-.5 2 1 .5 2h4l.5-2 2-1 2 .5 2-3-1.5-2v-3L20 8.5l-2-3-2 .5-2-1-.5-2Z" />
+                <circle cx="11.5" cy="12" r="3" />
+              </svg>
+            </button>
             <button
               className="quiet-button"
               disabled={!selected}
@@ -329,6 +345,7 @@ export function Workspace({
                   session: "Session details",
                   new: "New conversation",
                   connection: "Connection",
+                  settings: "Settings",
                 }[inspector.kind]
               }
             </h2>
@@ -344,6 +361,7 @@ export function Workspace({
             {inspector.kind === "debug" && <DebugSteps history={history} />}
             {inspector.kind === "new" && newSession}
             {inspector.kind === "connection" && connection}
+            {inspector.kind === "settings" && settings}
             {inspector.kind === "session" && (
               <>
                 <h3>{current?.reference}</h3>
