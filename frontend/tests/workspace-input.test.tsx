@@ -119,6 +119,136 @@ function workspaceProps(): ComponentProps<typeof Workspace> {
   };
 }
 
+vitest.test("running status stays last in the feed during streaming", () => {
+  const props = workspaceProps();
+  const running = {
+    execution_id: props.selected,
+    reference: "chat:workflow",
+    status: "running",
+    active: true,
+    pending_inputs: 0,
+  };
+  const view = render(
+    <Workspace {...props} sessions={[running]} pending={[]} />,
+  );
+  const indicator = view.getByText("Running...");
+  vitest.expect(indicator.getAttribute("role")).toBe("status");
+  vitest.expect(indicator.className).toBe("running-indicator");
+  vitest
+    .expect(view.container.querySelector(".feed-content")?.lastElementChild)
+    .toBe(indicator);
+
+  view.rerender(
+    <Workspace
+      {...props}
+      sessions={[running]}
+      enabled={false}
+      busy
+      pending={[]}
+      history={[
+        {
+          position: 1,
+          step: {
+            id: "assistant",
+            workflow_id: "root",
+            operation: { kind: "llm.generate" },
+            outcome: { kind: "streaming", state: "Working on it" },
+          },
+        },
+      ]}
+    />,
+  );
+  vitest.expect(view.getByText("Working on it")).toBeTruthy();
+  vitest.expect(view.getAllByText("Running...")).toHaveLength(1);
+  vitest
+    .expect(view.container.querySelector(".feed-content")?.lastElementChild)
+    .toBe(indicator);
+});
+
+vitest.test(
+  "running status follows only the selected active session and disappears when it stops",
+  () => {
+    const props = workspaceProps();
+    const running = {
+      execution_id: props.selected,
+      reference: "chat:workflow",
+      status: "running",
+      active: true,
+      pending_inputs: 0,
+    };
+    const view = render(
+      <Workspace {...props} sessions={[running]} pending={[]} />,
+    );
+    vitest.expect(view.getByText("Running...")).toBeTruthy();
+    for (const status of ["paused", "cancelled", "completed", "failed"]) {
+      view.rerender(
+        <Workspace
+          {...props}
+          sessions={[{ ...running, status, active: false }]}
+          pending={[]}
+        />,
+      );
+      vitest.expect(view.queryByText("Running...")).toBeNull();
+    }
+    view.rerender(<Workspace {...props} sessions={[running]} pending={[]} />);
+    vitest.expect(view.getByText("Running...")).toBeTruthy();
+    for (const selected of ["session-b", ""]) {
+      view.rerender(
+        <Workspace
+          {...props}
+          sessions={[running]}
+          selected={selected}
+          pending={[]}
+        />,
+      );
+      vitest.expect(view.queryByText("Running...")).toBeNull();
+    }
+  },
+);
+
+vitest.test(
+  "running status hides for input requests or blocked session summaries and returns on resume",
+  () => {
+    const props = workspaceProps();
+    const running = {
+      execution_id: props.selected,
+      reference: "chat:workflow",
+      status: "running",
+      active: true,
+      pending_inputs: 0,
+    };
+    const view = render(
+      <Workspace {...props} sessions={[running]} pending={[]} />,
+    );
+    vitest.expect(view.getByText("Running...")).toBeTruthy();
+    for (const pending of [
+      request,
+      { ...request, request_type: undefined, channel: "agent.question" },
+      {
+        ...request,
+        workflow_id: "child",
+        request_type: "tool.approval.v1",
+        channel: "tool.approval",
+      },
+    ]) {
+      view.rerender(
+        <Workspace {...props} sessions={[running]} pending={[pending]} />,
+      );
+      vitest.expect(view.queryByText("Running...")).toBeNull();
+    }
+    for (const session of [
+      { ...running, pending_inputs: 1 },
+      { ...running, status: "paused" },
+      { ...running, status: "stopping" },
+    ]) {
+      view.rerender(<Workspace {...props} sessions={[session]} pending={[]} />);
+      vitest.expect(view.queryByText("Running...")).toBeNull();
+    }
+    view.rerender(<Workspace {...props} sessions={[running]} pending={[]} />);
+    vitest.expect(view.getByText("Running...")).toBeTruthy();
+  },
+);
+
 vitest.test(
   "drafting does not send until exactly one root chat request is ready",
   async () => {

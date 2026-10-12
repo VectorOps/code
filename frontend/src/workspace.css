@@ -80,6 +80,22 @@
   .feed-content {
     @apply w-full max-w-none pb-1;
   }
+  .running-indicator {
+    @apply my-2 text-sm font-medium;
+    width: fit-content;
+    background: linear-gradient(
+      100deg,
+      light-dark(#2563eb, #93c5fd) 40%,
+      #fff 48%,
+      #fff 52%,
+      light-dark(#2563eb, #93c5fd) 60%
+    );
+    background-size: 300% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    animation: running-shimmer 1.6s linear infinite;
+  }
   .feed-entry {
     @apply py-1;
   }
@@ -182,6 +198,14 @@
   }
 }
 
+@keyframes running-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
 @keyframes inspector-enter {
   from {
     transform: translateX(16px);

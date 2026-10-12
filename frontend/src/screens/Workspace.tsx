@@ -281,6 +281,14 @@ function WorkspaceContent({
                 projection={projection}
                 onReview={feed.pauseFollowing}
               />
+              {current?.active &&
+                current.status === "running" &&
+                current.pending_inputs === 0 &&
+                pending.length === 0 && (
+                  <p className="running-indicator" role="status">
+                    Running...
+                  </p>
+                )}
             </div>
           )}
         </div>
