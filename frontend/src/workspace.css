@@ -140,6 +140,31 @@
   .composer-actions {
     @apply flex items-center justify-between gap-3 pt-1;
   }
+  .composer-actions > span {
+    @apply min-w-0 flex-1;
+  }
+  .composer-images {
+    @apply m-0 flex max-h-48 flex-wrap gap-2 overflow-auto p-1;
+    list-style: none;
+  }
+  .composer-images li {
+    @apply flex items-center gap-1 rounded border border-neutral-200 p-1 text-xs;
+  }
+  .composer-images li > span {
+    @apply max-w-48 break-words;
+  }
+  .composer-image-remove {
+    @apply flex size-5 shrink-0 items-center justify-center rounded border-0 p-0;
+  }
+  .composer-image-error {
+    @apply my-1 text-xs text-neutral-700;
+  }
+  .composer-attach {
+    @apply flex size-9 shrink-0 items-center justify-center rounded-full border-0 p-0;
+  }
+  .message-images {
+    @apply flex flex-wrap gap-2;
+  }
   .composer-actions span {
     @apply text-xs text-neutral-500;
   }

@@ -3,6 +3,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as vitest from "vitest";
 import { Composer } from "../src/components/Composer";
+import type { ImageAttachment } from "../src/models/chat-input";
 
 type Props = ComponentProps<typeof Composer>;
 
@@ -47,6 +48,99 @@ vitest.test.each(["ctrlKey", "metaKey"])(
       });
     });
     vitest.expect(view.send).toHaveBeenCalledOnce();
+  },
+);
+
+vitest.test(
+  "image-only drafts can be submitted, previewed, and removed",
+  async () => {
+    const removeImage = vitest.vi.fn();
+    const image: ImageAttachment = {
+      id: "image",
+      name: "shot.png",
+      state: "ready",
+      image: { type: "image", mime_type: "image/png", data: "cG5n" },
+    };
+    const view = compose({ value: "", images: [image], removeImage });
+    vitest
+      .expect(view.getByAltText("shot.png").getAttribute("src"))
+      .toBe("data:image/png;base64,cG5n");
+    await userEvent
+      .setup()
+      .click(view.getByRole("button", { name: "Send message" }));
+    vitest.expect(view.send).toHaveBeenCalledOnce();
+    await userEvent
+      .setup()
+      .click(view.getByRole("button", { name: "Remove shot.png" }));
+    vitest.expect(removeImage).toHaveBeenCalledWith("image");
+  },
+);
+
+vitest.test(
+  "picker and clipboard files use the same attachment path without affecting plain-text paste",
+  async () => {
+    const attach = vitest.vi.fn();
+    const view = compose({ value: "", attach });
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+    const user = userEvent.setup();
+    const button = view.getByRole("button", { name: "Attach images" });
+    vitest.expect(button.textContent).toBe("");
+    vitest.expect(button.querySelector("svg path")).not.toBeNull();
+    const pickerClick = vitest.vi.spyOn(
+      view.getByLabelText("Choose images"),
+      "click",
+    );
+    await user.click(button);
+    vitest.expect(pickerClick).toHaveBeenCalledOnce();
+    await user.upload(view.getByLabelText("Choose images"), file);
+    vitest.expect(attach).toHaveBeenCalledWith([file]);
+    vitest
+      .expect(view.getByLabelText("Choose images"))
+      .toHaveProperty("value", "");
+    const clipboardData = { files: [file], items: [], getData: () => "" };
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: clipboardData });
+    fireEvent(view.getByRole("textbox"), event);
+    vitest.expect(event.defaultPrevented).toBe(true);
+    vitest.expect(attach).toHaveBeenCalledTimes(2);
+    await user.click(view.getByRole("textbox"));
+    await user.paste("Plain text");
+    vitest
+      .expect(view.getByRole("textbox"))
+      .toHaveProperty("value", "Plain text");
+    vitest.expect(attach).toHaveBeenCalledTimes(2);
+  },
+);
+
+vitest.test("clipboard file items work when the files list is empty", () => {
+  const attach = vitest.vi.fn();
+  const view = compose({ attach });
+  const file = new File(["png"], "shot.png", { type: "image/png" });
+  fireEvent.paste(view.getByRole("textbox"), {
+    clipboardData: {
+      files: [],
+      items: [{ kind: "file", getAsFile: () => file }],
+      getData: () => "",
+    },
+  });
+  vitest.expect(attach).toHaveBeenCalledWith([file]);
+});
+
+vitest.test.each(["preparing", "failed"] as const)(
+  "%s attachments block sending",
+  async (state) => {
+    const image: ImageAttachment =
+      state === "preparing"
+        ? { id: "x", name: "x.png", state }
+        : { id: "x", name: "x.png", state, error: "Could not read" };
+    const view = compose({ images: [image] });
+    await userEvent
+      .setup()
+      .click(view.getByRole("button", { name: "Send message" }));
+    vitest.expect(view.send).not.toHaveBeenCalled();
+    vitest
+      .expect(view.getByRole("button", { name: "Send message" }))
+      .toHaveProperty("disabled", true);
   },
 );
 

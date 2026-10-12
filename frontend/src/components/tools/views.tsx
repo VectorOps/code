@@ -412,14 +412,11 @@ function todos(tool: ToolView): Json[] {
 }
 
 export function PlanSummary({ tool }: ToolProps) {
-  const items = values(object(tool.arguments).todos);
-  return (
-    <Summary
-      items={items.map(
-        (item) => text(object(item).title) || text(object(item).id),
-      )}
-      fallback="Plan update"
-    />
+  const items = todos(tool);
+  return items.length ? (
+    <PlanList items={items} />
+  ) : (
+    <Summary items={[]} fallback="Plan update" />
   );
 }
 
@@ -434,20 +431,42 @@ export function PlanDetails({ tool }: ToolProps) {
 function PlanOutput({ tool }: ToolProps) {
   const items = todos(tool);
   if (!items.length) return <Result tool={tool} />;
+  return <PlanList items={items} />;
+}
+
+function PlanList({ items }: { items: Json[] }) {
   return (
-    <>
-      <ol className="tool-plan">
-        {items.map((value, index) => {
-          const todo = object(value);
-          return (
-            <li key={index} data-state={text(todo.status)}>
-              <span>{text(todo.title) || text(todo.id)}</span>
-              <small>{text(todo.status).replaceAll("_", " ")}</small>
-            </li>
-          );
-        })}
-      </ol>
-    </>
+    <ul className="tool-plan" aria-label="Plan">
+      {items.map((value, index) => {
+        const todo = object(value);
+        const status = text(todo.status) || "pending";
+        const title = text(todo.title) || text(todo.id);
+        return (
+          <li key={index} data-state={status}>
+            <svg
+              className="tool-plan-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              role="img"
+              aria-label={status.replaceAll("_", " ")}
+            >
+              <circle cx="12" cy="12" r="9" />
+              {status === "completed" && <path d="m8 12 3 3 5-6" />}
+              {status === "in_progress" && <path d="M12 7v5l3 2" />}
+            </svg>
+            <span className="tool-plan-title" title={title}>
+              {title}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

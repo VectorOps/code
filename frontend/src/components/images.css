@@ -1,0 +1,25 @@
+@reference "../style.css";
+
+@layer components {
+  .image-thumbnail {
+    @apply flex size-8 shrink-0 items-center justify-center overflow-hidden rounded border border-neutral-200 p-0;
+  }
+  .image-thumbnail img {
+    @apply size-full object-cover;
+  }
+  .image-preview {
+    @apply fixed m-auto max-h-[90dvh] max-w-[92vw] overflow-auto rounded-xl border border-neutral-300 bg-white p-4 text-neutral-950 shadow-xl;
+  }
+  .image-preview::backdrop {
+    background: #0009;
+  }
+  .image-preview-header {
+    @apply mb-3 flex items-center justify-between gap-4;
+  }
+  .image-preview-header span {
+    @apply min-w-0 break-words text-sm;
+  }
+  .image-preview img {
+    @apply block max-h-[75dvh] max-w-full object-contain;
+  }
+}

@@ -1,7 +1,14 @@
-[environment]                                                                                                                                                                                                        
-kind = "local"                                                                                                                                                                                                       
-base_project_path = "/Users/serge/work/code"  
+[environment]
+kind = "local"
+base_project_path = "/home/joes/Work/code"
 
-[components.llm]                                                                                                                                                                                                     
-provider = "openai"                                                                                                                                                                                                  
-model = "gpt-6-luna:fast"   
+[components.llm]
+provider = "chatgpt"
+model = "gpt-6-luna:fast"
+
+[components.workflows.defaults]
+thinking_level = "high"
+strong_model = "chatgpt/gpt-6.1-sol"
+medium_model = "chatgpt/gpt-6.1-sol"
+weak_model = "chatgpt/gpt-6-luna:fast"
+

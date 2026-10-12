@@ -1,4 +1,5 @@
 import type { Json } from "./json";
+import { chatMessage, type ImageInput } from "./chat-input";
 
 export type Session = {
   execution_id: string;
@@ -36,8 +37,16 @@ export function isChatRequest(request: InputRequest): boolean {
   );
 }
 
-export function inputResponse(request: InputRequest, value: string): Json {
+export function inputResponse(
+  request: InputRequest,
+  value: string,
+  images: readonly ImageInput[] = [],
+): Json {
   if (request.request_type === "chat.message.v1")
-    return { content: [{ type: "text", text: value }] };
+    return chatMessage(value, images);
+  if (images.length)
+    throw new Error(
+      "This workflow accepts text only. Remove the images to send.",
+    );
   return request.response_type === "json" ? JSON.parse(value) : value;
 }

@@ -13,6 +13,8 @@ import { Decision } from "../components/Decision";
 import { SessionSidebar } from "../components/SessionSidebar";
 import { Composer } from "../components/Composer";
 import { useConversationScroll } from "../hooks/useConversationScroll";
+import { useImageAttachments } from "../hooks/useImageAttachments";
+import * as chatInput from "../models/chat-input";
 import { defaultToolFormatters } from "../components/tools/defaults";
 import type { ToolFormatterFactory } from "../components/tools/factory";
 import { approvalFor, stepView, toolDescription } from "../models/steps";
@@ -97,6 +99,7 @@ function WorkspaceContent({
   const current = sessions.find((session) => session.execution_id === selected);
   const scope = `${endpoint}/${selected}`;
   const draft = drafts[scope] || "";
+  const attachments = useImageAttachments(scope);
   const projection = React.useMemo(
     () => workflowProjection(history, pending),
     [history, pending],
@@ -108,6 +111,11 @@ function WorkspaceContent({
   );
   const feed = useConversationScroll(scope, feedRevision);
   const chat = chatRequests.length === 1 ? chatRequests[0] : undefined;
+  const messageError = chatInput.messageError(
+    draft,
+    attachments.images,
+    chat ? (chat.request_type ?? "text") : undefined,
+  );
   const inspectedItem = React.useMemo(
     () =>
       inspector?.kind === "activity"
@@ -157,12 +165,25 @@ function WorkspaceContent({
   }, [scope]);
 
   async function send() {
-    if (!chat || !draft.trim() || !enabled) return;
-    const signature = JSON.stringify([scope, chat.request_id, draft]);
+    if (
+      !chat ||
+      (!draft.trim() && !attachments.images.length) ||
+      !enabled ||
+      messageError
+    )
+      return;
+    const images = attachments.images.flatMap((item) =>
+      item.state === "ready" ? [item.image] : [],
+    );
+    const response = inputResponse(chat, draft, images);
+    const signature = JSON.stringify([scope, chat.request_id, response]);
     if (retry.current.signature !== signature)
       retry.current = { signature, key: crypto.randomUUID() };
-    const response = inputResponse(chat, draft);
     if (await onReply(chat, response, retry.current.key)) {
+      attachments.remove(
+        attachments.images.map((image) => image.id),
+        scope,
+      );
       setDrafts((values) => ({
         ...values,
         [scope]: values[scope] === draft ? "" : values[scope],
@@ -305,6 +326,11 @@ function WorkspaceContent({
           enabled={enabled}
           busy={busy}
           value={draft}
+          images={attachments.images}
+          attach={attachments.add}
+          removeImage={(id) => attachments.remove([id])}
+          attachmentError={attachments.error}
+          messageError={messageError}
           change={(value) =>
             setDrafts((values) => ({ ...values, [scope]: value }))
           }

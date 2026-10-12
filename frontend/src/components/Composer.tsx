@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { Session } from "../models/runner";
+import * as chatInput from "../models/chat-input";
+import { ImageThumbnail } from "./ImageThumbnail";
 import { useComposerTarget, useFocusCoordinator } from "../focus/FocusProvider";
 
 type Activity = "send" | "stop" | "resume" | "review" | "idle";
@@ -47,6 +49,11 @@ export function Composer({
   enabled,
   busy,
   value,
+  images = [],
+  attach,
+  removeImage,
+  attachmentError = "",
+  messageError = "",
   change,
   send,
   stop,
@@ -60,6 +67,11 @@ export function Composer({
   enabled: boolean;
   busy: boolean;
   value: string;
+  images?: readonly chatInput.ImageAttachment[];
+  attach?: (files: File[]) => void;
+  removeImage?: (id: string) => void;
+  attachmentError?: string;
+  messageError?: string;
   change: (value: string) => void;
   send: () => Promise<void>;
   stop?: () => void | Promise<void>;
@@ -69,6 +81,7 @@ export function Composer({
   const inFlight = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const form = useRef<HTMLFormElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const coordinator = useFocusCoordinator();
   useComposerTarget(textarea, {
     isEditable: () =>
@@ -87,6 +100,7 @@ export function Composer({
     },
   });
   const [operating, setOperating] = useState<Activity | null>(null);
+  const inputError = messageError || chatInput.messageError(value, images);
   const activity = workflowActivity(selected, ready, pendingCount, session);
   const callback =
     activity === "send"
@@ -104,7 +118,8 @@ export function Composer({
     !operating &&
     Boolean(callback) &&
     session?.status !== "stopping" &&
-    (activity !== "send" || (ready && Boolean(value.trim())));
+    (activity !== "send" ||
+      (ready && Boolean(value.trim() || images.length) && !inputError));
   const displayedActivity = operating ?? activity;
   const label = operating
     ? progressLabels[operating]
@@ -139,11 +154,78 @@ export function Composer({
       )}
       <form
         ref={form}
+        onPaste={(event) => {
+          if (!selected || !attach) return;
+          const files = Array.from(event.clipboardData.files);
+          if (!files.length) {
+            for (const item of Array.from(event.clipboardData.items)) {
+              if (item.kind !== "file") continue;
+              const file = item.getAsFile();
+              if (file) files.push(file);
+            }
+          }
+          if (!files.length) return;
+          if (!event.clipboardData.getData("text/plain"))
+            event.preventDefault();
+          attach(files);
+        }}
         onSubmit={(event) => {
           event.preventDefault();
           if (activity === "send") void submit();
         }}
       >
+        {images.length > 0 && (
+          <ul className="composer-images" aria-label="Attached images">
+            {images.map((item) => (
+              <li key={item.id}>
+                {item.state === "ready" && (
+                  <ImageThumbnail
+                    src={chatInput.imageSource(item.image)}
+                    name={item.name}
+                  />
+                )}
+                {item.state !== "ready" && <span>{item.name}</span>}
+                {item.state === "preparing" && (
+                  <span role="status">Preparing…</span>
+                )}
+                {item.state === "failed" && (
+                  <span role="alert">{item.error}</span>
+                )}
+                <button
+                  type="button"
+                  className="quiet-button composer-image-remove"
+                  aria-label={`Remove ${item.name}`}
+                  title={`Remove ${item.name}`}
+                  onClick={() => removeImage?.(item.id)}
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    <path d="m6 6 12 12M6 18 18 6" />
+                  </svg>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {(attachmentError || inputError) && (
+          <p
+            className="composer-image-error"
+            role={
+              images.some((item) => item.state === "preparing")
+                ? "status"
+                : "alert"
+            }
+          >
+            {attachmentError || inputError}
+          </p>
+        )}
         <label htmlFor="message-draft" className="sr-only">
           Message draft
         </label>
@@ -171,6 +253,46 @@ export function Composer({
           }}
         />
         <div className="composer-actions">
+          {attach && (
+            <>
+              <input
+                ref={picker}
+                className="hidden"
+                type="file"
+                multiple
+                accept={chatInput.imageAccept}
+                aria-label="Choose images"
+                disabled={!selected}
+                onChange={(event) => {
+                  const files = Array.from(event.currentTarget.files ?? []);
+                  event.currentTarget.value = "";
+                  if (files.length) attach(files);
+                }}
+              />
+              <button
+                type="button"
+                className="quiet-button composer-attach"
+                disabled={!selected}
+                aria-label="Attach images"
+                title="Attach images (PNG, JPEG, GIF, WebP; up to 768 KiB each)"
+                onClick={() => picker.current?.click()}
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+            </>
+          )}
           <span>
             {activity === "send" && ready
               ? "Ready for your message. Ctrl/Cmd+Enter to send."

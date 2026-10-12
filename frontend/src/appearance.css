@@ -11,12 +11,8 @@
   border-left-color: light-dark(#a16207, #fbbf24);
   background: light-dark(#fffbeb, #422006);
 }
-.tool-plan small,
 .tool-plan [data-state="completed"] > span {
   color: var(--color-neutral-500);
-}
-.tool-plan [data-state="in_progress"] {
-  background: var(--color-neutral-100);
 }
 .hljs {
   color: light-dark(#24292e, #c9d1d9);

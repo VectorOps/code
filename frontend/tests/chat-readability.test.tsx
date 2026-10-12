@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { render } from "@testing-library/react";
 import { StepFeed } from "../src/components/StepFeed";
 import { AssistantStep } from "../src/components/steps/AssistantStep";
+import { UserStep } from "../src/components/steps/UserStep";
 import { ToolStep } from "../src/components/steps/ToolStep";
 import { defaultStepRegistry } from "../src/components/steps/defaults";
 import { ToolDetails } from "../src/components/tools/ToolDetails";
@@ -50,6 +51,35 @@ function feed(history: HistoryItem[], pending: InputRequest[] = []) {
     />,
   );
 }
+
+test("sent user images remain visible alongside the message text", () => {
+  const step = stepView({
+    position: 1,
+    step: {
+      id: "user-message",
+      workflow_id: "root",
+      operation: {
+        kind: "mailbox.input",
+        input: { request_type: "chat.message.v1" },
+      },
+      outcome: {
+        kind: "completed",
+        result: {
+          content: [
+            { type: "text", text: "What is in this image?" },
+            { type: "image", mime_type: "image/png", data: "cG5n" },
+          ],
+        },
+      },
+    },
+  });
+  const view = render(<UserStep step={step} actions={actions} />);
+  assert.ok(view.getByText("What is in this image?"));
+  assert.equal(
+    view.getByAltText("Attached image 1").getAttribute("src"),
+    "data:image/png;base64,cG5n",
+  );
+});
 
 test("running tools use a compact activity label, spinner and command bubble", () => {
   for (const state of ["pending", "streaming"]) {

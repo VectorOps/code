@@ -1,5 +1,5 @@
 import { StrictMode, useState, type ComponentProps } from "react";
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as vitest from "vitest";
 import { Workspace } from "../src/screens/Workspace";
@@ -118,6 +118,108 @@ function workspaceProps(): ComponentProps<typeof Workspace> {
     hasOlder: false,
   };
 }
+
+vitest.test(
+  "image-only messages preserve attachments on a failed reply and reuse the retry key",
+  async () => {
+    const props = workspaceProps();
+    const onReply = vitest.vi.fn(async () => true).mockResolvedValueOnce(false);
+    const view = render(<Workspace {...props} onReply={onReply} />);
+    const user = userEvent.setup();
+    await user.upload(
+      view.getByLabelText("Choose images"),
+      new File(["png"], "shot.png", { type: "image/png" }),
+    );
+    await waitFor(() =>
+      vitest.expect(view.getByAltText("shot.png")).toBeTruthy(),
+    );
+    await user.click(view.getByRole("button", { name: "Send message" }));
+    vitest
+      .expect(onReply)
+      .toHaveBeenCalledWith(
+        request,
+        { content: [{ type: "image", mime_type: "image/png", data: "cG5n" }] },
+        vitest.expect.any(String),
+      );
+    vitest.expect(view.getByAltText("shot.png")).toBeTruthy();
+    await user.click(view.getByRole("button", { name: "Send message" }));
+    vitest.expect(onReply.mock.calls[1]).toEqual(onReply.mock.calls[0]);
+    vitest.expect(view.queryByAltText("shot.png")).toBeNull();
+  },
+);
+
+vitest.test(
+  "a successful reply removes only submitted images and preserves additions during send",
+  async () => {
+    let finish: (result: boolean) => void = () => {};
+    const props = workspaceProps();
+    const onReply = vitest.vi.fn<ComponentProps<typeof Workspace>["onReply"]>(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const view = render(<Workspace {...props} onReply={onReply} />);
+    const user = userEvent.setup();
+    await user.upload(
+      view.getByLabelText("Choose images"),
+      new File(["png"], "first.png", { type: "image/png" }),
+    );
+    await waitFor(() =>
+      vitest.expect(view.getByAltText("first.png")).toBeTruthy(),
+    );
+    await user.type(view.getByLabelText("Message draft"), "Look at this");
+    await user.click(view.getByRole("button", { name: "Send message" }));
+    await user.upload(
+      view.getByLabelText("Choose images"),
+      new File(["png"], "second.png", { type: "image/png" }),
+    );
+    await waitFor(() =>
+      vitest.expect(view.getByAltText("second.png")).toBeTruthy(),
+    );
+    await act(async () => finish(true));
+    vitest.expect(view.queryByAltText("first.png")).toBeNull();
+    vitest.expect(view.getByAltText("second.png")).toBeTruthy();
+    vitest.expect(onReply.mock.calls[0][1]).toEqual({
+      content: [
+        { type: "text", text: "Look at this" },
+        { type: "image", mime_type: "image/png", data: "cG5n" },
+      ],
+    });
+  },
+);
+
+vitest.test(
+  "images are retained per session and text-only workflows cannot send them",
+  async () => {
+    const props = workspaceProps();
+    const view = render(<Workspace {...props} />);
+    const user = userEvent.setup();
+    await user.upload(
+      view.getByLabelText("Choose images"),
+      new File(["png"], "shot.png", { type: "image/png" }),
+    );
+    await waitFor(() =>
+      vitest.expect(view.getByAltText("shot.png")).toBeTruthy(),
+    );
+    view.rerender(<Workspace {...props} selected="session-b" pending={[]} />);
+    vitest.expect(view.queryByAltText("shot.png")).toBeNull();
+    view.rerender(
+      <Workspace
+        {...props}
+        pending={[{ ...request, request_type: undefined }]}
+      />,
+    );
+    vitest.expect(view.getByAltText("shot.png")).toBeTruthy();
+    vitest
+      .expect(view.getByRole("button", { name: "Send message" }))
+      .toHaveProperty("disabled", true);
+    vitest.expect(view.getByText(/accepts text only/)).toBeTruthy();
+    vitest.expect(props.onReply).not.toHaveBeenCalled();
+    await user.click(view.getByRole("button", { name: "Remove shot.png" }));
+    vitest.expect(view.queryByAltText("shot.png")).toBeNull();
+  },
+);
 
 vitest.test("running status stays last in the feed during streaming", () => {
   const props = workspaceProps();
