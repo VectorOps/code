@@ -24,6 +24,7 @@ export function useRunner(initial: models.ConnectionSettings) {
   const selectedRef = React.useRef(selected);
   selectedRef.current = selected;
   const startKey = React.useRef({ signature: "", key: "" });
+  const resumeKey = React.useRef({ execution: "", key: "" });
   const ready = React.useRef(false);
   const refreshHistory = React.useRef(
     (_reconcile: boolean, _event?: Params) => {},
@@ -219,6 +220,17 @@ export function useRunner(initial: models.ConnectionSettings) {
     });
   }
 
+  function resume() {
+    if (!selected) return Promise.resolve(false);
+    return action(async (api) => {
+      if (resumeKey.current.execution !== selected)
+        resumeKey.current = { execution: selected, key: crypto.randomUUID() };
+      await api.resume(selected, resumeKey.current.key);
+      setSessions(await api.sessions());
+      resumeKey.current = { execution: "", key: "" };
+    });
+  }
+
   return {
     api,
     settings,
@@ -235,9 +247,11 @@ export function useRunner(initial: models.ConnectionSettings) {
     busy,
     enabled: status === "Connected" && !busy,
     start,
+    resume,
     stop: () =>
       action(async (api) => {
         await api.stop(selected);
+        setSessions(await api.sessions());
       }),
     reply,
   };

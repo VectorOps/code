@@ -9,7 +9,7 @@ export const defaultStepRegistry = new StepRegistry([
     id: "assistant",
     matches: (step) => step.kind === "llm.generate",
     visible: (step) =>
-      step.state !== "completed" || step.message.trim().length > 0,
+      step.message.trim().length > 0 || step.state === "failed",
     component: AssistantStep,
   },
   {

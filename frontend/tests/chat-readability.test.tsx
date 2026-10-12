@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { render } from "@testing-library/react";
 import { StepFeed } from "../src/components/StepFeed";
 import { AssistantStep } from "../src/components/steps/AssistantStep";
 import { ToolStep } from "../src/components/steps/ToolStep";
@@ -257,4 +258,87 @@ test("streaming agent text has no repeated assistant header", () => {
   assert.match(html, /Writing/);
   assert.match(html, /aria-busy="true"/);
   assert.doesNotMatch(html, />Assistant<|activity-heading/);
+});
+
+test("empty agent output does not mount a chat row or status-only placeholder", () => {
+  for (const state of ["pending", "streaming", "completed", "cancelled"]) {
+    for (const message of ["", " \n\t "]) {
+      const history: HistoryItem[] = [
+        {
+          position: 1,
+          step: {
+            id: "assistant",
+            workflow_id: "root",
+            operation: { kind: "llm.generate" },
+            outcome: { kind: state, state: message, result: message },
+          },
+        },
+      ];
+      assert.equal(
+        defaultStepRegistry.resolve(stepView(history[0], history)),
+        undefined,
+      );
+      assert.equal(feed(history), "");
+    }
+  }
+});
+
+test("an empty pending response appears only once streamed text arrives", () => {
+  const entry = (state: string, message: string): HistoryItem => ({
+    position: 1,
+    step: {
+      id: "assistant",
+      workflow_id: "root",
+      operation: { kind: "llm.generate" },
+      outcome: { kind: state, state: message, result: message },
+    },
+  });
+  const view = render(
+    <StepFeed
+      history={[entry("pending", "")]}
+      registry={defaultStepRegistry}
+      actions={actions}
+      active
+    />,
+  );
+  assert.equal(view.container.querySelector(".assistant-step"), null);
+  assert.equal(view.container.querySelector(".feed-item"), null);
+  view.rerender(
+    <StepFeed
+      history={[entry("streaming", "Visible response")]}
+      registry={defaultStepRegistry}
+      actions={actions}
+      active
+    />,
+  );
+  assert.ok(view.getByText("Visible response"));
+  assert.ok(view.getByText("Writing"));
+  view.rerender(
+    <StepFeed
+      history={[entry("completed", " \n ")]}
+      registry={defaultStepRegistry}
+      actions={actions}
+      active
+    />,
+  );
+  assert.equal(view.container.querySelector(".assistant-step"), null);
+});
+
+test("agent failures remain visible even when no response text was produced", () => {
+  const html = feed([
+    {
+      position: 1,
+      step: {
+        id: "assistant",
+        workflow_id: "root",
+        operation: { kind: "llm.generate" },
+        outcome: {
+          kind: "failed",
+          error: { message: "Unable to generate a response." },
+        },
+      },
+    },
+  ]);
+  assert.match(html, /Unable to generate a response\./);
+  assert.match(html, /aria-label="Failed"/);
 });

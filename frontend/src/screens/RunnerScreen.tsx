@@ -31,7 +31,12 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
       busy={runner.busy}
       error={runner.error}
       dismiss={runner.dismiss}
-      onStop={() => void runner.stop()}
+      onStop={async () => {
+        await runner.stop();
+      }}
+      onResume={async () => {
+        await runner.resume();
+      }}
       onReply={runner.reply}
       connection={
         <ConnectionForm

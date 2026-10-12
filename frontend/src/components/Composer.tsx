@@ -1,7 +1,45 @@
 import { useRef, useState } from "react";
+import type { Session } from "../models/runner";
+
+type Activity = "send" | "stop" | "resume" | "review" | "idle";
+type WorkflowState = Pick<Session, "status" | "active" | "pending_inputs">;
+
+function workflowActivity(
+  selected: boolean,
+  ready: boolean,
+  pendingCount: number,
+  session?: WorkflowState,
+): Activity {
+  if (!selected) return "idle";
+  if (session?.status === "stopping") return "stop";
+  if (ready) return "send";
+  if (session?.status === "paused") return pendingCount > 0 ? "review" : "send";
+  if (session?.active) return "stop";
+  if (pendingCount > 0) return "review";
+  if (session?.status === "cancelled" && session.pending_inputs === 0)
+    return "resume";
+  return "idle";
+}
+
+const activityLabels: Record<Activity, string> = {
+  send: "Send message",
+  stop: "Stop workflow",
+  resume: "Start workflow",
+  review: "Review pending input",
+  idle: "No workflow action available",
+};
+
+const progressLabels: Record<Activity, string> = {
+  send: "Sending message",
+  stop: "Stopping workflow",
+  resume: "Starting workflow",
+  review: "Opening pending input",
+  idle: "No workflow action available",
+};
 
 export function Composer({
   selected,
+  session,
   pendingCount,
   ready,
   enabled,
@@ -9,9 +47,12 @@ export function Composer({
   value,
   change,
   send,
+  stop,
+  resume,
   review,
 }: {
   selected: boolean;
+  session?: WorkflowState;
   pendingCount: number;
   ready: boolean;
   enabled: boolean;
@@ -19,22 +60,46 @@ export function Composer({
   value: string;
   change: (value: string) => void;
   send: () => Promise<void>;
+  stop?: () => void | Promise<void>;
+  resume?: () => Promise<void>;
   review: () => void;
 }) {
   const inFlight = useRef(false);
-  const [sending, setSending] = useState(false);
-  const canSend =
-    selected && enabled && ready && !busy && !sending && Boolean(value.trim());
+  const [operating, setOperating] = useState<Activity | null>(null);
+  const activity = workflowActivity(selected, ready, pendingCount, session);
+  const callback =
+    activity === "send"
+      ? send
+      : activity === "stop"
+        ? stop
+        : activity === "resume"
+          ? resume
+          : activity === "review"
+            ? review
+            : undefined;
+  const canAct =
+    enabled &&
+    !busy &&
+    !operating &&
+    Boolean(callback) &&
+    session?.status !== "stopping" &&
+    (activity !== "send" || (ready && Boolean(value.trim())));
+  const displayedActivity = operating ?? activity;
+  const label = operating
+    ? progressLabels[operating]
+    : session?.status === "stopping"
+      ? progressLabels.stop
+      : activityLabels[activity];
 
   async function submit() {
-    if (!canSend || inFlight.current) return;
+    if (!canAct || !callback || inFlight.current) return;
     inFlight.current = true;
-    setSending(true);
+    setOperating(activity);
     try {
-      await send();
+      await callback();
     } finally {
       inFlight.current = false;
-      setSending(false);
+      setOperating(null);
     }
   }
 
@@ -49,7 +114,7 @@ export function Composer({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
+          if (activity === "send") void submit();
         }}
       >
         <label htmlFor="message-draft" className="sr-only">
@@ -73,20 +138,48 @@ export function Composer({
               !event.nativeEvent.isComposing
             ) {
               event.preventDefault();
-              void submit();
+              if (activity === "send") void submit();
             }
           }}
         />
         <div className="composer-actions">
           <span>
-            {ready
+            {activity === "send" && ready
               ? "Ready for your message. Ctrl/Cmd+Enter to send."
-              : selected
-                ? "Draft freely. Sending is available when the workflow asks for input."
-                : "One conversation per top-level workflow."}
+              : activity === "stop"
+                ? "Draft freely while the workflow runs."
+                : activity === "resume"
+                  ? "Start the stopped workflow to continue. Your draft will be kept."
+                  : activity === "review"
+                    ? "Review the pending input to continue."
+                    : selected
+                      ? "Draft freely. Sending is available when the workflow asks for input."
+                      : "One conversation per top-level workflow."}
           </span>
-          <button disabled={!canSend}>
-            {busy || sending ? "Sending..." : "Send"}
+          <button
+            className="composer-submit"
+            type={activity === "send" ? "submit" : "button"}
+            onClick={activity === "send" ? undefined : () => void submit()}
+            disabled={!canAct}
+            aria-label={label}
+            title={label}
+            aria-busy={
+              Boolean(operating) || busy || session?.status === "stopping"
+            }
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              {displayedActivity === "stop" ? (
+                <rect x="6" y="6" width="12" height="12" rx="1" />
+              ) : (
+                <path d="M8 5v14l11-7z" />
+              )}
+            </svg>
           </button>
         </div>
       </form>

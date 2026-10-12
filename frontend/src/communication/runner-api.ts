@@ -86,6 +86,12 @@ export class RunnerApi {
   stop(execution_id: string) {
     return this.connection.request("executions.stop", { execution_id });
   }
+  resume(execution_id: string, idempotency_key: string) {
+    return this.connection.request<{
+      execution_id: string;
+      status: "starting";
+    }>("executions.resume", { execution_id, idempotency_key });
+  }
   async respond(
     request: models.InputRequest,
     response: Json,

@@ -36,6 +36,7 @@ export function Workspace({
   enabled,
   busy,
   onStop,
+  onResume,
   onReply,
   newSession,
   connection,
@@ -57,7 +58,8 @@ export function Workspace({
   endpoint: string;
   enabled: boolean;
   busy: boolean;
-  onStop: () => void;
+  onStop: () => void | Promise<void>;
+  onResume?: () => Promise<void>;
   onReply: (
     request: InputRequest,
     response: Json,
@@ -213,9 +215,6 @@ export function Workspace({
             >
               Session
             </button>
-            <button disabled={!enabled || !current?.active} onClick={onStop}>
-              Stop
-            </button>
           </div>
         </header>
         {error && (
@@ -280,6 +279,7 @@ export function Workspace({
         )}
         <Composer
           selected={Boolean(selected)}
+          session={current}
           pendingCount={decisions.length}
           ready={Boolean(chat)}
           enabled={enabled}
@@ -289,6 +289,8 @@ export function Workspace({
             setDrafts((values) => ({ ...values, [scope]: value }))
           }
           send={send}
+          stop={onStop}
+          resume={onResume}
           review={() => open({ kind: "decisions" })}
         />
       </section>

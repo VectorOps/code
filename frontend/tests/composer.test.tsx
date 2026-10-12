@@ -22,10 +22,18 @@ function compose(overrides: Partial<Props> = {}) {
     value: "Hello",
     change: vitest.vi.fn(),
     send,
+    stop: vitest.vi.fn(async () => {}),
+    resume: vitest.vi.fn(async () => {}),
     review: vitest.vi.fn(),
     ...overrides,
   };
-  return { ...render(<DraftComposer {...props} />), send: props.send };
+  return {
+    ...render(<DraftComposer {...props} />),
+    send: props.send,
+    stop: props.stop,
+    resume: props.resume,
+    review: props.review,
+  };
 }
 
 vitest.test.each(["ctrlKey", "metaKey"])(
@@ -68,9 +76,7 @@ vitest.test.each([
       fireEvent.submit(draft.closest("form")!);
     });
     vitest.expect(view.send).not.toHaveBeenCalled();
-    vitest
-      .expect(view.getByRole("button", { name: /Send/ }))
-      .toHaveProperty("disabled", true);
+    vitest.expect(view.getByRole("button")).toHaveProperty("disabled", true);
   },
 );
 
@@ -103,19 +109,172 @@ vitest.test(
     fireEvent.submit(draft.closest("form")!);
     vitest.expect(send).toHaveBeenCalledOnce();
     vitest
-      .expect(view.getByRole("button", { name: "Sending..." }))
+      .expect(view.getByRole("button", { name: "Sending message" }))
       .toHaveProperty("disabled", true);
     await userEvent.setup().type(draft, " more");
     await act(async () => finish());
     vitest.expect(draft).toHaveProperty("value", "Hello more");
     vitest
-      .expect(view.getByRole("button", { name: "Send" }))
+      .expect(view.getByRole("button", { name: "Send message" }))
       .toHaveProperty("disabled", false);
   },
 );
 
-vitest.test("the Send button uses the same submission path", async () => {
+vitest.test("the play icon uses the same message submission path", async () => {
   const view = compose();
-  await userEvent.setup().click(view.getByRole("button", { name: "Send" }));
+  const button = view.getByRole("button", { name: "Send message" });
+  vitest.expect(button.textContent).toBe("");
+  vitest.expect(button.querySelector("svg path")).not.toBeNull();
+  vitest.expect(button).toHaveProperty("title", "Send message");
+  await userEvent.setup().click(button);
   vitest.expect(view.send).toHaveBeenCalledOnce();
 });
+
+vitest.test.each(["running", "starting"])(
+  "a %s workflow has a stop icon and stopping preserves the draft",
+  async (status) => {
+    const view = compose({
+      ready: false,
+      session: { status, active: true, pending_inputs: 0 },
+    });
+    const button = view.getByRole("button", { name: "Stop workflow" });
+    vitest.expect(button.querySelector("svg rect")).not.toBeNull();
+    fireEvent.keyDown(view.getByRole("textbox"), {
+      key: "Enter",
+      ctrlKey: true,
+    });
+    fireEvent.submit(view.getByRole("textbox").closest("form")!);
+    vitest.expect(view.stop).not.toHaveBeenCalled();
+    await userEvent.setup().click(button);
+    vitest.expect(view.stop).toHaveBeenCalledOnce();
+    vitest.expect(view.send).not.toHaveBeenCalled();
+    vitest.expect(view.resume).not.toHaveBeenCalled();
+    vitest.expect(view.getByRole("textbox")).toHaveProperty("value", "Hello");
+  },
+);
+
+vitest.test.each(["paused", "running"])(
+  "a waiting message uses play even when the execution is active with status %s",
+  async (status) => {
+    const view = compose({
+      session: { status, active: true, pending_inputs: 1 },
+    });
+    const button = view.getByRole("button", { name: "Send message" });
+    vitest.expect(button.querySelector("svg path")).not.toBeNull();
+    await userEvent.setup().click(button);
+    vitest.expect(view.send).toHaveBeenCalledOnce();
+    vitest.expect(view.stop).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test.each(["", "Saved instruction"])(
+  "a cancelled workflow can start without submitting draft %j",
+  async (value) => {
+    const view = compose({
+      ready: false,
+      value,
+      session: { status: "cancelled", active: false, pending_inputs: 0 },
+    });
+    const button = view.getByRole("button", { name: "Start workflow" });
+    vitest.expect(button.querySelector("svg path")).not.toBeNull();
+    await userEvent.setup().click(button);
+    vitest.expect(view.resume).toHaveBeenCalledOnce();
+    vitest.expect(view.send).not.toHaveBeenCalled();
+    vitest.expect(view.stop).not.toHaveBeenCalled();
+    vitest.expect(view.getByRole("textbox")).toHaveProperty("value", value);
+  },
+);
+
+vitest.test(
+  "a paused workflow awaiting a decision offers review instead of stopping",
+  async () => {
+    const view = compose({
+      ready: false,
+      value: "",
+      pendingCount: 1,
+      session: { status: "paused", active: false, pending_inputs: 1 },
+    });
+    const button = view.getByRole("button", { name: "Review pending input" });
+    vitest.expect(button.querySelector("svg path")).not.toBeNull();
+    await userEvent.setup().click(button);
+    vitest.expect(view.review).toHaveBeenCalledOnce();
+    vitest.expect(view.stop).not.toHaveBeenCalled();
+    vitest.expect(view.resume).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
+  "pending child decisions do not replace stop while the workflow is running",
+  () => {
+    const view = compose({
+      ready: false,
+      pendingCount: 1,
+      session: { status: "running", active: true, pending_inputs: 1 },
+    });
+    vitest
+      .expect(view.getByRole("button", { name: "Stop workflow" }))
+      .toHaveProperty("disabled", false);
+  },
+);
+
+vitest.test.each([
+  { status: "stopping", active: true, pending_inputs: 0 },
+  { status: "completed", active: false, pending_inputs: 0 },
+  { status: "failed", active: false, pending_inputs: 0 },
+  { status: "cancelled", active: false, pending_inputs: 1 },
+  { status: "paused", active: false, pending_inputs: 1 },
+])(
+  "unavailable workflow state %j cannot trigger an action",
+  async (session) => {
+    const view = compose({ ready: false, session });
+    vitest.expect(view.getByRole("button")).toHaveProperty("disabled", true);
+    await userEvent.setup().click(view.getByRole("button"));
+    vitest.expect(view.send).not.toHaveBeenCalled();
+    vitest.expect(view.stop).not.toHaveBeenCalled();
+    vitest.expect(view.resume).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test.each(["stop", "resume"] as const)(
+  "%s obeys disconnected and busy guards",
+  async (activity) => {
+    const session =
+      activity === "stop"
+        ? { status: "running", active: true, pending_inputs: 0 }
+        : { status: "cancelled", active: false, pending_inputs: 0 };
+    for (const unavailable of [{ enabled: false }, { busy: true }]) {
+      const view = compose({ ready: false, session, ...unavailable });
+      await userEvent.setup().click(view.getByRole("button"));
+      vitest.expect(view[activity]).not.toHaveBeenCalled();
+      vitest.expect(view.getByRole("button")).toHaveProperty("disabled", true);
+      view.unmount();
+    }
+  },
+);
+
+vitest.test.each(["stop", "resume"] as const)(
+  "rapid %s clicks invoke the action once",
+  async (activity) => {
+    let finish: () => void = () => {};
+    const callback = vitest.vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const session =
+      activity === "stop"
+        ? { status: "running", active: true, pending_inputs: 0 }
+        : { status: "cancelled", active: false, pending_inputs: 0 };
+    const view = compose({ ready: false, session, [activity]: callback });
+    fireEvent.click(view.getByRole("button"));
+    fireEvent.click(view.getByRole("button"));
+    vitest.expect(callback).toHaveBeenCalledOnce();
+    vitest.expect(view.getByRole("button")).toHaveProperty("disabled", true);
+    vitest
+      .expect(view.getByRole("button").getAttribute("aria-busy"))
+      .toBe("true");
+    await act(async () => finish());
+    vitest.expect(view.getByRole("button")).toHaveProperty("disabled", false);
+  },
+);

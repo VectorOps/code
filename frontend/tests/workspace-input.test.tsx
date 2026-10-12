@@ -18,6 +18,73 @@ vitest.beforeEach(() => {
 
 vitest.afterEach(() => vitest.vi.unstubAllGlobals());
 
+vitest.test(
+  "one composer control stops, resumes and sends without losing the draft",
+  async () => {
+    const props = workspaceProps();
+    const onResume = vitest.vi.fn(async () => {});
+    const running = {
+      execution_id: "session-a",
+      reference: "chat:workflow",
+      status: "running",
+      active: true,
+      pending_inputs: 0,
+    };
+    const view = render(
+      <Workspace
+        {...props}
+        sessions={[running]}
+        pending={[]}
+        onResume={onResume}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.type(view.getByLabelText("Message draft"), "Saved instruction");
+    const stop = view.getByRole("button", { name: "Stop workflow" });
+    vitest.expect(stop.closest(".composer-area")).not.toBeNull();
+    vitest.expect(view.queryByRole("button", { name: /^Stop$/ })).toBeNull();
+    await user.click(stop);
+    vitest.expect(props.onStop).toHaveBeenCalledOnce();
+    vitest
+      .expect(view.getByLabelText("Message draft"))
+      .toHaveProperty("value", "Saved instruction");
+    view.rerender(
+      <Workspace
+        {...props}
+        sessions={[{ ...running, status: "cancelled", active: false }]}
+        pending={[]}
+        onResume={onResume}
+      />,
+    );
+    await user.click(view.getByRole("button", { name: "Start workflow" }));
+    vitest.expect(onResume).toHaveBeenCalledOnce();
+    vitest.expect(props.onReply).not.toHaveBeenCalled();
+    vitest
+      .expect(view.getByLabelText("Message draft"))
+      .toHaveProperty("value", "Saved instruction");
+    view.rerender(
+      <Workspace
+        {...props}
+        sessions={[
+          { ...running, status: "paused", active: false, pending_inputs: 1 },
+        ]}
+        onResume={onResume}
+      />,
+    );
+    await user.click(view.getByRole("button", { name: "Send message" }));
+    vitest
+      .expect(props.onReply)
+      .toHaveBeenCalledWith(
+        request,
+        { content: [{ type: "text", text: "Saved instruction" }] },
+        vitest.expect.any(String),
+      );
+    vitest
+      .expect(view.getByLabelText("Message draft"))
+      .toHaveProperty("value", "");
+  },
+);
+
 const request: InputRequest = {
   request_id: "message-request",
   execution_id: "session-a",
