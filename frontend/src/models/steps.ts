@@ -8,16 +8,23 @@ export type StepView = ReturnType<typeof activity> & {
   message: string;
   input: Record<string, Json>;
   toolCall?: Json;
+  processCommand?: Json;
 };
 
-const toolCalls = new WeakMap<HistoryItem[], Map<HistoryItem, Json>>();
+type HistoryIndex = {
+  calls: Map<HistoryItem, Json>;
+  commands: Map<HistoryItem, Json>;
+};
+
+const historyIndexes = new WeakMap<HistoryItem[], HistoryIndex>();
 const views = new WeakMap<HistoryItem, StepView>();
 
-function toolCallIndex(history: HistoryItem[]): Map<HistoryItem, Json> {
-  const cached = toolCalls.get(history);
+function historyIndex(history: HistoryItem[]): HistoryIndex {
+  const cached = historyIndexes.get(history);
   if (cached) return cached;
-  const result = new Map<HistoryItem, Json>();
+  const result: HistoryIndex = { calls: new Map(), commands: new Map() };
   const latest = new Map<string, Json>();
+  const processes = new Map<string, Json>();
   for (const item of [...history].sort((a, b) => a.position - b.position)) {
     const entry = activity(item);
     if (entry.kind === "llm.generate") {
@@ -44,37 +51,79 @@ function toolCallIndex(history: HistoryItem[]): Map<HistoryItem, Json> {
       const call = latest.get(
         JSON.stringify([entry.workflow, output.tool_call_id, output.tool_name]),
       );
-      if (call !== undefined) result.set(item, call);
+      if (call !== undefined) result.calls.set(item, call);
+      const tool = toolDescription(createStepView(item, call));
+      const args = object(tool.arguments);
+      if (tool.name === "exec") {
+        const processId = text(object(toolPayload(tool.output)).process_id);
+        if (processId && args.command !== undefined)
+          processes.set(
+            JSON.stringify([entry.workflow, processId]),
+            args.command,
+          );
+      } else if (
+        ["poll_process", "write_stdin", "kill_process"].includes(tool.name)
+      ) {
+        const command = processes.get(
+          JSON.stringify([entry.workflow, text(args.process_id)]),
+        );
+        if (command !== undefined) result.commands.set(item, command);
+      }
     }
   }
-  toolCalls.set(history, result);
+  historyIndexes.set(history, result);
   return result;
 }
 
-export function stepView(
+function createStepView(
   item: HistoryItem,
-  history: HistoryItem[] = [],
+  toolCall?: Json,
+  processCommand?: Json,
 ): StepView {
   const entry = activity(item);
   const output =
     entry.state === "streaming" ? entry.outcome.state : entry.outcome.result;
-  const callId = text(object(output).tool_call_id);
-  const toolCall =
-    entry.kind === "llm.tool" && callId
-      ? toolCallIndex(history).get(item)
-      : undefined;
-  const cached = views.get(item);
-  if (cached && cached.toolCall === toolCall) return cached;
-  const view = {
+  return {
     ...entry,
     item,
     output,
     message: messageText(output),
     input: object(entry.operation.input),
     toolCall,
+    processCommand,
   };
+}
+
+export function stepView(
+  item: HistoryItem,
+  history: HistoryItem[] = [],
+): StepView {
+  const index = historyIndex(history);
+  const toolCall = index.calls.get(item);
+  const processCommand = index.commands.get(item);
+  const cached = views.get(item);
+  if (
+    cached &&
+    cached.toolCall === toolCall &&
+    cached.processCommand === processCommand
+  )
+    return cached;
+  const view = createStepView(item, toolCall, processCommand);
   views.set(item, view);
   return view;
+}
+
+export function toolPayload(output: Json | undefined): Json | undefined {
+  const content = object(output).content;
+  const first = text(
+    object(Array.isArray(content) ? content[0] : undefined).text,
+  );
+  if (!first) return output;
+  try {
+    return JSON.parse(first) as Json;
+  } catch {
+    return first;
+  }
 }
 
 export function isUserResponse(step: StepView): boolean {
@@ -111,6 +160,7 @@ export function toolDescription(step: StepView, approval?: InputRequest) {
   return {
     name: text(call.name) || text(result.tool_name) || "Tool call",
     arguments: call.arguments,
+    processCommand: step.processCommand,
     failed: step.state === "failed" || result.is_error === true,
     output,
     state:

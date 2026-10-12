@@ -2,6 +2,7 @@ import { approvalFor, toolDescription } from "../../models/steps";
 import { ApprovalActions } from "../ApprovalActions";
 import type { StepProps } from "./registry";
 import { defaultToolFormatters } from "../tools/defaults";
+import { StepIndicators } from "./StepIndicators";
 import "../tools/tools.css";
 
 export function ToolStep({ step, actions }: StepProps) {
@@ -18,10 +19,11 @@ export function ToolStep({ step, actions }: StepProps) {
     >
       <button className="activity-heading">
         <span>{factory.name(tool.name)}</span>
-        <span className="entry-state">
-          {approval ? "Needs approval" : tool.failed ? "Failed" : tool.state} /
-          Details
-        </span>
+        <StepIndicators
+          state={
+            approval ? "Needs approval" : tool.failed ? "Failed" : tool.state
+          }
+        />
       </button>
       <Summary tool={tool} />
       {approval && (

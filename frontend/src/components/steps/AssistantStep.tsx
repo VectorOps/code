@@ -3,6 +3,7 @@ import remarkGfm from "remark-gfm";
 import { HighlightedCode } from "../HighlightedCode";
 import { object, text } from "../../models/json";
 import type { StepProps } from "./registry";
+import { StepIndicators } from "./StepIndicators";
 
 export function AssistantStep({ step, actions }: StepProps) {
   const streaming = step.state === "streaming" || step.state === "pending";
@@ -13,9 +14,7 @@ export function AssistantStep({ step, actions }: StepProps) {
         onClick={() => actions.inspect(step.id)}
       >
         <span>Assistant</span>
-        <span className="entry-state">
-          {streaming ? "Responding..." : step.state} / Details
-        </span>
+        <StepIndicators state={step.state} />
       </button>
       <div className="markdown-content">
         <ReactMarkdown

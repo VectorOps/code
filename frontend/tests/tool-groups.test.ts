@@ -91,3 +91,65 @@ test("growing groups retain identity and use current member state", () => {
   assert.equal(next.steps.length, 3);
   assert.equal(next.steps[1], updated);
 });
+
+test("exec and poll calls share a stable group in either order", () => {
+  for (const names of [
+    ["exec", "poll_process", "poll_process", "exec"],
+    ["poll_process", "exec", "poll_process"],
+  ]) {
+    const entries = names.map((name, index) => tool(name, index));
+    const initial = groupTools(entries.slice(0, 2), [])[0];
+    const groups = groupTools(entries, []);
+    assert.equal(groups.length, 1);
+    const group = groups[0];
+    assert.ok("steps" in group);
+    assert.equal(group.name, "exec");
+    assert.equal(group.id, initial.id);
+    assert.deepEqual(group.steps, entries);
+  }
+});
+
+test("shared group keys support custom tool families and explicit opt-outs", () => {
+  const entries = [tool("custom_start", 1), tool("custom_wait", 2)];
+  const groups = groupTools(entries, [], {
+    custom_start: "custom_process",
+    custom_wait: "custom_process",
+  });
+  assert.equal(groups.length, 1);
+  assert.ok("steps" in groups[0]);
+  assert.equal(groups[0].name, "custom_process");
+  assert.deepEqual(groups[0].steps, entries);
+  assert.deepEqual(
+    groupTools(entries, [], {
+      custom_start: "custom_process",
+      custom_wait: false,
+    }),
+    entries,
+  );
+  const patches = [tool("exec", 1), tool("apply_patch", 2)];
+  assert.deepEqual(
+    groupTools(patches, [], { exec: "process", apply_patch: "process" }),
+    patches,
+  );
+});
+
+test("mixed tool families retain workflow, message and approval boundaries", () => {
+  const entries = [tool("exec", 1), tool("poll_process", 2), tool("exec", 3)];
+  const gated = [entries[0], tool("poll_process", 2, true), entries[2]];
+  assert.deepEqual(groupTools(gated, []), gated);
+  const approval: InputRequest = {
+    request_id: entries[1].id,
+    execution_id: "execution",
+    workflow_id: "root",
+    request_type: "tool.approval.v1",
+    channel: "approval",
+    payload: {},
+    response_type: "json",
+  };
+  assert.deepEqual(groupTools(entries, [approval]), entries);
+  const separated = [entries[0], { ...entries[1], workflow: "other" }];
+  assert.deepEqual(groupTools(separated, []), separated);
+  const message = { ...tool("exec", 2), kind: "llm.generate" };
+  const interrupted = [entries[0], message, entries[1]];
+  assert.deepEqual(groupTools(interrupted, []), interrupted);
+});

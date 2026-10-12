@@ -1,4 +1,5 @@
 import type { StepProps } from "./registry";
+import { StepIndicators } from "./StepIndicators";
 
 export function UserStep({ step, actions }: StepProps) {
   return (
@@ -8,7 +9,7 @@ export function UserStep({ step, actions }: StepProps) {
         onClick={() => actions.inspect(step.id)}
       >
         <span>You</span>
-        <span className="entry-state">Details</span>
+        <StepIndicators />
       </button>
       <div className="message-text">
         {step.message || "Message with attachments"}

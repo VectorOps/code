@@ -16,6 +16,7 @@ export function ToolGroup({
   const [expanded, setExpanded] = useState(false);
   const factory = actions.tools ?? defaultToolFormatters;
   const tools = group.steps.map((step) => toolDescription(step));
+  const mixed = new Set(tools.map((tool) => tool.name)).size > 1;
   const previewStart = Math.max(0, tools.length - 2);
   const states = new Map<string, number>();
   for (const tool of tools) {
@@ -51,6 +52,11 @@ export function ToolGroup({
                   className="tool-group-preview-call"
                   key={group.steps[previewStart + index].id}
                 >
+                  {mixed && (
+                    <span className="entry-state">
+                      {factory.name(tool.name)}
+                    </span>
+                  )}
                   <Summary tool={tool} />
                 </div>
               );

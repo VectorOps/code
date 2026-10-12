@@ -1,4 +1,5 @@
 import { object, text, type Json } from "../../models/json";
+import { toolPayload } from "../../models/steps";
 import type { ToolProps, ToolView } from "./factory";
 import type { ReactNode } from "react";
 import { HighlightedCode } from "../HighlightedCode";
@@ -43,14 +44,7 @@ export function values(value: Json | undefined): Json[] {
 }
 
 export function payload(tool: ToolView): Json | undefined {
-  const content = values(object(tool.output).content);
-  const first = text(object(content[0]).text);
-  if (!first) return tool.output;
-  try {
-    return JSON.parse(first) as Json;
-  } catch {
-    return first;
-  }
+  return toolPayload(tool.output);
 }
 
 function display(value: Json | undefined): string {
@@ -238,9 +232,10 @@ export function FilesDetails({ tool }: ToolProps) {
 
 function command(tool: ToolView): string {
   const args = object(tool.arguments),
-    cmd = object(args.command);
+    requested = args.command ?? tool.processCommand,
+    cmd = object(requested);
   return (
-    text(args.command) ||
+    text(requested) ||
     text(cmd.script) ||
     values(cmd.argv)
       .map((value) => {
@@ -287,7 +282,8 @@ export function ProcessDetails({ tool }: ToolProps) {
       tool={tool}
       request={
         <>
-          {requestedCommand !== undefined && (
+          {(requestedCommand !== undefined ||
+            tool.processCommand !== undefined) && (
             <Code value={command(tool)} language="bash" />
           )}
           {tool.arguments === undefined ? (
