@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { HighlightedCode } from "../src/components/HighlightedCode";
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StepFeed } from "../src/components/StepFeed";
 import { AssistantStep } from "../src/components/steps/AssistantStep";

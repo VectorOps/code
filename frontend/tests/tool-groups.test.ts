@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { groupTools } from "../src/models/tool-groups";
 import { stepView } from "../src/models/steps";
 import type { InputRequest } from "../src/models/runner";

@@ -12,6 +12,7 @@ import { ActivityDetails } from "../components/ActivityDetails";
 import { Decision } from "../components/Decision";
 import { SessionSidebar } from "../components/SessionSidebar";
 import { Composer } from "../components/Composer";
+import { useConversationScroll } from "../hooks/useConversationScroll";
 import { defaultToolFormatters } from "../components/tools/defaults";
 import type { ToolFormatterFactory } from "../components/tools/factory";
 import { approvalFor, stepView, toolDescription } from "../models/steps";
@@ -72,10 +73,6 @@ export function Workspace({
   const [leftOpen, setLeftOpen] = useState(true);
   const [inspector, setInspector] = useState<Inspector | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [newActivity, setNewActivity] = useState(false);
-  const scroll = useRef<HTMLDivElement>(null);
-  const positions = useRef<Record<string, number>>({});
-  const following = useRef(true);
   const inspectorRef = useRef<HTMLElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
   const retry = useRef({ signature: "", key: "" });
@@ -86,6 +83,11 @@ export function Workspace({
     () => workflowInputs(history, pending),
     [history, pending],
   );
+  const feedRevision = useMemo(
+    () => ({ history, pending }),
+    [history, pending],
+  );
+  const feed = useConversationScroll(scope, feedRevision);
   const chat = chatRequests.length === 1 ? chatRequests[0] : undefined;
   const inspectedItem =
     inspector?.kind === "activity"
@@ -121,25 +123,7 @@ export function Workspace({
   }, [inspector?.kind]);
   useEffect(() => {
     setInspector(null);
-    setNewActivity(false);
-    following.current = true;
   }, [scope]);
-  useEffect(() => {
-    const area = scroll.current;
-    if (!area) return;
-    area.scrollTop = positions.current[scope] ?? area.scrollHeight;
-    following.current =
-      area.scrollHeight - area.scrollTop - area.clientHeight < 80;
-    return () => {
-      positions.current[scope] = area.scrollTop;
-    };
-  }, [scope]);
-  useEffect(() => {
-    const area = scroll.current;
-    if (!area) return;
-    if (following.current) area.scrollTop = area.scrollHeight;
-    else setNewActivity(true);
-  }, [history]);
 
   async function send() {
     if (!chat || !draft.trim() || !enabled) return;
@@ -237,17 +221,12 @@ export function Workspace({
         </div>
         <div
           className="conversation-feed"
-          ref={scroll}
-          onScroll={() => {
-            const area = scroll.current!;
-            positions.current[scope] = area.scrollTop;
-            following.current =
-              area.scrollHeight - area.scrollTop - area.clientHeight < 80;
-            if (following.current) setNewActivity(false);
-          }}
+          ref={feed.viewport}
+          role="region"
+          aria-label="Conversation history"
         >
           {!selected ? (
-            <div className="welcome-state">
+            <div className="welcome-state" ref={feed.content}>
               <h2>What would you like to work on?</h2>
               <p>
                 Choose a workflow to start, or return to a conversation in the
@@ -258,7 +237,7 @@ export function Workspace({
               </button>
             </div>
           ) : (
-            <div className="feed-content">
+            <div className="feed-content" ref={feed.content}>
               {hasOlder && (
                 <p className="history-boundary">
                   Showing the latest 100 persisted steps. Earlier history is not
@@ -281,16 +260,8 @@ export function Workspace({
             </div>
           )}
         </div>
-        {newActivity && (
-          <button
-            className="new-activity"
-            onClick={() => {
-              following.current = true;
-              if (scroll.current)
-                scroll.current.scrollTop = scroll.current.scrollHeight;
-              setNewActivity(false);
-            }}
-          >
+        {feed.newActivity && (
+          <button className="new-activity" onClick={feed.jumpToLatest}>
             New activity / Jump to latest
           </button>
         )}

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { HistorySync } from "../src/communication/history-sync";
 import { RunnerApi } from "../src/communication/runner-api";
 import { RunnerConnection } from "../src/communication/websocket";

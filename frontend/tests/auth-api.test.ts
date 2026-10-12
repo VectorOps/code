@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { AuthApi } from "../src/communication/auth-api";
 import { RunnerConnection } from "../src/communication/websocket";
 import type { Params } from "../src/models/json";

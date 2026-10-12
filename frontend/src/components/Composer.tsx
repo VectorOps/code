@@ -1,3 +1,5 @@
+import { useRef, useState } from "react";
+
 export function Composer({
   selected,
   pendingCount,
@@ -19,6 +21,23 @@ export function Composer({
   send: () => Promise<void>;
   review: () => void;
 }) {
+  const inFlight = useRef(false);
+  const [sending, setSending] = useState(false);
+  const canSend =
+    selected && enabled && ready && !busy && !sending && Boolean(value.trim());
+
+  async function submit() {
+    if (!canSend || inFlight.current) return;
+    inFlight.current = true;
+    setSending(true);
+    try {
+      await send();
+    } finally {
+      inFlight.current = false;
+      setSending(false);
+    }
+  }
+
   return (
     <footer className="composer-area">
       {pendingCount > 0 && (
@@ -30,7 +49,7 @@ export function Composer({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          void send();
+          void submit();
         }}
       >
         <label htmlFor="message-draft" className="sr-only">
@@ -54,7 +73,7 @@ export function Composer({
               !event.nativeEvent.isComposing
             ) {
               event.preventDefault();
-              void send();
+              void submit();
             }
           }}
         />
@@ -66,8 +85,8 @@ export function Composer({
                 ? "Draft freely. Sending is available when the workflow asks for input."
                 : "One conversation per top-level workflow."}
           </span>
-          <button disabled={!enabled || !ready || !value.trim()}>
-            {busy ? "Sending..." : "Send"}
+          <button disabled={!canSend}>
+            {busy || sending ? "Sending..." : "Send"}
           </button>
         </div>
       </form>

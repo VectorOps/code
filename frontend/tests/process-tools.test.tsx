@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Json } from "../src/models/json";
 import type { HistoryItem } from "../src/models/runner";
