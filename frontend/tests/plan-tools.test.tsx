@@ -107,36 +107,53 @@ test("empty plans retain a compact fallback without stale requested tasks", () =
   assert.equal(view.queryByText("Task A"), null);
 });
 
-test("the todo tool displays its plan directly in the feed", () => {
-  const step = stepView({
-    position: 1,
-    step: {
-      id: "plan",
-      workflow_id: "root",
-      operation: {
-        kind: "llm.tool",
-        input: { call: { name: "update_plan", arguments: { todos } } },
+test.each(["completed", "streaming", "authorized"])(
+  "the todo tool displays only its plan in the feed when %s",
+  (state) => {
+    const step = stepView({
+      position: 1,
+      step: {
+        id: "plan",
+        workflow_id: "root",
+        operation: {
+          kind: "llm.tool",
+          input: {
+            call: { name: "update_plan", arguments: { todos } },
+            gate_only: state === "authorized",
+          },
+        },
+        outcome:
+          state === "streaming"
+            ? { kind: "streaming", state: { todos } }
+            : { kind: "completed", result: { todos } },
       },
-      outcome: { kind: "completed", result: { todos } },
-    },
-  });
-  const view = render(
-    <ToolStep
-      step={step}
-      actions={{
-        pending: [],
-        enabled: true,
-        inspect: () => {},
-        reply: async () => true,
-      }}
-    />,
-  );
-  assert.ok(view.getByText("Updated plan"));
-  assert.equal(view.container.querySelector(".entry-state"), null);
-  assert.equal(
-    view.getByRole("button", { name: "View details" }).tagName,
-    "SECTION",
-  );
-  assert.equal(view.getAllByRole("listitem").length, 3);
-  assert.equal(view.queryByText("Result / output"), null);
-});
+    });
+    const view = render(
+      <ToolStep
+        step={step}
+        actions={{
+          pending: [],
+          enabled: true,
+          inspect: () => {},
+          reply: async () => true,
+        }}
+      />,
+    );
+    assert.equal(view.container.querySelector(".tool-activity-label"), null);
+    assert.equal(view.container.querySelector(".entry-state"), null);
+    assert.equal(
+      view.getByRole("button", { name: "View details" }).tagName,
+      "SECTION",
+    );
+    assert.equal(
+      view.container.querySelector(".tool-activity-row")?.children.length,
+      1,
+    );
+    assert.equal(
+      view.getByRole("list", { name: "Plan" }).textContent,
+      "Task ATask BTask C",
+    );
+    assert.equal(view.getAllByRole("listitem").length, 3);
+    assert.equal(view.queryByText("Result / output"), null);
+  },
+);

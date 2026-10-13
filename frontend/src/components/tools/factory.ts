@@ -6,6 +6,7 @@ export type ToolProps = { tool: ToolView };
 export type ToolFormatter = {
   summary: ComponentType<ToolProps>;
   activity?: { completed: string; running: string };
+  hideActivityLabel?: boolean;
   hideIndicators?: boolean;
   details: ComponentType<ToolProps>;
   width: number;

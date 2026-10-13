@@ -25,11 +25,13 @@ export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
       }
     >
       <div className="tool-activity-row">
-        <span className="tool-activity-label">
-          {approval
-            ? `Approve ${factory.name(tool.name)}`
-            : factory.activity(tool)}
-        </span>
+        {!formatter.hideActivityLabel && (
+          <span className="tool-activity-label">
+            {approval
+              ? `Approve ${factory.name(tool.name)}`
+              : factory.activity(tool)}
+          </span>
+        )}
         <Summary tool={tool} />
         {(!formatter.hideIndicators ||
           approval ||
