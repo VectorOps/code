@@ -293,18 +293,20 @@ export function Composer({
               </button>
             </>
           )}
-          <span>
-            {activity === "send" && ready
-              ? "Ready for your message. Ctrl/Cmd+Enter to send."
-              : activity === "stop"
-                ? "Draft freely while the workflow runs."
-                : activity === "resume"
-                  ? "Start the stopped workflow to continue. Your draft will be kept."
-                  : activity === "review"
-                    ? "Review the pending input to continue."
-                    : selected
-                      ? "Draft freely. Sending is available when the workflow asks for input."
-                      : "One conversation per top-level workflow."}
+          <span role={operating ? "status" : undefined}>
+            {operating
+              ? `${progressLabels[operating]}…`
+              : activity === "send" && ready
+                ? "Ready for your message. Ctrl/Cmd+Enter to send."
+                : activity === "stop"
+                  ? "Draft freely while the workflow runs."
+                  : activity === "resume"
+                    ? "Start the stopped workflow to continue. Your draft will be kept."
+                    : activity === "review"
+                      ? "Review the pending input to continue."
+                      : selected
+                        ? "Draft freely. Sending is available when the workflow asks for input."
+                        : "One conversation per top-level workflow."}
           </span>
           <button
             className="composer-submit"

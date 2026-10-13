@@ -418,7 +418,8 @@ vitest.test(
     const draft = view.getByLabelText("Message draft");
     await user.type(draft, "First");
     await user.keyboard("{Control>}{Enter}{/Control}");
-    vitest.expect(draft).toHaveProperty("value", "");
+    vitest.expect(draft).toHaveProperty("value", "First");
+    vitest.expect(view.getByText("Sending message…")).toBeTruthy();
     await user.type(draft, " more");
     await act(async () => finish(true));
     vitest.expect(onReply).toHaveBeenCalledWith(
@@ -428,7 +429,7 @@ vitest.test(
       },
       vitest.expect.any(String),
     );
-    vitest.expect(draft).toHaveProperty("value", " more");
+    vitest.expect(draft).toHaveProperty("value", "First more");
   },
 );
 
