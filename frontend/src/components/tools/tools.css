@@ -101,11 +101,16 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tool-activity-row:has(> .tool-plan),
+.tool-activity-row:has(> .tool-plan) {
+  align-items: flex-start;
+}
+.tool-activity-row > .tool-plan {
+  flex: 1;
+  margin: 0;
+}
 .tool-group-heading:has(> .tool-plan) {
   flex-wrap: wrap;
 }
-.tool-activity-row > .tool-plan,
 .tool-group-heading > .tool-plan {
   flex-basis: 100%;
   order: 1;

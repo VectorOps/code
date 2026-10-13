@@ -37,6 +37,18 @@ test("frontend CSS preserves global layer order and appearance overrides", async
   const css = styles.join("\n");
   assert.match(css, /\.image-thumbnail/);
   assert.match(css, /\.tool-plan/);
+  const inlinePlan = lastRule(css, ".tool-activity-row > .tool-plan");
+  assert.match(inlinePlan, /flex:\s*1/);
+  assert.match(inlinePlan, /margin:\s*0/);
+  assert.doesNotMatch(inlinePlan, /order:|flex-basis:/);
+  assert.match(
+    lastRule(css, ".tool-activity-row:has(> .tool-plan)"),
+    /align-items:\s*flex-start/,
+  );
+  assert.match(
+    lastRule(css, ".tool-group-heading > .tool-plan"),
+    /flex-basis:\s*100%/,
+  );
   for (const selector of [
     ".user-step .message-text",
     ".composer-area textarea",
