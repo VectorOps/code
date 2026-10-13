@@ -20,6 +20,7 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
         />
       }
       sessions={runner.sessions}
+      activitySessions={runner.activitySessions}
       workflows={runner.workflows}
       selected={runner.selected}
       onSelect={runner.select}

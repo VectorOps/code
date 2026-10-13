@@ -13,6 +13,9 @@ export function useRunner(initial: models.ConnectionSettings) {
   const [error, setError] = React.useState("");
   const [workflows, setWorkflows] = React.useState<models.Workflow[]>([]);
   const [sessions, setSessions] = React.useState<models.Session[]>([]);
+  const [activitySessions, setActivitySessions] = React.useState<Set<string>>(
+    () => new Set(),
+  );
   const [selected, setSelected] = React.useState("");
   const [execution, setExecution] = React.useState<models.Execution>();
   const [branching, setBranching] = React.useState<models.BranchAccepted>();
@@ -68,7 +71,21 @@ export function useRunner(initial: models.ConnectionSettings) {
           dirty = false;
           const list = await api!.sessions(active);
           if (!alive) return;
-          setSessions(list);
+          setSessions((previous) => {
+            const refreshed = new Map(
+              list.map((session) => [session.execution_id, session]),
+            );
+            const ordered = previous
+              .filter((session) => refreshed.has(session.execution_id))
+              .map((session) => refreshed.get(session.execution_id)!);
+            const known = new Set(
+              ordered.map((session) => session.execution_id),
+            );
+            return [
+              ...ordered,
+              ...list.filter((session) => !known.has(session.execution_id)),
+            ];
+          });
         } while (dirty && alive);
       } catch (reason) {
         if (alive) setError(String(reason));
@@ -101,6 +118,12 @@ export function useRunner(initial: models.ConnectionSettings) {
       });
     };
     connection.onEvent = (event) => {
+      const eventExecution = text(event.execution_id);
+      if (eventExecution && eventExecution !== selectedRef.current) {
+        setActivitySessions((previous) =>
+          new Set(previous).add(eventExecution),
+        );
+      }
       if (
         event.kind === "execution.branch_applied" ||
         event.kind === "execution.branch_failed"
@@ -141,6 +164,15 @@ export function useRunner(initial: models.ConnectionSettings) {
       connection.close();
     };
   }, [api]);
+
+  React.useEffect(() => {
+    if (selected)
+      setActivitySessions((previous) => {
+        const next = new Set(previous);
+        next.delete(selected);
+        return next;
+      });
+  }, [selected]);
 
   React.useEffect(() => {
     setHistory({ items: [], next_cursor: null });
@@ -297,6 +329,7 @@ export function useRunner(initial: models.ConnectionSettings) {
     dismiss: () => setError(""),
     workflows,
     sessions,
+    activitySessions,
     selected,
     select: setSelected,
     history,

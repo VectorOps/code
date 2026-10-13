@@ -3,6 +3,7 @@ import * as models from "../models/runner";
 
 export function SessionSidebar({
   sessions,
+  activitySessions = new Set<string>(),
   workflows,
   selected,
   status,
@@ -14,6 +15,7 @@ export function SessionSidebar({
 }: {
   collapsed?: boolean;
   sessions: models.Session[];
+  activitySessions?: Set<string>;
   workflows: models.Workflow[];
   selected: string;
   status: string;
@@ -109,12 +111,19 @@ export function SessionSidebar({
                     session.name,
                   )}
                 </span>
-                <small>
-                  {session.pending_inputs
-                    ? `${session.pending_inputs} pending`
-                    : session.status}{" "}
-                  / {session.execution_id.slice(0, 8)}
-                </small>
+                <span className="session-list-meta">
+                  <small>
+                    {session.pending_inputs
+                      ? `${session.pending_inputs} pending`
+                      : session.status}{" "}
+                    / {session.execution_id.slice(0, 8)}
+                  </small>
+                  {activitySessions.has(session.execution_id) && (
+                    <span aria-label="New activity" title="New activity">
+                      ●
+                    </span>
+                  )}
+                </span>
               </button>
             ))}
           </nav>

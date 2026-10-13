@@ -44,6 +44,7 @@ export function Workspace(
 
 function WorkspaceContent({
   sessions,
+  activitySessions = new Set<string>(),
   workflows = [],
   selected,
   onSelect,
@@ -71,6 +72,7 @@ function WorkspaceContent({
   toolFormatters?: ToolFormatterFactory;
   stepRegistry?: StepRegistry;
   sessions: models.Session[];
+  activitySessions?: Set<string>;
   workflows?: models.Workflow[];
   selected: string;
   onSelect: (id: string) => void;
@@ -231,6 +233,7 @@ function WorkspaceContent({
       <SessionSidebar
         collapsed={!leftOpen}
         sessions={sessions}
+        activitySessions={activitySessions}
         workflows={workflows}
         selected={selected}
         status={status}
