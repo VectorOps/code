@@ -49,6 +49,29 @@ test("frontend CSS preserves global layer order and appearance overrides", async
     lastRule(css, ".tool-group-heading > .tool-plan"),
     /flex-basis:\s*100%/,
   );
+  const iconButton = lastRule(css, ".step-details-button");
+  assert.match(iconButton, /display:\s*flex/);
+  assert.match(iconButton, /color:\s*var\(--color-neutral-400(?:,|\))/);
+  assert.match(iconButton, /background-color:\s*(?:transparent|#0000)/);
+  assert.match(iconButton, /padding:/);
+  for (const selector of [
+    ".step-details-button:hover:not(:disabled)",
+    ".step-details-button:focus-visible",
+  ]) {
+    assert.match(
+      lastRule(css, selector),
+      /color:\s*var\(--color-neutral-700(?:,|\))/,
+    );
+    assert.match(
+      lastRule(css, selector),
+      /background-color:\s*var\(--color-neutral-100(?:,|\))/,
+    );
+  }
+  assert.match(lastRule(css, ".assistant-controls"), /float:\s*right/);
+  assert.match(
+    lastRule(css, ".tool-activity-row > .tool-step-controls"),
+    /margin-left:\s*auto/,
+  );
   for (const selector of [
     ".user-step .message-text",
     ".composer-area textarea",
