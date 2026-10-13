@@ -385,10 +385,9 @@ vitest.test.each(["user", "assistant", "tool"])(
         ? ".tool-activity-row > .tool-step-controls"
         : ".assistant-controls",
     )!;
-    const restart = view.getByRole("button", { name: "Restart this step" });
-    vitest.expect(restart.closest(".step-card")).toBe(card);
-    vitest.expect(controls.contains(restart)).toBe(true);
-    vitest.expect(restart.classList.contains("step-details-button")).toBe(true);
+    vitest
+      .expect(view.queryByRole("button", { name: "Restart this step" }))
+      .toBeNull();
     vitest
       .expect(view.container.querySelector(".step-branch-controls"))
       .toBeNull();
@@ -405,21 +404,6 @@ vitest.test.each(["user", "assistant", "tool"])(
       vitest.expect(callbacks.inspect).not.toHaveBeenCalled();
       testing.fireEvent.click(view.getByRole("button", { name: "Cancel" }));
     }
-    testing.fireEvent.click(
-      view.getByRole("button", { name: "Restart this step" }),
-    );
-    const editor = card.querySelector(".branch-editor")!;
-    vitest.expect(card.lastElementChild).toBe(editor);
-    testing.fireEvent.click(
-      view.getByText(/Earlier recorded results are reused/),
-    );
-    vitest.expect(callbacks.inspect).not.toHaveBeenCalled();
-    testing.fireEvent.click(view.getByRole("button", { name: "Restart step" }));
-    await testing.waitFor(() =>
-      vitest
-        .expect(callbacks.branch)
-        .toHaveBeenCalledWith(steps.stepView(entry).id, { kind: "restart" }),
-    );
     vitest.expect(callbacks.inspect).not.toHaveBeenCalled();
     testing.fireEvent.click(card);
     vitest
@@ -468,8 +452,7 @@ vitest.test(
       <StepBranchControls step={steps.stepView(input())} actions={actions()} />,
     );
     const edit = view.getByRole("button", { name: "Edit input" });
-    const restart = view.getByRole("button", { name: "Restart this step" });
-    for (const button of [edit, restart]) {
+    for (const button of [edit]) {
       vitest.expect(button.textContent).toBe("");
       vitest.expect(button.classList.contains("branch-icon")).toBe(true);
       vitest
@@ -479,10 +462,10 @@ vitest.test(
         .expect(button.querySelector("svg")?.getAttribute("width"))
         .toBe("16");
     }
-    vitest.expect(edit.title).toBe("Edit input on a new branch");
     vitest
-      .expect(restart.title)
-      .toBe("Restart this step and continue on a new branch");
+      .expect(view.queryByRole("button", { name: "Restart this step" }))
+      .toBeNull();
+    vitest.expect(edit.title).toBe("Edit input on a new branch");
   },
 );
 
@@ -543,14 +526,42 @@ vitest.test.each([false, true])(
   },
 );
 
+vitest.test("failed workflow stop exposes a retry control", () => {
+  const stopped = item(
+    "failed-stop",
+    null,
+    "root",
+    { kind: "workflow.complete" },
+    null,
+  );
+  stopped.step = {
+    ...(stopped.step as Record<string, Json>),
+    outcome: {
+      kind: "failed",
+      error: { type: "WorkflowError", message: "Workflow stopped" },
+    },
+  };
+  const view = testing.render(
+    <StepBranchControls step={steps.stepView(stopped)} actions={actions()} />,
+  );
+  vitest
+    .expect(view.getByRole("button", { name: "Retry this step" }))
+    .toBeTruthy();
+});
+
 vitest.test(
-  "restart requires confirmation, supports cancellation and disables disconnected controls",
+  "retry requires confirmation, supports cancellation and disables disconnected controls",
   async () => {
     const callbacks = actions();
-    const props = { step: steps.stepView(item("answer")), actions: callbacks };
+    const failed = item("answer");
+    failed.step = {
+      ...(failed.step as Record<string, Json>),
+      outcome: { kind: "failed", error: { type: "Error", message: "failed" } },
+    };
+    const props = { step: steps.stepView(failed), actions: callbacks };
     const view = testing.render(<StepBranchControls {...props} />);
     testing.fireEvent.click(
-      view.getByRole("button", { name: "Restart this step" }),
+      view.getByRole("button", { name: "Retry this step" }),
     );
     vitest.expect(callbacks.branch).not.toHaveBeenCalled();
     vitest
@@ -565,13 +576,13 @@ vitest.test(
       />,
     );
     vitest
-      .expect(view.getByRole("button", { name: "Restart this step" }))
+      .expect(view.getByRole("button", { name: "Retry this step" }))
       .toHaveProperty("disabled", true);
     view.rerender(<StepBranchControls {...props} />);
     testing.fireEvent.click(
-      view.getByRole("button", { name: "Restart this step" }),
+      view.getByRole("button", { name: "Retry this step" }),
     );
-    testing.fireEvent.click(view.getByRole("button", { name: "Restart step" }));
+    testing.fireEvent.click(view.getByRole("button", { name: "Retry step" }));
     await testing.waitFor(() =>
       vitest
         .expect(callbacks.branch)
@@ -603,12 +614,12 @@ vitest.test(
       />,
     );
     vitest
-      .expect(view.getAllByRole("button", { name: "Restart this step" }))
-      .toHaveLength(1);
+      .expect(view.queryByRole("button", { name: "Restart this step" }))
+      .toBeNull();
     toggle(view.getByText("Agent: Child").closest("details")!);
     vitest
-      .expect(view.getAllByRole("button", { name: "Restart this step" }))
-      .toHaveLength(2);
+      .expect(view.queryByRole("button", { name: "Restart this step" }))
+      .toBeNull();
     vitest.expect(view.getByText("child-answer")).toBeTruthy();
     vitest
       .expect(view.getAllByRole("button", { name: "Edit input" }))
@@ -622,8 +633,8 @@ vitest.test(
     );
     toggle(debug.getByText("1. workflow.join / completed").closest("details")!);
     vitest
-      .expect(debug.getByRole("button", { name: "Restart this step" }))
-      .toBeTruthy();
+      .expect(debug.queryByRole("button", { name: "Restart this step" }))
+      .toBeNull();
   },
 );
 
@@ -840,8 +851,8 @@ vitest.test(
     vitest.expect(view.getByText("Selected response")).toBeTruthy();
     vitest.expect(view.queryByText("Abandoned response")).toBeNull();
     vitest
-      .expect(view.getAllByRole("button", { name: "Restart this step" }))
-      .toHaveLength(2);
+      .expect(view.queryByRole("button", { name: "Restart this step" }))
+      .toBeNull();
     testing.fireEvent.click(
       view.getByRole("button", { name: "Debug steps (3)" }),
     );
@@ -851,22 +862,17 @@ vitest.test(
     toggle(details);
     const archived = testing.within(details);
     vitest.expect(archived.getByText(/Abandoned response/)).toBeTruthy();
-    testing.fireEvent.click(
-      archived.getByRole("button", { name: "Restart this step" }),
-    );
-    testing.fireEvent.click(
-      archived.getByRole("button", { name: "Restart step" }),
-    );
-    await testing.waitFor(() =>
-      vitest.expect(branch).toHaveBeenCalledWith("old", { kind: "restart" }),
-    );
+    vitest
+      .expect(archived.queryByRole("button", { name: "Restart this step" }))
+      .toBeNull();
+    vitest.expect(branch).not.toHaveBeenCalled();
     view.unmount();
     vitest.vi.unstubAllGlobals();
   },
 );
 
 vitest.test(
-  "grouped tool calls each expose their own root restart point",
+  "grouped successful tool calls do not expose restart controls",
   async () => {
     const callbacks = actions();
     const history = [1, 2].map((position) =>
@@ -899,15 +905,10 @@ vitest.test(
       ".tool-group details",
     ) as HTMLDetailsElement;
     toggle(details);
-    const controls = view.getAllByRole("button", { name: "Restart this step" });
-    vitest.expect(controls).toHaveLength(2);
-    testing.fireEvent.click(controls[1]);
-    testing.fireEvent.click(view.getByRole("button", { name: "Restart step" }));
-    await testing.waitFor(() =>
-      vitest
-        .expect(callbacks.branch)
-        .toHaveBeenCalledWith("tool-2", { kind: "restart" }),
-    );
+    vitest
+      .expect(view.queryByRole("button", { name: "Restart this step" }))
+      .toBeNull();
+    vitest.expect(callbacks.branch).not.toHaveBeenCalled();
   },
 );
 
