@@ -7,6 +7,7 @@ export type WorkflowNode = {
   id: string;
   label: string;
   parent?: WorkflowNode;
+  spawn?: StepView;
   entries: (StepView | WorkflowNode)[];
   requests: InputRequest[];
   status: string;
@@ -74,6 +75,7 @@ export function workflowTree(history: HistoryItem[], pending: InputRequest[]) {
             pendingCalls.filter((candidate) => candidate !== call),
           );
         child.parent = owner;
+        child.spawn = step;
         owner.entries.push(child);
         continue;
       }

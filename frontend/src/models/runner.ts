@@ -3,6 +3,7 @@ import { chatMessage, type ImageInput } from "./chat-input";
 
 export type Session = {
   execution_id: string;
+  root_workflow_id?: string | null;
   reference: string | null;
   status: string;
   active: boolean;
@@ -28,6 +29,19 @@ export type InputRequest = {
 };
 export type HistoryItem = { position: number; step: Json };
 export type HistoryPage = { items: HistoryItem[]; next_cursor: string | null };
+export type Execution = {
+  id: string;
+  root_workflow_id: string;
+  status: string;
+  checkpoint: { heads: Record<string, string> };
+};
+export type BranchAction =
+  { kind: "restart" } | { kind: "insert_input"; response: Json };
+export type BranchAccepted = {
+  execution_id: string;
+  operation_id: string;
+  status: "accepted";
+};
 export type ConnectionSettings = { endpoint: string; token: string };
 
 export function isChatRequest(request: InputRequest): boolean {
@@ -38,7 +52,7 @@ export function isChatRequest(request: InputRequest): boolean {
 }
 
 export function inputResponse(
-  request: InputRequest,
+  request: Pick<InputRequest, "request_type" | "response_type">,
   value: string,
   images: readonly ImageInput[] = [],
 ): Json {

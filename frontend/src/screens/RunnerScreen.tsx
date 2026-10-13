@@ -23,6 +23,8 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
       selected={runner.selected}
       onSelect={runner.select}
       history={runner.history.items}
+      execution={runner.execution}
+      branching={runner.branching?.execution_id === runner.selected}
       hasOlder={Boolean(runner.history.next_cursor)}
       pending={runner.pending}
       status={runner.status}
@@ -38,6 +40,7 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
         await runner.resume();
       }}
       onReply={runner.reply}
+      onBranch={runner.branch}
       connection={
         <ConnectionForm
           value={connection}

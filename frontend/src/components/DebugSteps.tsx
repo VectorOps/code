@@ -2,11 +2,16 @@ import type { HistoryItem } from "../models/runner";
 import { activity } from "../models/activity";
 import { LazyDetails } from "./LazyDetails";
 import { memo } from "react";
+import { stepView } from "../models/steps";
+import type { StepActions } from "./steps/registry";
+import { StepBranchControls } from "./StepBranchControls";
 
 export const DebugSteps = memo(function DebugSteps({
   history,
+  actions,
 }: {
   history: HistoryItem[];
+  actions?: StepActions;
 }) {
   return (
     <>
@@ -21,7 +26,17 @@ export const DebugSteps = memo(function DebugSteps({
             key={step.id}
             summary={`${item.position}. ${step.kind} / ${step.state}`}
           >
-            {() => <pre>{JSON.stringify(item.step, null, 2)}</pre>}
+            {() => (
+              <>
+                {actions && (
+                  <StepBranchControls
+                    step={stepView(item, history)}
+                    actions={actions}
+                  />
+                )}
+                <pre>{JSON.stringify(item.step, null, 2)}</pre>
+              </>
+            )}
           </LazyDetails>
         );
       })}

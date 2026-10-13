@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import type { Json } from "../../models/json";
-import type { InputRequest } from "../../models/runner";
+import type { BranchAction, InputRequest } from "../../models/runner";
 import type { StepView } from "../../models/steps";
 import type { ToolFormatterFactory } from "../tools/factory";
 
@@ -9,6 +9,8 @@ export type StepActions = {
   pending: InputRequest[];
   enabled: boolean;
   inspect: (id: string) => void;
+  rootWorkflowId?: string;
+  branch?: (id: string, action: BranchAction) => Promise<boolean>;
   reply: (
     request: InputRequest,
     response: Json,

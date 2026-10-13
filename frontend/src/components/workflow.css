@@ -57,3 +57,33 @@
   display: block;
   overflow-wrap: anywhere;
 }
+.step-branch-controls {
+  margin: 4px 0 12px;
+  font-size: 0.8rem;
+  text-align: right;
+}
+.branch-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.branch-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.branch-editor {
+  clear: both;
+  margin-top: 8px;
+  text-align: left;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 8px;
+  padding: 12px;
+}
+.branch-editor textarea {
+  width: 100%;
+  resize: vertical;
+}
+.branch-editor p {
+  margin: 8px 0;
+}

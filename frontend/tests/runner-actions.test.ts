@@ -60,6 +60,12 @@ vitest.test(
       .mockImplementation(async () => [session]);
     vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
     vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "execution").mockResolvedValue({
+      id: "existing",
+      root_workflow_id: "root",
+      status: "cancelled",
+      checkpoint: { heads: {} },
+    });
     vitest.vi
       .spyOn(RunnerApi.prototype, "history")
       .mockResolvedValue({ items: [], next_cursor: null });

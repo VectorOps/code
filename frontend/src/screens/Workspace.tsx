@@ -1,8 +1,8 @@
 import * as React from "react";
 import type { Json } from "../models/json";
-import type { Session, InputRequest, HistoryItem } from "../models/runner";
-import { inputResponse } from "../models/runner";
+import * as models from "../models/runner";
 import { workflowProjection } from "../models/workflow-tree";
+import { selectedHistory } from "../models/selected-history";
 import { activity } from "../models/activity";
 import { StepFeed } from "../components/StepFeed";
 import { DebugSteps } from "../components/DebugSteps";
@@ -47,6 +47,8 @@ function WorkspaceContent({
   selected,
   onSelect,
   history,
+  execution,
+  branching = false,
   pending,
   status,
   endpoint,
@@ -55,6 +57,7 @@ function WorkspaceContent({
   onStop,
   onResume,
   onReply,
+  onBranch,
   newSession,
   connection,
   settings,
@@ -66,11 +69,13 @@ function WorkspaceContent({
 }: {
   toolFormatters?: ToolFormatterFactory;
   stepRegistry?: StepRegistry;
-  sessions: Session[];
+  sessions: models.Session[];
   selected: string;
   onSelect: (id: string) => void;
-  history: HistoryItem[];
-  pending: InputRequest[];
+  history: models.HistoryItem[];
+  execution?: models.Execution;
+  branching?: boolean;
+  pending: models.InputRequest[];
   status: string;
   endpoint: string;
   enabled: boolean;
@@ -78,10 +83,11 @@ function WorkspaceContent({
   onStop: () => void | Promise<void>;
   onResume?: () => Promise<void>;
   onReply: (
-    request: InputRequest,
+    request: models.InputRequest,
     response: Json,
     key: string,
   ) => Promise<boolean>;
+  onBranch?: (id: string, action: models.BranchAction) => Promise<boolean>;
   newSession: React.ReactNode;
   connection: React.ReactNode;
   settings?: React.ReactNode;
@@ -100,14 +106,18 @@ function WorkspaceContent({
   const scope = `${endpoint}/${selected}`;
   const draft = drafts[scope] || "";
   const attachments = useImageAttachments(scope);
+  const conversationHistory = React.useMemo(
+    () => (execution ? selectedHistory(history, execution) : history),
+    [history, execution],
+  );
   const projection = React.useMemo(
-    () => workflowProjection(history, pending),
-    [history, pending],
+    () => workflowProjection(conversationHistory, pending),
+    [conversationHistory, pending],
   );
   const { chat: chatRequests, decisions } = projection;
   const feedRevision = React.useMemo(
-    () => ({ history, pending }),
-    [history, pending],
+    () => ({ history: conversationHistory, pending }),
+    [conversationHistory, pending],
   );
   const feed = useConversationScroll(scope, feedRevision);
   const chat = chatRequests.length === 1 ? chatRequests[0] : undefined;
@@ -124,7 +134,12 @@ function WorkspaceContent({
     [history, inspector],
   );
   const inspectedStep = inspectedItem
-    ? stepView(inspectedItem, history)
+    ? stepView(
+        inspectedItem,
+        conversationHistory.includes(inspectedItem)
+          ? conversationHistory
+          : history,
+      )
     : undefined;
   const inspectedTool =
     inspectedStep?.kind === "llm.tool"
@@ -151,8 +166,20 @@ function WorkspaceContent({
       enabled,
       reply: onReply,
       inspect,
+      rootWorkflowId:
+        execution?.root_workflow_id ?? current?.root_workflow_id ?? undefined,
+      branch: onBranch,
     }),
-    [toolFormatters, decisions, enabled, onReply, inspect],
+    [
+      toolFormatters,
+      decisions,
+      enabled,
+      onReply,
+      inspect,
+      onBranch,
+      execution?.root_workflow_id,
+      current?.root_workflow_id,
+    ],
   );
   function close() {
     setInspector(null);
@@ -175,7 +202,7 @@ function WorkspaceContent({
     const images = attachments.images.flatMap((item) =>
       item.state === "ready" ? [item.image] : [],
     );
-    const response = inputResponse(chat, draft, images);
+    const response = models.inputResponse(chat, draft, images);
     const signature = JSON.stringify([scope, chat.request_id, response]);
     if (retry.current.signature !== signature)
       retry.current = { signature, key: crypto.randomUUID() };
@@ -295,13 +322,18 @@ function WorkspaceContent({
               )}
               <StepFeed
                 key={scope}
-                history={history}
+                history={conversationHistory}
                 active={Boolean(current?.active)}
                 registry={stepRegistry}
                 actions={actions}
                 projection={projection}
                 onReview={feed.pauseFollowing}
               />
+              {branching && (
+                <p role="status">
+                  Branch accepted. The workflow will continue automatically.
+                </p>
+              )}
               {current?.active &&
                 current.status === "running" &&
                 current.pending_inputs === 0 &&
@@ -390,7 +422,9 @@ function WorkspaceContent({
             </button>
           </div>
           <div className="inspector-content">
-            {inspector.kind === "debug" && <DebugSteps history={history} />}
+            {inspector.kind === "debug" && (
+              <DebugSteps history={history} actions={actions} />
+            )}
             {inspector.kind === "new" && newSession}
             {inspector.kind === "connection" && connection}
             {inspector.kind === "settings" && settings}

@@ -6,6 +6,7 @@ import { object, text } from "../../models/json";
 import type { StepProps } from "./registry";
 import { StepIndicators } from "./StepIndicators";
 import { StepCard } from "./StepCard";
+import { useStepBranchControls } from "../StepBranchControls";
 
 const plugins = [remarkGfm];
 const components: Components = {
@@ -43,6 +44,7 @@ export const AssistantStep = memo(function AssistantStep({
   actions,
 }: StepProps) {
   const streaming = step.state === "streaming" || step.state === "pending";
+  const branch = useStepBranchControls(step, actions);
   return (
     <StepCard
       className="assistant-step"
@@ -52,6 +54,7 @@ export const AssistantStep = memo(function AssistantStep({
       <div className="assistant-controls">
         {streaming && <span>{step.message ? "Writing" : "Thinking"}</span>}
         <StepIndicators state={step.state} />
+        {branch.icons}
       </div>
       <MarkdownBody message={step.message} />
       {step.state === "failed" && (
@@ -60,6 +63,7 @@ export const AssistantStep = memo(function AssistantStep({
             "The agent could not finish its response."}
         </p>
       )}
+      {branch.editor}
     </StepCard>
   );
 });

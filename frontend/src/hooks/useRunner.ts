@@ -14,6 +14,8 @@ export function useRunner(initial: models.ConnectionSettings) {
   const [workflows, setWorkflows] = React.useState<models.Workflow[]>([]);
   const [sessions, setSessions] = React.useState<models.Session[]>([]);
   const [selected, setSelected] = React.useState("");
+  const [execution, setExecution] = React.useState<models.Execution>();
+  const [branching, setBranching] = React.useState<models.BranchAccepted>();
   const [history, setHistory] = React.useState<models.HistoryPage>({
     items: [],
     next_cursor: null,
@@ -25,6 +27,8 @@ export function useRunner(initial: models.ConnectionSettings) {
   selectedRef.current = selected;
   const startKey = React.useRef({ signature: "", key: "" });
   const resumeKey = React.useRef({ execution: "", key: "" });
+  const branchKey = React.useRef({ signature: "", key: "" });
+  const branchOutcome = React.useRef("");
   const ready = React.useRef(false);
   const refreshHistory = React.useRef(
     (_reconcile: boolean, _event?: Params) => {},
@@ -74,7 +78,10 @@ export function useRunner(initial: models.ConnectionSettings) {
     }
     const connection = api.connection;
     connection.onStatus = (value) => {
-      if (value !== "Connected") ready.current = false;
+      if (value !== "Connected") {
+        ready.current = false;
+        setBranching(undefined);
+      }
       if (alive) setStatus(value);
     };
     connection.onReady = () => {
@@ -94,6 +101,24 @@ export function useRunner(initial: models.ConnectionSettings) {
       });
     };
     connection.onEvent = (event) => {
+      if (
+        event.kind === "execution.branch_applied" ||
+        event.kind === "execution.branch_failed"
+      ) {
+        const operation = text(event.operation_id);
+        branchOutcome.current = JSON.stringify([event.execution_id, operation]);
+        setBranching((previous) =>
+          previous?.operation_id === operation &&
+          previous.execution_id === event.execution_id
+            ? undefined
+            : previous,
+        );
+        if (
+          event.kind === "execution.branch_failed" &&
+          event.execution_id === selectedRef.current
+        )
+          setError(text(event.error) || "Branch preparation failed.");
+      }
       refreshHistory.current(false, event);
       dirty = true;
       if (!timer)
@@ -120,6 +145,7 @@ export function useRunner(initial: models.ConnectionSettings) {
   React.useEffect(() => {
     setHistory({ items: [], next_cursor: null });
     setPending([]);
+    setExecution(undefined);
     if (!api || !selected) return;
     const sync = new HistorySync(api, selected);
     let alive = true;
@@ -137,11 +163,17 @@ export function useRunner(initial: models.ConnectionSettings) {
       try {
         do {
           dirty = false;
+          const execution = await api!.execution(selected);
           const [history, pending] = await Promise.all([
             sync.refresh(active),
             api!.pending(selected, active),
           ]);
           if (!active()) return;
+          setExecution((previous) =>
+            JSON.stringify(previous) === JSON.stringify(execution)
+              ? previous
+              : execution,
+          );
           setHistory(history);
           setPending((previous) =>
             JSON.stringify(previous) === JSON.stringify(pending)
@@ -159,6 +191,7 @@ export function useRunner(initial: models.ConnectionSettings) {
       if (event) {
         if (event.execution_id !== selected) return;
         sync.invalidate(text(object(event.step).id));
+        sync.invalidate(text(event.input_step_id));
       }
       if (reconcile) sync.reconcile();
       dirty = true;
@@ -208,6 +241,30 @@ export function useRunner(initial: models.ConnectionSettings) {
     [action],
   );
 
+  const branch = React.useCallback(
+    (stepId: string, branchAction: models.BranchAction) => {
+      if (!selected) return Promise.resolve(false);
+      return action(async (api) => {
+        const signature = JSON.stringify([selected, stepId, branchAction]);
+        if (branchKey.current.signature !== signature)
+          branchKey.current = { signature, key: crypto.randomUUID() };
+        const accepted = await api.branch(
+          selected,
+          stepId,
+          branchAction,
+          branchKey.current.key,
+        );
+        branchKey.current = { signature: "", key: "" };
+        if (
+          branchOutcome.current !==
+          JSON.stringify([accepted.execution_id, accepted.operation_id])
+        )
+          setBranching(accepted);
+      });
+    },
+    [action, selected],
+  );
+
   function start(reference: string, input: Params) {
     return action(async (api) => {
       const signature = JSON.stringify([reference, input]);
@@ -243,6 +300,8 @@ export function useRunner(initial: models.ConnectionSettings) {
     selected,
     select: setSelected,
     history,
+    execution,
+    branching,
     pending,
     busy,
     enabled: status === "Connected" && !busy,
@@ -254,5 +313,6 @@ export function useRunner(initial: models.ConnectionSettings) {
         setSessions(await api.sessions());
       }),
     reply,
+    branch,
   };
 }

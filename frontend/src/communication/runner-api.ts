@@ -86,6 +86,24 @@ export class RunnerApi {
   stop(execution_id: string) {
     return this.connection.request("executions.stop", { execution_id });
   }
+  execution(execution_id: string) {
+    return this.connection.request<models.Execution>("executions.get", {
+      execution_id,
+    });
+  }
+  branch(
+    execution_id: string,
+    step_id: string,
+    action: models.BranchAction,
+    idempotency_key: string,
+  ) {
+    return this.connection.request<models.BranchAccepted>("executions.branch", {
+      execution_id,
+      step_id,
+      action,
+      idempotency_key,
+    });
+  }
   resume(execution_id: string, idempotency_key: string) {
     return this.connection.request<{
       execution_id: string;

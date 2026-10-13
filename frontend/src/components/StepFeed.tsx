@@ -13,6 +13,7 @@ import type { StepActions, StepRegistry } from "./steps/registry";
 import "./workflow.css";
 import * as feedState from "./FeedState";
 import { FocusRegion } from "../focus/FocusProvider";
+import { StepBranchControls } from "./StepBranchControls";
 
 function requestId(request: InputRequest) {
   return `decision-${request.execution_id}-${request.request_id}`;
@@ -94,13 +95,18 @@ function WorkflowBranch({
         </span>
       </summary>
       {expanded && (
-        <WorkflowContents
-          node={node}
-          registry={registry}
-          actions={actions}
-          active={active}
-          grouping={grouping}
-        />
+        <>
+          {node.spawn && (
+            <StepBranchControls step={node.spawn} actions={actions} />
+          )}
+          <WorkflowContents
+            node={node}
+            registry={registry}
+            actions={actions}
+            active={active}
+            grouping={grouping}
+          />
+        </>
       )}
     </details>
   );
@@ -175,11 +181,10 @@ function WorkflowContents({
         ) {
           inline.add(request.request_id);
           return (
-            <InlineDecision
-              key={entry.id}
-              request={request}
-              actions={actions}
-            />
+            <React.Fragment key={entry.id}>
+              <InlineDecision request={request} actions={actions} />
+              <StepBranchControls step={entry} actions={actions} />
+            </React.Fragment>
           );
         }
         const Component = registry.resolve(entry);

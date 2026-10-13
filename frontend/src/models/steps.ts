@@ -1,6 +1,8 @@
 import { activity, messageText } from "./activity";
 import { object, text, type Json } from "./json";
 import type { HistoryItem, InputRequest } from "./runner";
+import { inputResponse } from "./runner";
+import { messageImages } from "./chat-input";
 
 export type StepView = ReturnType<typeof activity> & {
   item: HistoryItem;
@@ -148,6 +150,26 @@ export function isUserResponse(step: StepView): boolean {
     step.state === "completed" &&
     (step.input.request_type === "chat.message.v1" ||
       step.input.channel === "user.message")
+  );
+}
+
+export function inputEditValue(step: StepView): string {
+  if (step.input.request_type === "chat.message.v1") return step.message;
+  return step.input.response_type === "json"
+    ? JSON.stringify(step.output, null, 2)
+    : step.message;
+}
+
+export function editedInputResponse(step: StepView, value: string): Json {
+  return inputResponse(
+    {
+      request_type: text(step.input.request_type) || undefined,
+      response_type: step.input.response_type === "json" ? "json" : "text",
+    },
+    value,
+    step.input.request_type === "chat.message.v1"
+      ? messageImages(step.output)
+      : [],
   );
 }
 
