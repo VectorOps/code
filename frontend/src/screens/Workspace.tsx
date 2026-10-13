@@ -100,6 +100,7 @@ function WorkspaceContent({
   const [leftOpen, setLeftOpen] = React.useState(true);
   const [inspector, setInspector] = React.useState<Inspector | null>(null);
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const draftVersions = React.useRef<Record<string, number>>({});
   const inspectorRef = React.useRef<HTMLElement>(null);
   const workspaceRef = useFocusRegion<HTMLElement>("workspace");
   useFocusBlocker(inspector !== null, true);
@@ -210,18 +211,24 @@ function WorkspaceContent({
       item.state === "ready" ? [item.image] : [],
     );
     const response = models.inputResponse(chat, draft, images);
+    const submittedDraft = draft;
+    const version = draftVersions.current[scope] ?? 0;
     const signature = JSON.stringify([scope, chat.request_id, response]);
     if (retry.current.signature !== signature)
       retry.current = { signature, key: crypto.randomUUID() };
+    setDrafts((values) => ({
+      ...values,
+      [scope]: values[scope] === submittedDraft ? "" : values[scope],
+    }));
     if (await onReply(chat, response, retry.current.key)) {
       attachments.remove(
         attachments.images.map((image) => image.id),
         scope,
       );
-      setDrafts((values) => ({
-        ...values,
-        [scope]: values[scope] === draft ? "" : values[scope],
-      }));
+    } else if (draftVersions.current[scope] === version) {
+      setDrafts((values) =>
+        values[scope] ? values : { ...values, [scope]: submittedDraft },
+      );
     }
   }
 
@@ -371,9 +378,11 @@ function WorkspaceContent({
           removeImage={(id) => attachments.remove([id])}
           attachmentError={attachments.error}
           messageError={messageError}
-          change={(value) =>
-            setDrafts((values) => ({ ...values, [scope]: value }))
-          }
+          change={(value) => {
+            draftVersions.current[scope] =
+              (draftVersions.current[scope] ?? 0) + 1;
+            setDrafts((values) => ({ ...values, [scope]: value }));
+          }}
           send={send}
           stop={onStop}
           resume={onResume}
