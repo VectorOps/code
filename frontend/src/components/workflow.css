@@ -19,8 +19,8 @@
 .workflow-spinner {
   width: 12px;
   height: 12px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
+  border: 2px solid light-dark(#404040, #bfbfbf);
+  border-right-color: light-dark(#171717, #ffffff);
   border-radius: 50%;
   animation: workflow-spin 1s linear infinite;
 }

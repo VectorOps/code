@@ -85,10 +85,10 @@
     width: fit-content;
     background: linear-gradient(
       100deg,
-      light-dark(#2563eb, #93c5fd) 40%,
-      #fff 48%,
-      #fff 52%,
-      light-dark(#2563eb, #93c5fd) 60%
+      #404040 40%,
+      light-dark(#171717, #ffffff) 48%,
+      light-dark(#171717, #ffffff) 52%,
+      #404040 60%
     );
     background-size: 300% 100%;
     background-clip: text;
