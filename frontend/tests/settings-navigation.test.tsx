@@ -10,6 +10,7 @@ test("theme selection lives in settings, not the session sidebar", () => {
   const sidebar = renderToStaticMarkup(
     createElement(SessionSidebar, {
       sessions: [],
+      workflows: [],
       selected: "",
       status: "Disconnected",
       select: noop,

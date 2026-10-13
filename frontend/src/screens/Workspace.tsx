@@ -44,6 +44,7 @@ export function Workspace(
 
 function WorkspaceContent({
   sessions,
+  workflows = [],
   selected,
   onSelect,
   history,
@@ -70,6 +71,7 @@ function WorkspaceContent({
   toolFormatters?: ToolFormatterFactory;
   stepRegistry?: StepRegistry;
   sessions: models.Session[];
+  workflows?: models.Workflow[];
   selected: string;
   onSelect: (id: string) => void;
   history: models.HistoryItem[];
@@ -103,6 +105,11 @@ function WorkspaceContent({
   useFocusBlocker(inspector !== null, true);
   const retry = React.useRef({ signature: "", key: "" });
   const current = sessions.find((session) => session.execution_id === selected);
+  const currentName = models.workflowDisplayName(
+    current?.reference ?? null,
+    workflows,
+    current?.name,
+  );
   const scope = `${endpoint}/${selected}`;
   const draft = drafts[scope] || "";
   const attachments = useImageAttachments(scope);
@@ -223,6 +230,7 @@ function WorkspaceContent({
       <SessionSidebar
         collapsed={!leftOpen}
         sessions={sessions}
+        workflows={workflows}
         selected={selected}
         status={status}
         select={onSelect}
@@ -233,7 +241,7 @@ function WorkspaceContent({
       <section className="chat-workspace" aria-label="Conversation">
         <header className="session-header">
           <div>
-            <h1>{current?.reference || "Your workspace"}</h1>
+            <h1>{current ? currentName : "Your workspace"}</h1>
             <span className="session-subtitle">
               {current
                 ? `${current.status} / ${current.execution_id.slice(0, 8)}`
@@ -430,7 +438,7 @@ function WorkspaceContent({
             {inspector.kind === "settings" && settings}
             {inspector.kind === "session" && (
               <>
-                <h3>{current?.reference}</h3>
+                <h3>{currentName}</h3>
                 <dl>
                   <dt>Execution</dt>
                   <dd>{selected}</dd>

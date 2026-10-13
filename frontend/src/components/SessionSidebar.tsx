@@ -1,8 +1,9 @@
 import { useState } from "react";
-import type { Session } from "../models/runner";
+import * as models from "../models/runner";
 
 export function SessionSidebar({
   sessions,
+  workflows,
   selected,
   status,
   select,
@@ -12,7 +13,8 @@ export function SessionSidebar({
   collapsed = false,
 }: {
   collapsed?: boolean;
-  sessions: Session[];
+  sessions: models.Session[];
+  workflows: models.Workflow[];
   selected: string;
   status: string;
   select: (id: string) => void;
@@ -24,7 +26,7 @@ export function SessionSidebar({
   const [filter, setFilter] = useState("all");
   const visible = sessions.filter(
     (session) =>
-      `${session.reference} ${session.execution_id}`
+      `${models.workflowDisplayName(session.reference, workflows, session.name)} ${session.reference} ${session.execution_id}`
         .toLowerCase()
         .includes(search.toLowerCase()) &&
       (filter !== "running" || session.active) &&
@@ -100,7 +102,13 @@ export function SessionSidebar({
                 }
                 onClick={() => select(session.execution_id)}
               >
-                <span>{session.reference || "Workflow"}</span>
+                <span>
+                  {models.workflowDisplayName(
+                    session.reference,
+                    workflows,
+                    session.name,
+                  )}
+                </span>
                 <small>
                   {session.pending_inputs
                     ? `${session.pending_inputs} pending`

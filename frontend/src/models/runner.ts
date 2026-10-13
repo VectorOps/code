@@ -5,6 +5,7 @@ export type Session = {
   execution_id: string;
   root_workflow_id?: string | null;
   reference: string | null;
+  name?: string | null;
   status: string;
   active: boolean;
   pending_inputs: number;
@@ -17,6 +18,20 @@ export type Workflow = {
     input_schema: Json;
   };
 };
+
+export function workflowDisplayName(
+  reference: string | null,
+  workflows: Workflow[],
+  name?: string | null,
+): string {
+  return (
+    name ||
+    workflows.find((workflow) => workflow.descriptor.reference === reference)
+      ?.descriptor.name ||
+    reference ||
+    "Workflow"
+  );
+}
 export type InputRequest = {
   request_id: string;
   execution_id: string;
