@@ -135,7 +135,7 @@
     @apply mb-0 w-full max-w-none rounded-xl border-neutral-300 bg-white p-2 shadow-sm;
   }
   .composer-area textarea {
-    @apply m-0 h-12 max-h-48 min-h-12 border-0 p-1 font-sans shadow-none;
+    @apply m-0 h-12 max-h-48 min-h-12 border-0 p-1 font-sans text-[0.9375rem] leading-6 shadow-none;
   }
   .composer-actions {
     @apply flex items-center justify-between gap-3 pt-1;

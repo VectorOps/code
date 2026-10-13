@@ -75,6 +75,7 @@
   .approval-actions small {
     @apply mt-2 text-neutral-500;
   }
+  .user-step .message-text,
   .markdown-content {
     @apply text-[0.9375rem] leading-6;
     overflow-wrap: anywhere;

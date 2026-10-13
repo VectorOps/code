@@ -37,6 +37,15 @@ test("frontend CSS preserves global layer order and appearance overrides", async
   const css = styles.join("\n");
   assert.match(css, /\.image-thumbnail/);
   assert.match(css, /\.tool-plan/);
+  for (const selector of [
+    ".user-step .message-text",
+    ".composer-area textarea",
+    ".assistant-step",
+    ".markdown-content",
+    ".markdown-content p",
+  ]) {
+    assert.match(lastRule(css, selector), /font-size:\s*0?\.9375rem/);
+  }
   const layers = Array.from(css.matchAll(/@layer\s+([^;{]+)[;{]/g)).flatMap(
     (match) => match[1].split(",").map((name) => name.trim()),
   );
