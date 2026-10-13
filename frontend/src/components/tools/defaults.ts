@@ -78,6 +78,7 @@ export const defaultToolFormatters = new ToolFormatterFactory(
     update_plan: {
       summary: views.PlanSummary,
       activity: { completed: "Updated plan", running: "Updating plan" },
+      hideIndicators: true,
       details: views.PlanDetails,
       width: 520,
     },

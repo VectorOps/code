@@ -27,12 +27,14 @@ export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
             : factory.activity(tool)}
         </span>
         <Summary tool={tool} />
-        <StepIndicators
-          state={
-            approval ? "Needs approval" : tool.failed ? "Failed" : tool.state
-          }
-          inspect={() => actions.inspect(step.id)}
-        />
+        {(!formatter.hideIndicators || approval || tool.failed) && (
+          <StepIndicators
+            state={
+              approval ? "Needs approval" : tool.failed ? "Failed" : tool.state
+            }
+            inspect={() => actions.inspect(step.id)}
+          />
+        )}
       </div>
       {approval && (
         <ApprovalActions
