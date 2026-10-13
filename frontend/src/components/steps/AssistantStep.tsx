@@ -23,27 +23,14 @@ const components: Components = {
     </a>
   ),
 };
-const streamingComponents: Components = {
-  ...components,
-  code: ({ children, className }) => (
-    <code className={className}>{children}</code>
-  ),
-};
-
 const MarkdownBody = memo(function MarkdownBody({
   message,
-  streaming,
 }: {
   message: string;
-  streaming: boolean;
 }) {
   return (
     <div className="markdown-content">
-      <ReactMarkdown
-        remarkPlugins={plugins}
-        skipHtml
-        components={streaming ? streamingComponents : components}
-      >
+      <ReactMarkdown remarkPlugins={plugins} skipHtml components={components}>
         {message}
       </ReactMarkdown>
     </div>
@@ -64,7 +51,7 @@ export const AssistantStep = memo(function AssistantStep({
           inspect={() => actions.inspect(step.id)}
         />
       </div>
-      <MarkdownBody message={step.message} streaming={streaming} />
+      <MarkdownBody message={step.message} />
       {step.state === "failed" && (
         <p className="failure-text">
           {text(object(step.outcome.error).message) ||

@@ -560,56 +560,94 @@ vitest.test("updating one step does not reparse unchanged messages", () => {
 });
 
 vitest.test(
-  "streamed code stays plain until completion and large blocks stay escaped",
+  "code is reformatted only when its message changes, streaming or not",
   () => {
-    const completed = item(
-      1,
-      "llm.generate",
-      "root",
-      {},
-      '```python\nprint("<script>")\n```',
-    );
-    const streaming: HistoryItem = {
-      ...completed,
-      step: {
-        ...(completed.step as Record<string, Json>),
-        outcome: {
-          kind: "streaming",
-          state: '```python\nprint("<script>")\n```',
+    function streaming(message: string): HistoryItem {
+      return {
+        position: 1,
+        step: {
+          id: "step-1",
+          workflow_id: "root",
+          operation: { kind: "llm.generate" },
+          outcome: { kind: "streaming", state: message },
         },
-      },
-    };
+      };
+    }
+
+    const message = '```python\nprint("<script>")';
+    const updated = `${message}\nprint("hello")\n\`\`\``;
     const highlight = vitest.vi.spyOn(hljs, "highlight");
     const callbacks = actions();
     const view = testing.render(
       <StepFeed
-        history={[streaming]}
-        registry={defaultStepRegistry}
-        actions={callbacks}
-        active
-      />,
-    );
-    vitest.expect(highlight).not.toHaveBeenCalled();
-    view.rerender(
-      <StepFeed
-        history={[completed]}
+        history={[streaming(message)]}
         registry={defaultStepRegistry}
         actions={callbacks}
         active
       />,
     );
     vitest.expect(highlight).toHaveBeenCalledTimes(1);
-    view.unmount();
-    highlight.mockClear();
-    const large = testing.render(
-      <HighlightedCode language="python">
-        {"<script>".repeat(3000)}
-      </HighlightedCode>,
+    vitest.expect(ReactMarkdown).toHaveBeenCalledTimes(1);
+    vitest
+      .expect(view.container.querySelector(".hljs-built_in"))
+      .not.toBeNull();
+    vitest.expect(view.container.querySelector("script")).toBeNull();
+
+    view.rerender(
+      <StepFeed
+        history={[streaming(updated)]}
+        registry={defaultStepRegistry}
+        actions={callbacks}
+        active
+      />,
     );
-    vitest.expect(highlight).not.toHaveBeenCalled();
-    vitest.expect(large.container.querySelector("script")).toBeNull();
+    vitest.expect(highlight).toHaveBeenCalledTimes(2);
+    vitest.expect(ReactMarkdown).toHaveBeenCalledTimes(2);
+    vitest
+      .expect(highlight.mock.calls[1][0])
+      .toBe('print("<script>")\nprint("hello")\n');
+
+    for (const entry of [
+      streaming(updated),
+      item(1, "llm.generate", "root", {}, updated),
+    ]) {
+      view.rerender(
+        <StepFeed
+          history={[entry]}
+          registry={defaultStepRegistry}
+          actions={actions()}
+          active
+        />,
+      );
+      vitest.expect(highlight).toHaveBeenCalledTimes(2);
+      vitest.expect(ReactMarkdown).toHaveBeenCalledTimes(2);
+    }
+
+    view.rerender(
+      <StepFeed
+        history={[
+          item(1, "llm.generate", "root", {}, '```python\nprint("done")\n```'),
+        ]}
+        registry={defaultStepRegistry}
+        actions={callbacks}
+        active
+      />,
+    );
+    vitest.expect(highlight).toHaveBeenCalledTimes(3);
+    vitest.expect(ReactMarkdown).toHaveBeenCalledTimes(3);
   },
 );
+
+vitest.test("large code blocks stay plain and escaped", () => {
+  const highlight = vitest.vi.spyOn(hljs, "highlight");
+  const large = testing.render(
+    <HighlightedCode language="python">
+      {"<script>".repeat(3000)}
+    </HighlightedCode>,
+  );
+  vitest.expect(highlight).not.toHaveBeenCalled();
+  vitest.expect(large.container.querySelector("script")).toBeNull();
+});
 
 vitest.test(
   "unchanged code blocks are not highlighted again when surrounding markdown changes",
