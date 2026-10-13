@@ -42,6 +42,17 @@ export type InputRequest = {
   response_type: "text" | "json";
   response_schema?: Json;
 };
+export type InboxAddress = {
+  execution_id: string;
+  workflow_id: string;
+  conversation_id: string;
+};
+export type InboxStatus = {
+  address: InboxAddress;
+  status: "open" | "closed";
+  queued_messages: number;
+};
+export type InboxMessage = { id: string; created_at: string; payload: Json };
 export type HistoryItem = { position: number; step: Json };
 export type HistoryPage = { items: HistoryItem[]; next_cursor: string | null };
 export type Execution = {

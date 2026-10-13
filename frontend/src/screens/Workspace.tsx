@@ -3,7 +3,7 @@ import type { Json } from "../models/json";
 import * as models from "../models/runner";
 import { workflowProjection } from "../models/workflow-tree";
 import { selectedHistory } from "../models/selected-history";
-import { activity } from "../models/activity";
+import { activity, messageText } from "../models/activity";
 import { StepFeed } from "../components/StepFeed";
 import { DebugSteps } from "../components/DebugSteps";
 import { defaultStepRegistry } from "../components/steps/defaults";
@@ -27,6 +27,7 @@ type Inspector =
   | { kind: "debug" }
   | { kind: "activity"; id: string }
   | { kind: "decisions" }
+  | { kind: "steering" }
   | { kind: "session" }
   | { kind: "new" }
   | { kind: "settings" }
@@ -52,6 +53,7 @@ function WorkspaceContent({
   execution,
   branching = false,
   pending,
+  steering,
   status,
   endpoint,
   enabled,
@@ -59,6 +61,7 @@ function WorkspaceContent({
   onStop,
   onResume,
   onReply,
+  onSteer,
   onBranch,
   newSession,
   connection,
@@ -80,6 +83,11 @@ function WorkspaceContent({
   execution?: models.Execution;
   branching?: boolean;
   pending: models.InputRequest[];
+  steering?: {
+    address: models.InboxAddress;
+    messages: models.InboxMessage[];
+    count: number;
+  };
   status: string;
   endpoint: string;
   enabled: boolean;
@@ -91,6 +99,7 @@ function WorkspaceContent({
     response: Json,
     key: string,
   ) => Promise<boolean>;
+  onSteer?: (value: string) => Promise<boolean>;
   onBranch?: (id: string, action: models.BranchAction) => Promise<boolean>;
   newSession: React.ReactNode;
   connection: React.ReactNode;
@@ -130,11 +139,16 @@ function WorkspaceContent({
   );
   const feed = useConversationScroll(scope, feedRevision);
   const chat = chatRequests.length === 1 ? chatRequests[0] : undefined;
+  const canSteer = chatRequests.length === 0 && Boolean(steering);
   const messageError = chatInput.messageError(
     draft,
     attachments.images,
     chat ? (chat.request_type ?? "text") : undefined,
   );
+  const steeringError =
+    canSteer && attachments.images.length
+      ? "Steering messages support text only. Remove the images to send."
+      : messageError;
   const inspectedItem = React.useMemo(
     () =>
       inspector?.kind === "activity"
@@ -202,15 +216,23 @@ function WorkspaceContent({
 
   async function send() {
     if (
-      !chat ||
+      (!chat && !canSteer) ||
       (!draft.trim() && !attachments.images.length) ||
       !enabled ||
-      messageError
+      steeringError
     )
       return;
     const images = attachments.images.flatMap((item) =>
       item.state === "ready" ? [item.image] : [],
     );
+    if (!chat) {
+      if (onSteer && (await onSteer(draft)))
+        setDrafts((values) => ({
+          ...values,
+          [scope]: values[scope] === draft ? "" : values[scope],
+        }));
+      return;
+    }
     const response = models.inputResponse(chat, draft, images);
     const submittedDraft = draft;
     const signature = JSON.stringify([scope, chat.request_id, response]);
@@ -366,7 +388,9 @@ function WorkspaceContent({
           selected={Boolean(selected)}
           session={current}
           pendingCount={decisions.length}
-          ready={Boolean(chat)}
+          steeringCount={steering?.count ?? 0}
+          reviewSteering={() => open({ kind: "steering" })}
+          ready={Boolean(chat || canSteer)}
           enabled={enabled}
           busy={busy}
           value={draft}
@@ -374,7 +398,7 @@ function WorkspaceContent({
           attach={attachments.add}
           removeImage={(id) => attachments.remove([id])}
           attachmentError={attachments.error}
-          messageError={messageError}
+          messageError={steeringError}
           change={(value) =>
             setDrafts((values) => ({ ...values, [scope]: value }))
           }
@@ -418,6 +442,7 @@ function WorkspaceContent({
                   activity: "Activity details",
                   debug: "Debug steps",
                   decisions: "Pending decisions",
+                  steering: "Queued steering messages",
                   session: "Session details",
                   new: "New conversation",
                   connection: "Connection",
@@ -492,6 +517,17 @@ function WorkspaceContent({
                 <p>
                   No pending decisions. This view updates as the workflow runs.
                 </p>
+              ))}
+            {inspector.kind === "steering" &&
+              (steering?.messages.length ? (
+                steering.messages.map((message) => (
+                  <article className="steering-message" key={message.id}>
+                    <p>{messageText(message.payload)}</p>
+                    <small>{message.created_at}</small>
+                  </article>
+                ))
+              ) : (
+                <p>No queued steering messages.</p>
               ))}
           </div>
         </aside>

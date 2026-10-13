@@ -50,6 +50,40 @@ export class RunnerApi {
       active,
     );
   }
+  async inboxes(execution_id: string): Promise<models.InboxStatus[]> {
+    const result = await this.connection.request<{
+      mailboxes: models.InboxStatus[];
+    }>("mailbox.inboxes.list", { execution_id });
+    return result.mailboxes;
+  }
+  async inboxMessages(
+    address: models.InboxAddress,
+  ): Promise<models.InboxMessage[]> {
+    const messages: models.InboxMessage[] = [];
+    let after: string | null = null;
+    do {
+      const page: {
+        messages: models.InboxMessage[];
+        next_after: string | null;
+      } = await this.connection.request("mailbox.inboxes.messages", {
+        ...address,
+        after,
+        limit: 500,
+      });
+      messages.push(...page.messages);
+      after = page.next_after;
+    } while (after);
+    return messages;
+  }
+  sendSteering(address: models.InboxAddress, payload: Json) {
+    return this.connection.request<models.InboxMessage>(
+      "mailbox.inboxes.send",
+      {
+        ...address,
+        payload,
+      },
+    );
+  }
   async history(
     execution_id: string,
     afterPosition = 0,

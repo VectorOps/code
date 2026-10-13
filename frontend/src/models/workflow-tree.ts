@@ -1,4 +1,5 @@
-import { object, text } from "./json";
+import { object, text, type Json } from "./json";
+import { messageText } from "./activity";
 import type { HistoryItem, InputRequest } from "./runner";
 import { isChatRequest } from "./runner";
 import { stepView, toolDescription, type StepView } from "./steps";
@@ -36,6 +37,31 @@ export function workflowTree(history: HistoryItem[], pending: InputRequest[]) {
   for (const item of [...history].sort((a, b) => a.position - b.position)) {
     const step = stepView(item, history);
     const owner = node(step.workflow);
+    if (step.kind === "mailbox.drain" && step.state === "completed") {
+      const messages = step.outcome.result;
+      if (Array.isArray(messages))
+        messages.forEach((message, index) => {
+          const payload = object(message).content
+            ? message
+            : object(message).payload;
+          if (!object(payload).content) return;
+          owner.entries.push({
+            ...step,
+            id: `${step.id}:steering:${index}`,
+            kind: "mailbox.input",
+            name: "request_input",
+            output: payload as Json,
+            message: messageText(payload as Json),
+            input: {
+              request_type: "chat.message.v1",
+              channel: "user.message",
+              response_type: "text",
+              steering: true,
+              source_step_id: step.id,
+            },
+          });
+        });
+    }
     if (step.kind === "llm.tool") {
       const tool = toolDescription(step);
       if (["run_agent", "subworkflow"].includes(tool.name) && !tool.failed) {
@@ -80,7 +106,7 @@ export function workflowTree(history: HistoryItem[], pending: InputRequest[]) {
         continue;
       }
     }
-    owner.entries.push(step);
+    if (step.kind !== "mailbox.drain") owner.entries.push(step);
     if (step.kind === "workflow.complete")
       owner.status = step.state === "failed" ? "Failed" : "Completed";
   }

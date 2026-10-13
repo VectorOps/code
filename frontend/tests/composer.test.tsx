@@ -52,6 +52,25 @@ vitest.test.each(["ctrlKey", "metaKey"])(
 );
 
 vitest.test(
+  "shows a steering queue control only when messages are queued",
+  async () => {
+    const empty = compose();
+    vitest
+      .expect(empty.queryByRole("button", { name: /queued steering messages/ }))
+      .toBeNull();
+
+    const reviewSteering = vitest.vi.fn();
+    const queued = compose({ steeringCount: 2, reviewSteering });
+    const control = queued.getByRole("button", {
+      name: "2 queued steering messages",
+    });
+    vitest.expect(control.textContent).toBe("Steering · 2");
+    await userEvent.setup().click(control);
+    vitest.expect(reviewSteering).toHaveBeenCalledOnce();
+  },
+);
+
+vitest.test(
   "image-only drafts can be submitted, previewed, and removed",
   async () => {
     const removeImage = vitest.vi.fn();

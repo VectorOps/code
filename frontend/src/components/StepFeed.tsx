@@ -190,6 +190,15 @@ function WorkflowContents({
         const Component = registry.resolve(entry);
         if (Component) {
           if (request) inline.add(request.request_id);
+          const entryActions =
+            entry.input.steering === true
+              ? {
+                  ...actions,
+                  branch: undefined,
+                  inspect: () =>
+                    actions.inspect(String(entry.input.source_step_id)),
+                }
+              : actions;
           return (
             <FocusRegion
               mode={request ? "protected" : undefined}
@@ -200,7 +209,7 @@ function WorkflowContents({
             >
               <Component
                 step={entry}
-                actions={actions}
+                actions={entryActions}
                 failuresRecovered={failuresRecovered}
               />
             </FocusRegion>

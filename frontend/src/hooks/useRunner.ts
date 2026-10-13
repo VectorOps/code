@@ -5,6 +5,7 @@ import { HistorySync } from "../communication/history-sync";
 import { object, text } from "../models/json";
 import type { Json, Params } from "../models/json";
 import type * as models from "../models/runner";
+import * as chatInput from "../models/chat-input";
 
 export function useRunner(initial: models.ConnectionSettings) {
   const [settings, setSettings] = React.useState(initial);
@@ -24,6 +25,11 @@ export function useRunner(initial: models.ConnectionSettings) {
     next_cursor: null,
   });
   const [pending, setPending] = React.useState<models.InputRequest[]>([]);
+  const [steering, setSteering] = React.useState<{
+    address: models.InboxAddress;
+    messages: models.InboxMessage[];
+    count: number;
+  }>();
   const [busy, setBusy] = React.useState(false);
   const [revision, setRevision] = React.useState(0);
   const selectedRef = React.useRef(selected);
@@ -177,6 +183,7 @@ export function useRunner(initial: models.ConnectionSettings) {
   React.useEffect(() => {
     setHistory({ items: [], next_cursor: null });
     setPending([]);
+    setSteering(undefined);
     setExecution(undefined);
     if (!api || !selected) return;
     const sync = new HistorySync(api, selected);
@@ -196,9 +203,12 @@ export function useRunner(initial: models.ConnectionSettings) {
         do {
           dirty = false;
           const execution = await api!.execution(selected);
-          const [history, pending] = await Promise.all([
+          const [history, pending, inboxes] = await Promise.all([
             sync.refresh(active),
             api!.pending(selected, active),
+            ["running", "paused", "starting"].includes(execution.status)
+              ? api!.inboxes(selected).catch(() => [])
+              : Promise.resolve([]),
           ]);
           if (!active()) return;
           setExecution((previous) =>
@@ -212,6 +222,22 @@ export function useRunner(initial: models.ConnectionSettings) {
               ? previous
               : pending,
           );
+          const mailbox = inboxes.find(
+            (inbox) =>
+              inbox.address.workflow_id === execution.root_workflow_id &&
+              inbox.address.conversation_id === "steer" &&
+              inbox.status === "open",
+          );
+          if (!mailbox) setSteering(undefined);
+          else {
+            const messages = await api!.inboxMessages(mailbox.address);
+            if (active())
+              setSteering({
+                address: mailbox.address,
+                messages,
+                count: mailbox.queued_messages,
+              });
+          }
         } while (dirty && active() && ready.current);
       } catch (reason) {
         if (active()) setError(String(reason));
@@ -271,6 +297,18 @@ export function useRunner(initial: models.ConnectionSettings) {
         await api.respond(request, response, key);
       }),
     [action],
+  );
+  const steer = React.useCallback(
+    (value: string) => {
+      if (!api || !steering || !value.trim()) return Promise.resolve(false);
+      return action(async (client) => {
+        await client.sendSteering(
+          steering.address,
+          chatInput.chatMessage(value),
+        );
+      });
+    },
+    [action, api, steering],
   );
 
   const branch = React.useCallback(
@@ -336,6 +374,7 @@ export function useRunner(initial: models.ConnectionSettings) {
     execution,
     branching,
     pending,
+    steering,
     busy,
     enabled: status === "Connected" && !busy,
     start,
@@ -346,6 +385,7 @@ export function useRunner(initial: models.ConnectionSettings) {
         setSessions(await api.sessions());
       }),
     reply,
+    steer,
     branch,
   };
 }

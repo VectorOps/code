@@ -29,6 +29,7 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
       branching={runner.branching?.execution_id === runner.selected}
       hasOlder={Boolean(runner.history.next_cursor)}
       pending={runner.pending}
+      steering={runner.steering}
       status={runner.status}
       endpoint={runner.settings.endpoint}
       enabled={runner.enabled}
@@ -42,6 +43,7 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
         await runner.resume();
       }}
       onReply={runner.reply}
+      onSteer={runner.steer}
       onBranch={runner.branch}
       connection={
         <ConnectionForm

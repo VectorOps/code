@@ -82,6 +82,22 @@
   .feed-controls input {
     @apply w-auto;
   }
+  .steering-queue-button {
+    @apply shrink-0 rounded-full border border-neutral-200 bg-neutral-50 px-2 py-1 text-xs font-medium text-neutral-700;
+  }
+  .steering-queue-button:hover {
+    @apply bg-neutral-100;
+  }
+  .steering-message {
+    @apply border-b border-neutral-200 py-3;
+  }
+  .steering-message p {
+    @apply whitespace-pre-wrap text-sm;
+    overflow-wrap: anywhere;
+  }
+  .steering-message small {
+    @apply text-xs text-neutral-500;
+  }
   .conversation-feed {
     @apply min-h-0 flex-1 overflow-y-auto overscroll-contain px-6;
     overflow-anchor: none;

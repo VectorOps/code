@@ -45,6 +45,8 @@ export function Composer({
   selected,
   session,
   pendingCount,
+  steeringCount = 0,
+  reviewSteering,
   ready,
   enabled,
   busy,
@@ -63,6 +65,8 @@ export function Composer({
   selected: boolean;
   session?: WorkflowState;
   pendingCount: number;
+  steeringCount?: number;
+  reviewSteering?: () => void;
   ready: boolean;
   enabled: boolean;
   busy: boolean;
@@ -308,6 +312,16 @@ export function Composer({
                         ? "Draft freely. Sending is available when the workflow asks for input."
                         : "One conversation per top-level workflow."}
           </span>
+          {steeringCount > 0 && reviewSteering && (
+            <button
+              type="button"
+              className="steering-queue-button"
+              aria-label={`${steeringCount} queued steering messages`}
+              onClick={reviewSteering}
+            >
+              Steering · {steeringCount}
+            </button>
+          )}
           <button
             className="composer-submit"
             type={activity === "send" ? "submit" : "button"}
