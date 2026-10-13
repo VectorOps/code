@@ -1,6 +1,5 @@
 [environment]
 kind = "local"
-base_project_path = "/home/joes/Work/code"
 
 [components.llm]
 provider = "chatgpt"
