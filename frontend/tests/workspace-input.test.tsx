@@ -709,7 +709,12 @@ vitest.test(
     const user = userEvent.setup();
     const draft = view.getByLabelText("Message draft");
     const opener = view.getByRole("button", { name: "View details" });
-    await user.click(opener);
+    vitest.expect(opener.tagName).toBe("SECTION");
+    vitest
+      .expect(view.container.querySelector(".step-details-button"))
+      .toBeNull();
+    await user.click(view.getByText("Message"));
+    vitest.expect(view.getByLabelText("Work inspector")).toBeTruthy();
     await user.keyboard("blocked");
     vitest.expect(draft).toHaveProperty("value", "");
     await user.click(view.getByRole("button", { name: "Dismiss inspector" }));

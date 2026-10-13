@@ -129,11 +129,14 @@ test("successful workflow completion reduces historical failures to group marker
   assert.doesNotMatch(html, /Command was not found\.|tool-failure"/);
 });
 
-test("standalone failures keep their warning and details button without error text", () => {
+test("standalone failures keep their warning and clickable card without error text", () => {
   const html = feed([call(1, "failed")]);
   assert.doesNotMatch(html, /Command was not found\.|failure-text/);
   assert.match(html, /aria-label="Failed"/);
-  assert.match(html, /<button[^>]*aria-label="View details"/);
+  assert.match(
+    html,
+    /<section[^>]*role="button"[^>]*aria-label="View details"/,
+  );
 });
 
 test("failed workflows retain tool failure warnings without error text", () => {

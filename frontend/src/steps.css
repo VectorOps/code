@@ -10,12 +10,11 @@
   .assistant-controls {
     @apply float-right ml-3 flex items-center gap-2 text-xs text-neutral-500;
   }
-  .step-details-button {
-    @apply flex items-center justify-center rounded border-0 bg-transparent p-1 text-neutral-400;
+  .step-card {
+    @apply cursor-pointer;
   }
-  .step-details-button:hover:not(:disabled),
-  .step-details-button:focus-visible {
-    @apply bg-neutral-100 text-neutral-700;
+  .step-card:focus-visible {
+    @apply outline-2 outline-offset-2 outline-neutral-400;
   }
   .tool-step {
     @apply my-1 border-l-2 border-neutral-200 pl-3 py-1 text-sm text-neutral-500;

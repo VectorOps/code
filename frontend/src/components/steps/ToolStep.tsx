@@ -3,6 +3,7 @@ import { ApprovalActions } from "../ApprovalActions";
 import type { StepProps } from "./registry";
 import { defaultToolFormatters } from "../tools/defaults";
 import { StepIndicators } from "./StepIndicators";
+import { StepCard } from "./StepCard";
 import "../tools/tools.css";
 import { memo } from "react";
 
@@ -14,9 +15,10 @@ export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
   if (!approval && formatter.visible?.(tool) === false) return null;
   const Summary = formatter.summary;
   return (
-    <section
-      className={`feed-entry tool-step${approval ? " tool-approval" : ""}`}
-      aria-busy={
+    <StepCard
+      className={`tool-step${approval ? " tool-approval" : ""}`}
+      inspect={() => actions.inspect(step.id)}
+      busy={
         !approval && (tool.state === "pending" || tool.state === "streaming")
       }
     >
@@ -32,7 +34,6 @@ export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
             state={
               approval ? "Needs approval" : tool.failed ? "Failed" : tool.state
             }
-            inspect={() => actions.inspect(step.id)}
           />
         )}
       </div>
@@ -44,6 +45,6 @@ export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
           reply={actions.reply}
         />
       )}
-    </section>
+    </StepCard>
   );
 });

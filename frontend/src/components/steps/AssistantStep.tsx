@@ -5,6 +5,7 @@ import { HighlightedCode } from "../HighlightedCode";
 import { object, text } from "../../models/json";
 import type { StepProps } from "./registry";
 import { StepIndicators } from "./StepIndicators";
+import { StepCard } from "./StepCard";
 
 const plugins = [remarkGfm];
 const components: Components = {
@@ -43,13 +44,14 @@ export const AssistantStep = memo(function AssistantStep({
 }: StepProps) {
   const streaming = step.state === "streaming" || step.state === "pending";
   return (
-    <section className="feed-entry assistant-step" aria-busy={streaming}>
+    <StepCard
+      className="assistant-step"
+      busy={streaming}
+      inspect={() => actions.inspect(step.id)}
+    >
       <div className="assistant-controls">
         {streaming && <span>{step.message ? "Writing" : "Thinking"}</span>}
-        <StepIndicators
-          state={step.state}
-          inspect={() => actions.inspect(step.id)}
-        />
+        <StepIndicators state={step.state} />
       </div>
       <MarkdownBody message={step.message} />
       {step.state === "failed" && (
@@ -58,6 +60,6 @@ export const AssistantStep = memo(function AssistantStep({
             "The agent could not finish its response."}
         </p>
       )}
-    </section>
+    </StepCard>
   );
 });

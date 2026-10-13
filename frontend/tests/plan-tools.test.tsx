@@ -133,7 +133,10 @@ test("the todo tool displays its plan directly in the feed", () => {
   );
   assert.ok(view.getByText("Updated plan"));
   assert.equal(view.container.querySelector(".entry-state"), null);
-  assert.equal(view.queryByRole("button", { name: "View details" }), null);
+  assert.equal(
+    view.getByRole("button", { name: "View details" }).tagName,
+    "SECTION",
+  );
   assert.equal(view.getAllByRole("listitem").length, 3);
   assert.equal(view.queryByText("Result / output"), null);
 });
