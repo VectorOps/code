@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test, vi } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StepIndicators } from "../src/components/steps/StepIndicators";
 import { AssistantStep } from "../src/components/steps/AssistantStep";
@@ -9,6 +10,43 @@ import { UserStep } from "../src/components/steps/UserStep";
 import type { StepActions } from "../src/components/steps/registry";
 import { stepView } from "../src/models/steps";
 import { StepCard } from "../src/components/steps/StepCard";
+
+test("step cards preserve rich content and keep controls outside button semantics", () => {
+  const view = render(
+    <StepCard className="assistant-step" inspect={vi.fn()}>
+      <h2>Deployment failed</h2>
+      <p>Do not proceed.</p>
+      <ul>
+        <li>Check the logs</li>
+      </ul>
+      <a href="#logs">Logs</a>
+      <button>Approve once</button>
+      <textarea aria-label="Edit input" />
+    </StepCard>,
+  );
+  const card = view.container.querySelector(".step-card")!;
+  assert.equal(card.getAttribute("role"), null);
+  assert.equal(card.getAttribute("tabindex"), null);
+  assert.equal(card.getAttribute("aria-label"), null);
+  assert.equal(
+    view.getByRole("heading", { name: "Deployment failed" }).tagName,
+    "H2",
+  );
+  assert.equal(view.getByRole("listitem").textContent, "Check the logs");
+  for (const control of [
+    view.getByRole("link", { name: "Logs" }),
+    view.getByRole("button", { name: "Approve once" }),
+    view.getByRole("textbox", { name: "Edit input" }),
+  ]) {
+    assert.equal(
+      control.parentElement?.closest('[role="button"], button'),
+      null,
+    );
+  }
+  const details = view.getByRole("button", { name: "View details" });
+  assert.equal(details.tagName, "BUTTON");
+  assert.equal(details.contains(view.getByText("Do not proceed.")), false);
+});
 
 const actions: StepActions = {
   pending: [],
@@ -49,7 +87,7 @@ test("completed steps omit indicators entirely", () => {
   }
 });
 
-test("chat entries omit generic headings and info buttons but open details from the card", () => {
+test("chat entries open details by card click or a separate keyboard control", async () => {
   const step = stepView({
     position: 1,
     step: {
@@ -70,23 +108,27 @@ test("chat entries omit generic headings and info buttons but open details from 
       html,
       /activity-heading|>Assistant<|>Run Command<|>You<|aria-label="Completed"/,
     );
+    assert.doesNotMatch(
+      html,
+      /<section[^>]*(role="button"|aria-label="View details")|<svg/,
+    );
     assert.match(
       html,
-      /<section[^>]*role="button"[^>]*aria-label="View details"/,
+      /<button[^>]*class="step-card-details"[^>]*>View details<\/button>/,
     );
-    assert.doesNotMatch(html, /<button[^>]*aria-label="View details"|<svg/);
     assert.doesNotMatch(html, />completed|\/ Details|>Details</);
     const inspect = vi.fn();
     const view = render(
       <Component step={step} actions={{ ...actions, inspect }} />,
     );
-    const card = view.getByRole("button", { name: "View details" });
+    const details = view.getByRole("button", { name: "View details" });
+    const card = details.closest(".step-card")!;
     fireEvent.click(
       card.querySelector(".message-text, .markdown-content, code")!,
     );
     assert.deepEqual(inspect.mock.calls, [[step.id]]);
-    fireEvent.keyDown(card, { key: "Enter" });
-    fireEvent.keyDown(card, { key: " " });
+    assert.equal(document.activeElement, details);
+    await userEvent.setup().keyboard("{Enter} ");
     assert.deepEqual(inspect.mock.calls, [[step.id], [step.id], [step.id]]);
     view.unmount();
   }
@@ -122,9 +164,11 @@ test("nested controls and selected text do not open step details", () => {
   assert.equal(inspect.mock.calls.length, 0);
 
   const selection = window.getSelection()!;
+  selection.removeAllRanges();
   const range = document.createRange();
   range.selectNodeContents(view.getByText("Selectable text"));
   selection.addRange(range);
+  assert.equal(selection.isCollapsed, false);
   try {
     fireEvent.click(view.getByText("Selectable text"));
     assert.equal(inspect.mock.calls.length, 0);

@@ -119,6 +119,57 @@ function workspaceProps(): ComponentProps<typeof Workspace> {
   };
 }
 
+vitest.test.each(["", "Change direction"])(
+  "a running steering workflow can stop with draft %j without submitting it",
+  async (value) => {
+    const props = workspaceProps();
+    const onSteer = vitest.vi.fn(async () => true);
+    const view = render(
+      <Workspace
+        {...props}
+        sessions={[
+          {
+            execution_id: "session-a",
+            reference: "chat:workflow",
+            status: "running",
+            active: true,
+            pending_inputs: 0,
+          },
+        ]}
+        pending={[]}
+        steering={{
+          address: {
+            execution_id: "session-a",
+            workflow_id: "root",
+            conversation_id: "steer",
+          },
+          messages: [],
+          count: 0,
+        }}
+        onSteer={onSteer}
+      />,
+    );
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft");
+    if (value) await user.type(draft, value);
+    vitest
+      .expect(view.getByRole("button", { name: "Send message" }))
+      .toHaveProperty("disabled", !value);
+    const stop = view.getByRole("button", { name: "Stop workflow" });
+    vitest.expect(stop).toHaveProperty("disabled", false);
+    await user.click(stop);
+    vitest.expect(props.onStop).toHaveBeenCalledOnce();
+    vitest.expect(onSteer).not.toHaveBeenCalled();
+    vitest.expect(props.onReply).not.toHaveBeenCalled();
+    vitest.expect(draft).toHaveProperty("value", value);
+    if (value) {
+      await user.click(view.getByRole("button", { name: "Send message" }));
+      vitest.expect(onSteer).toHaveBeenCalledWith(value);
+      vitest.expect(draft).toHaveProperty("value", "");
+    }
+  },
+);
+
 vitest.test(
   "image-only messages preserve attachments on a failed reply and reuse the retry key",
   async () => {
@@ -711,10 +762,8 @@ vitest.test(
     const user = userEvent.setup();
     const draft = view.getByLabelText("Message draft");
     const opener = view.getByRole("button", { name: "View details" });
-    vitest.expect(opener.tagName).toBe("SECTION");
-    vitest
-      .expect(view.container.querySelector(".step-details-button"))
-      .toBeNull();
+    vitest.expect(opener.tagName).toBe("BUTTON");
+    vitest.expect(opener.classList.contains("step-card-details")).toBe(true);
     await user.click(view.getByText("Message"));
     vitest.expect(view.getByLabelText("Work inspector")).toBeTruthy();
     await user.keyboard("blocked");

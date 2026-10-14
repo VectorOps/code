@@ -5,9 +5,15 @@ kind = "local"
 provider = "chatgpt"
 model = "gpt-6-luna:fast"
 
-[components.workflows.defaults]
-thinking_level = "high"
-strong_model = "chatgpt/gpt-6.1-sol"
-medium_model = "chatgpt/gpt-6.1-sol"
-weak_model = "chatgpt/gpt-6-luna:fast"
+[components.llm.reasoning]
+effort = "high"
+
+[components.llm.profiles.strong]
+model = "chatgpt/gpt-6.1-sol"
+
+[components.llm.profiles.medium]
+model = "chatgpt/gpt-6.1-sol"
+
+[components.llm.profiles.weak]
+model = "chatgpt/gpt-6-luna:fast"
 

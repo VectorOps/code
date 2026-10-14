@@ -18,9 +18,16 @@
     @apply bg-neutral-100 text-neutral-700;
   }
   .step-card {
-    @apply cursor-pointer;
+    @apply relative cursor-pointer;
   }
-  .step-card:focus-visible {
+  .step-card-details {
+    @apply sr-only;
+  }
+  .step-card-details:focus-visible {
+    @apply not-sr-only right-2 top-2 z-10 bg-white text-neutral-700;
+    position: absolute;
+  }
+  .step-card:has(> .step-card-details:focus-visible) {
     @apply outline-2 outline-offset-2 outline-neutral-400;
   }
   .tool-step {

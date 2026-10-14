@@ -156,13 +156,12 @@ function WorkspaceContent({
         : undefined,
     [history, inspector],
   );
+  const inspectionHistory =
+    inspectedItem && conversationHistory.includes(inspectedItem)
+      ? conversationHistory
+      : history;
   const inspectedStep = inspectedItem
-    ? stepView(
-        inspectedItem,
-        conversationHistory.includes(inspectedItem)
-          ? conversationHistory
-          : history,
-      )
+    ? stepView(inspectedItem, inspectionHistory)
     : undefined;
   const inspectedTool =
     inspectedStep?.kind === "llm.tool"
@@ -491,7 +490,7 @@ function WorkspaceContent({
             {inspector.kind === "activity" && (
               <ActivityDetails
                 item={inspectedItem}
-                history={history}
+                history={inspectionHistory}
                 pending={pending}
                 tools={toolFormatters}
               />

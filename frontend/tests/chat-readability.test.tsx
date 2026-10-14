@@ -135,7 +135,7 @@ test("standalone failures keep their warning and clickable card without error te
   assert.match(html, /aria-label="Failed"/);
   assert.match(
     html,
-    /<section[^>]*role="button"[^>]*aria-label="View details"/,
+    /<button[^>]*class="step-card-details"[^>]*>View details<\/button>/,
   );
 });
 

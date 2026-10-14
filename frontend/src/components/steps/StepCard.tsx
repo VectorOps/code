@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 export function StepCard({
   children,
@@ -11,12 +11,10 @@ export function StepCard({
   inspect: () => void;
   busy?: boolean;
 }) {
+  const details = useRef<HTMLButtonElement>(null);
   return (
     <section
       className={`feed-entry step-card ${className}`}
-      role="button"
-      tabIndex={0}
-      aria-label="View details"
       aria-busy={busy}
       onClick={(event) => {
         if (
@@ -30,18 +28,18 @@ export function StepCard({
           "a, button, input, textarea, select, summary, [role='button'], [contenteditable], [tabindex]",
         );
         if (control && control !== event.currentTarget) return;
+        details.current?.focus({ preventScroll: true });
         inspect();
       }}
-      onKeyDown={(event) => {
-        if (
-          event.target === event.currentTarget &&
-          (event.key === "Enter" || event.key === " ")
-        ) {
-          event.preventDefault();
-          inspect();
-        }
-      }}
     >
+      <button
+        ref={details}
+        type="button"
+        className="step-card-details"
+        onClick={inspect}
+      >
+        View details
+      </button>
       {children}
     </section>
   );

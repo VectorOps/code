@@ -143,7 +143,7 @@ test.each(["completed", "streaming", "authorized"])(
     assert.equal(view.container.querySelector(".entry-state"), null);
     assert.equal(
       view.getByRole("button", { name: "View details" }).tagName,
-      "SECTION",
+      "BUTTON",
     );
     assert.equal(
       view.container.querySelector(".tool-activity-row")?.children.length,

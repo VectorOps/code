@@ -379,7 +379,9 @@ vitest.test.each(["user", "assistant", "tool"])(
         active={false}
       />,
     );
-    const card = view.getByRole("button", { name: "View details" });
+    const card = view
+      .getByRole("button", { name: "View details" })
+      .closest(".step-card")!;
     const controls = card.querySelector(
       kind === "tool"
         ? ".tool-activity-row > .tool-step-controls"
@@ -866,6 +868,93 @@ vitest.test(
       .expect(archived.queryByRole("button", { name: "Restart this step" }))
       .toBeNull();
     vitest.expect(branch).not.toHaveBeenCalled();
+    view.unmount();
+    vitest.vi.unstubAllGlobals();
+  },
+);
+
+vitest.test(
+  "inspecting a retried tool uses selected history when abandoned calls reuse IDs",
+  () => {
+    vitest.vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const generation = (
+      id: string,
+      previous: string | null,
+      position: number,
+      command: string,
+    ) =>
+      item(
+        id,
+        previous,
+        "root",
+        { kind: "llm.generate" },
+        {
+          content: [
+            {
+              type: "tool_call",
+              id: "call",
+              name: "exec",
+              arguments: { command },
+            },
+          ],
+        },
+        position,
+      );
+    const tool = (id: string, previous: string, position: number) =>
+      item(
+        id,
+        previous,
+        "root",
+        { kind: "llm.tool" },
+        {
+          tool_name: "exec",
+          tool_call_id: "call",
+          content: [{ type: "text", text: "{}" }],
+        },
+        position,
+      );
+    const history = [
+      generation("first", null, 1, "echo correct-branch"),
+      tool("old-tool", "first", 2),
+      generation("abandoned", "old-tool", 3, "echo abandoned-branch"),
+      tool("retried-tool", "first", 4),
+    ];
+    const view = testing.render(
+      <Workspace
+        sessions={[]}
+        selected="existing"
+        onSelect={() => {}}
+        history={history}
+        execution={{
+          ...execution,
+          checkpoint: { heads: { root: "retried-tool" } },
+        }}
+        pending={[]}
+        status="Connected"
+        endpoint="ws://localhost"
+        enabled
+        busy={false}
+        onStop={() => {}}
+        onReply={async () => true}
+        newSession={null}
+        connection={null}
+        error=""
+        dismiss={() => {}}
+        hasOlder={false}
+      />,
+    );
+    testing.fireEvent.click(view.getByText("echo correct-branch"));
+    const inspector = view.getByLabelText("Work inspector");
+    vitest
+      .expect(inspector.querySelector(".tool-code"))
+      .toHaveProperty("textContent", "echo correct-branch");
+    vitest.expect(inspector.textContent).not.toContain("echo abandoned-branch");
     view.unmount();
     vitest.vi.unstubAllGlobals();
   },

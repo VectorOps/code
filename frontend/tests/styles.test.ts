@@ -54,6 +54,14 @@ test("frontend CSS preserves global layer order and appearance overrides", async
   assert.match(iconButton, /color:\s*var\(--color-neutral-400(?:,|\))/);
   assert.match(iconButton, /background-color:\s*(?:transparent|#0000)/);
   assert.match(iconButton, /padding:/);
+  assert.match(
+    lastRule(css, ".step-card-details"),
+    /clip-path:\s*inset\(50%\)/,
+  );
+  const focusedDetails = lastRule(css, ".step-card-details:focus-visible");
+  assert.match(focusedDetails, /clip-path:\s*none/);
+  assert.match(focusedDetails, /position:\s*absolute/);
+  assert.match(focusedDetails, /width:\s*auto/);
   for (const selector of [
     ".step-details-button:hover:not(:disabled)",
     ".step-details-button:focus-visible",

@@ -106,24 +106,25 @@ export function Composer({
   const [operating, setOperating] = useState<Activity | null>(null);
   const inputError = messageError || chatInput.messageError(value, images);
   const activity = workflowActivity(selected, ready, pendingCount, session);
-  const callback =
-    activity === "send"
-      ? send
-      : activity === "stop"
-        ? stop
-        : activity === "resume"
-          ? resume
-          : activity === "review"
-            ? review
-            : undefined;
-  const canAct =
+  const callbacks = { send, stop, resume, review, idle: undefined };
+  const available =
+    selected &&
     enabled &&
     !busy &&
     !operating &&
-    Boolean(callback) &&
-    session?.status !== "stopping" &&
-    (activity !== "send" ||
-      (ready && Boolean(value.trim() || images.length) && !inputError));
+    session?.status !== "stopping";
+  const separateStop = activity === "send" && Boolean(session?.active && stop);
+  function canAct(next: Activity) {
+    return (
+      available &&
+      Boolean(callbacks[next]) &&
+      (next === "send"
+        ? ready && Boolean(value.trim() || images.length) && !inputError
+        : next === "stop"
+          ? Boolean(session?.active)
+          : next === activity)
+    );
+  }
   const displayedActivity = operating ?? activity;
   const label = operating
     ? progressLabels[operating]
@@ -131,14 +132,15 @@ export function Composer({
       ? progressLabels.stop
       : activityLabels[activity];
 
-  async function submit() {
-    if (!canAct || !callback || inFlight.current) return;
+  async function submit(next: Activity = activity) {
+    const callback = callbacks[next];
+    if (!canAct(next) || !callback || inFlight.current) return;
     const recover =
-      activity === "send" && form.current
+      next === "send" && form.current
         ? coordinator?.captureComposerRecovery(form.current)
         : undefined;
     inFlight.current = true;
-    setOperating(activity);
+    setOperating(next);
     try {
       await callback();
       recover?.();
@@ -322,11 +324,24 @@ export function Composer({
               Steering · {steeringCount}
             </button>
           )}
+          {separateStop && (
+            <button
+              type="button"
+              className="quiet-button"
+              aria-label="Stop workflow"
+              title="Stop workflow"
+              aria-busy={operating === "stop"}
+              disabled={!canAct("stop")}
+              onClick={() => void submit("stop")}
+            >
+              Stop
+            </button>
+          )}
           <button
             className="composer-submit"
             type={activity === "send" ? "submit" : "button"}
             onClick={activity === "send" ? undefined : () => void submit()}
-            disabled={!canAct}
+            disabled={!canAct(activity)}
             aria-label={label}
             title={label}
             aria-busy={

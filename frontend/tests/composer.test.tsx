@@ -280,6 +280,77 @@ vitest.test.each(["paused", "running"])(
   },
 );
 
+vitest.test.each([
+  { value: "" },
+  { messageError: "Remove failed images before sending." },
+])(
+  "stop remains available beside send despite draft validation %j",
+  async (overrides) => {
+    const view = compose({
+      session: { status: "running", active: true, pending_inputs: 0 },
+      ...overrides,
+    });
+    vitest
+      .expect(view.getByRole("button", { name: "Send message" }))
+      .toHaveProperty("disabled", true);
+    await userEvent
+      .setup()
+      .click(view.getByRole("button", { name: "Stop workflow" }));
+    vitest.expect(view.stop).toHaveBeenCalledOnce();
+    vitest.expect(view.send).not.toHaveBeenCalled();
+    vitest
+      .expect(view.getByRole("textbox"))
+      .toHaveProperty("value", overrides.value ?? "Hello");
+  },
+);
+
+vitest.test.each([{ enabled: false }, { busy: true }])(
+  "stop beside send honors unavailable state %j",
+  async (unavailable) => {
+    const view = compose({
+      session: { status: "running", active: true, pending_inputs: 0 },
+      ...unavailable,
+    });
+    const stop = view.getByRole("button", { name: "Stop workflow" });
+    vitest.expect(stop).toHaveProperty("disabled", true);
+    await userEvent.setup().click(stop);
+    vitest.expect(view.stop).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test.each(["stop", "send"] as const)(
+  "%s disables both composer actions while in flight",
+  async (activity) => {
+    let finish: () => void = () => {};
+    const callback = vitest.vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const view = compose({
+      session: { status: "running", active: true, pending_inputs: 0 },
+      [activity]: callback,
+    });
+    const stop = view.getByRole("button", { name: "Stop workflow" });
+    const send = view.getByRole("button", { name: "Send message" });
+    const control = activity === "stop" ? stop : send;
+    fireEvent.click(control);
+    fireEvent.click(control);
+    fireEvent.click(activity === "stop" ? send : stop);
+    fireEvent.submit(view.getByRole("textbox").closest("form")!);
+    vitest.expect(callback).toHaveBeenCalledOnce();
+    vitest
+      .expect(view[activity === "stop" ? "send" : "stop"])
+      .not.toHaveBeenCalled();
+    vitest.expect(stop).toHaveProperty("disabled", true);
+    vitest.expect(send).toHaveProperty("disabled", true);
+    await act(async () => finish());
+    vitest.expect(send).toHaveProperty("disabled", false);
+    vitest.expect(view.getByRole("textbox")).toHaveProperty("value", "Hello");
+  },
+);
+
 vitest.test.each(["", "Saved instruction"])(
   "a cancelled workflow can start without submitting draft %j",
   async (value) => {
