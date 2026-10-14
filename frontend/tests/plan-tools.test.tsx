@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import type { Json } from "../src/models/json";
 import type { ToolView } from "../src/components/tools/factory";
 import { PlanDetails, PlanSummary } from "../src/components/tools/views";
@@ -29,7 +29,7 @@ function tool(args: Json = { todos }, result?: Json): ToolView {
 }
 
 test("plan summaries show every task with a consistently sized status icon", () => {
-  const view = render(<PlanSummary tool={tool()} />);
+  const view = render(<PlanSummary tool={tool({}, { todos })} />);
   const items = view.getAllByRole("listitem");
   assert.deepEqual(
     items.map((item) => item.textContent),
@@ -107,6 +107,144 @@ test("empty plans retain a compact fallback without stale requested tasks", () =
   assert.equal(view.queryByText("Task A"), null);
 });
 
+test.each([
+  "pending",
+  "streaming",
+  "completed",
+  "failed",
+  "cancelled",
+  "Authorized",
+])("argument-only plans are explicitly unconfirmed when %s", (state) => {
+  const view = render(
+    <PlanSummary tool={{ ...tool(), state, failed: state === "failed" }} />,
+  );
+  assert.ok(view.getByText("Requested updates (not confirmed)"));
+  assert.ok(view.getByRole("list", { name: "Requested updates" }));
+  assert.equal(view.queryByRole("list", { name: "Plan" }), null);
+  assert.equal(view.getAllByRole("listitem").length, 3);
+});
+
+test("a returned plan replaces the unconfirmed preview", () => {
+  const args = { todos: [{ id: "c", status: "completed" }] };
+  const view = render(<PlanSummary tool={tool(args)} />);
+  assert.equal(view.getByRole("listitem").textContent, "c");
+  assert.ok(view.getByText("Requested updates (not confirmed)"));
+  view.rerender(<PlanSummary tool={tool(args, { todos })} />);
+  assert.equal(view.getAllByRole("listitem").length, 3);
+  assert.ok(view.getByRole("list", { name: "Plan" }));
+  assert.equal(view.queryByText("Requested updates (not confirmed)"), null);
+});
+
+test.each<Json>([{}, { todos: null }, { todos: "invalid" }])(
+  "a result without a valid todo list keeps requests explicitly unconfirmed: %j",
+  (result) => {
+    const view = render(<PlanSummary tool={tool({ todos }, result)} />);
+    assert.ok(view.getByText("Requested updates (not confirmed)"));
+    assert.equal(view.getAllByRole("listitem").length, 3);
+    assert.equal(view.queryByRole("list", { name: "Plan" }), null);
+  },
+);
+
+test("plan details do not present failed requested updates as results", () => {
+  const view = render(
+    <PlanDetails
+      tool={{ ...tool({ todos }, { error: "Update rejected" }), failed: true }}
+    />,
+  );
+  const disclosure = view.getByText("Result / output").closest("details");
+  assert.ok(disclosure);
+  disclosure.open = true;
+  fireEvent(disclosure, new Event("toggle"));
+  assert.equal(view.queryByRole("list"), null);
+  assert.ok(view.getByText(/Update rejected/));
+});
+
+test.each(["failed", "is_error"])(
+  "failed todo updates retain their failure indicator for %s outcomes",
+  (failure) => {
+    const step = stepView({
+      position: 1,
+      step: {
+        id: "plan",
+        workflow_id: "root",
+        operation: {
+          kind: "llm.tool",
+          input: { call: { name: "update_plan", arguments: { todos } } },
+        },
+        outcome:
+          failure === "failed"
+            ? { kind: "failed", error: { message: "Update rejected" } }
+            : {
+                kind: "completed",
+                result: {
+                  is_error: true,
+                  content: [{ type: "text", text: "Update rejected" }],
+                },
+              },
+      },
+    });
+    const view = render(
+      <ToolStep
+        step={step}
+        actions={{
+          pending: [],
+          enabled: true,
+          inspect: () => {},
+          reply: async () => true,
+        }}
+      />,
+    );
+    assert.ok(view.getByRole("img", { name: "Failed" }));
+    assert.ok(view.getByText("Requested updates (not confirmed)"));
+    assert.equal(view.queryByRole("list", { name: "Plan" }), null);
+  },
+);
+
+test("todo approval shows an unconfirmed preview and working approval actions", async () => {
+  const call = { name: "update_plan", arguments: { todos } };
+  const step = stepView({
+    position: 1,
+    step: {
+      id: "plan",
+      workflow_id: "root",
+      operation: { kind: "llm.tool", input: { call, gate_only: true } },
+      outcome: { kind: "pending" },
+    },
+  });
+  let response: Json | undefined;
+  const view = render(
+    <ToolStep
+      step={step}
+      actions={{
+        pending: [
+          {
+            request_id: "plan",
+            execution_id: "execution",
+            workflow_id: "root",
+            request_type: "tool.approval.v1",
+            channel: "approval",
+            payload: { call },
+            response_type: "json",
+          },
+        ],
+        enabled: true,
+        inspect: () => {},
+        reply: async (_, value) => {
+          response = value;
+          return true;
+        },
+      }}
+    />,
+  );
+  assert.ok(view.getByText("Requested updates (not confirmed)"));
+  assert.ok(view.getByRole("list", { name: "Requested updates" }));
+  assert.ok(view.getByText("Approval required"));
+  assert.ok(view.getByRole("button", { name: "Reject" }));
+  fireEvent.click(view.getByRole("button", { name: "Approve once" }));
+  await waitFor(() => assert.ok(view.getByText("Decision acknowledged")));
+  assert.deepEqual(response, { approved: true, scope: "call" });
+});
+
 test.each(["completed", "streaming", "authorized"])(
   "the todo tool displays only its plan in the feed when %s",
   (state) => {
@@ -150,7 +288,9 @@ test.each(["completed", "streaming", "authorized"])(
       1,
     );
     assert.equal(
-      view.getByRole("list", { name: "Plan" }).textContent,
+      view.getByRole("list", {
+        name: state === "authorized" ? "Requested updates" : "Plan",
+      }).textContent,
       "Task ATask BTask C",
     );
     assert.equal(view.getAllByRole("listitem").length, 3);

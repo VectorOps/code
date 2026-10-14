@@ -104,6 +104,10 @@ export function Result({ tool }: ToolProps) {
           : "No result recorded yet."}
       </p>
     );
+  return <ResultBlocks blocks={blocks} />;
+}
+
+function ResultBlocks({ blocks }: { blocks: Json[] }) {
   return (
     <>
       {blocks.map((value, index) => {
@@ -195,6 +199,9 @@ export function FileDetails({ tool }: ToolProps) {
 }
 
 function FileOutput({ tool }: ToolProps) {
+  const blocks = values(object(tool.output).content);
+  if (blocks.length && object(blocks[0]).type !== "text")
+    return <Result tool={tool} />;
   const result = object(payload(tool));
   if (!Object.keys(result).length) return <Result tool={tool} />;
   const { content, text: lines, ...metadata } = result;
@@ -212,9 +219,8 @@ function FileOutput({ tool }: ToolProps) {
         </LazyDetails>
       ) : content !== undefined || lines !== undefined ? (
         <Code value={content ?? lines} />
-      ) : (
-        <Result tool={tool} />
-      )}
+      ) : null}
+      <ResultBlocks blocks={blocks.slice(1)} />
     </>
   );
 }
@@ -407,14 +413,19 @@ export function WebDetails({ tool }: ToolProps) {
   return <FileDetails tool={tool} />;
 }
 
-function todos(tool: ToolView): Json[] {
-  return values(object(payload(tool)).todos ?? object(tool.arguments).todos);
+function plan(tool: ToolView) {
+  const returned = object(payload(tool)).todos;
+  const requested = tool.state === "Authorized" || !Array.isArray(returned);
+  return {
+    items: requested ? values(object(tool.arguments).todos) : returned,
+    requested,
+  };
 }
 
 export function PlanSummary({ tool }: ToolProps) {
-  const items = todos(tool);
+  const { items, requested } = plan(tool);
   return items.length ? (
-    <PlanList items={items} />
+    <PlanList items={items} requested={requested} />
   ) : (
     <Summary items={[]} fallback="Plan update" />
   );
@@ -429,14 +440,23 @@ export function PlanDetails({ tool }: ToolProps) {
 }
 
 function PlanOutput({ tool }: ToolProps) {
-  const items = todos(tool);
-  if (!items.length) return <Result tool={tool} />;
+  const { items, requested } = plan(tool);
+  if (requested || !items.length) return <Result tool={tool} />;
   return <PlanList items={items} />;
 }
 
-function PlanList({ items }: { items: Json[] }) {
-  return (
-    <ul className="tool-plan" aria-label="Plan">
+function PlanList({
+  items,
+  requested = false,
+}: {
+  items: Json[];
+  requested?: boolean;
+}) {
+  const list = (
+    <ul
+      className="tool-plan"
+      aria-label={requested ? "Requested updates" : "Plan"}
+    >
       {items.map((value, index) => {
         const todo = object(value);
         const status = text(todo.status) || "pending";
@@ -467,6 +487,16 @@ function PlanList({ items }: { items: Json[] }) {
         );
       })}
     </ul>
+  );
+  return requested ? (
+    <div className="tool-plan-preview">
+      <small className="tool-plan-notice">
+        Requested updates (not confirmed)
+      </small>
+      {list}
+    </div>
+  ) : (
+    list
   );
 }
 

@@ -101,7 +101,19 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tool-activity-row:has(> .tool-plan) {
+.tool-plan-preview {
+  flex: 1;
+  min-width: 0;
+}
+.tool-plan-notice {
+  display: block;
+  color: var(--color-neutral-500);
+}
+.tool-plan-preview > .tool-plan {
+  margin: 0;
+}
+.tool-activity-row:has(> .tool-plan),
+.tool-activity-row:has(> .tool-plan-preview) {
   align-items: flex-start;
 }
 .tool-activity-row > .tool-plan {

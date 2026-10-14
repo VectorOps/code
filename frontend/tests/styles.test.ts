@@ -46,6 +46,17 @@ test("frontend CSS preserves global layer order and appearance overrides", async
     /align-items:\s*flex-start/,
   );
   assert.match(
+    lastRule(css, ".tool-activity-row:has(> .tool-plan-preview)"),
+    /align-items:\s*flex-start/,
+  );
+  const planPreview = lastRule(css, ".tool-plan-preview");
+  assert.match(planPreview, /flex:\s*1/);
+  assert.match(planPreview, /min-width:\s*0/);
+  assert.match(
+    lastRule(css, ".tool-plan-notice"),
+    /color:\s*var\(--color-neutral-500\)/,
+  );
+  assert.match(
     lastRule(css, ".tool-group-heading > .tool-plan"),
     /flex-basis:\s*100%/,
   );
