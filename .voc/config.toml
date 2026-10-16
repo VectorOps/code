@@ -2,8 +2,7 @@
 kind = "local"
 
 [components.llm]
-provider = "chatgpt"
-model = "gpt-6-luna:fast"
+model = "chatgpt/gpt-6-luna:fast"
 
 [components.llm.reasoning]
 effort = "high"
@@ -16,4 +15,3 @@ model = "chatgpt/gpt-6.1-sol"
 
 [components.llm.profiles.weak]
 model = "chatgpt/gpt-6-luna:fast"
-

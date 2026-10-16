@@ -1,10 +1,16 @@
 import { isUserResponse } from "../../models/steps";
 import { AssistantStep } from "./AssistantStep";
+import { EchoStep } from "./EchoStep";
 import { ToolStep } from "./ToolStep";
 import { UserStep } from "./UserStep";
 import { StepRegistry } from "./registry";
 
 export const defaultStepRegistry = new StepRegistry([
+  {
+    id: "echo",
+    matches: (step) => step.kind === "echo",
+    component: EchoStep,
+  },
   {
     id: "assistant",
     matches: (step) =>
