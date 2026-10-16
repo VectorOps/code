@@ -37,17 +37,21 @@ function compose(overrides: Partial<Props> = {}) {
   };
 }
 
-vitest.test.each(["ctrlKey", "metaKey"])(
-  "%s + Enter submits an enabled draft",
+vitest.test.each(["shiftKey", "altKey", "ctrlKey", "metaKey"])(
+  "%s + Enter adds a newline without submitting",
   async (modifier) => {
     const view = compose();
+    const input = view.getByRole("textbox") as HTMLTextAreaElement;
+    input.setSelectionRange(5, 5);
     await act(async () => {
-      fireEvent.keyDown(view.getByRole("textbox"), {
+      fireEvent.keyDown(input, {
         key: "Enter",
         [modifier]: true,
       });
     });
-    vitest.expect(view.send).toHaveBeenCalledOnce();
+    vitest.expect(view.send).not.toHaveBeenCalled();
+    vitest.expect(input.value).toBe("Hello\n");
+    vitest.expect(input.selectionStart).toBe(6);
   },
 );
 
@@ -163,14 +167,14 @@ vitest.test.each(["preparing", "failed"] as const)(
   },
 );
 
-vitest.test("Enter adds a newline instead of sending", async () => {
+vitest.test("Enter submits without adding a newline", async () => {
   const view = compose();
   const user = userEvent.setup();
   const draft = view.getByRole("textbox");
   await user.click(draft);
-  await user.keyboard("{End}{Enter}Next line");
-  vitest.expect(draft).toHaveProperty("value", "Hello\nNext line");
-  vitest.expect(view.send).not.toHaveBeenCalled();
+  await user.keyboard("{End}{Enter}");
+  vitest.expect(draft).toHaveProperty("value", "Hello");
+  vitest.expect(view.send).toHaveBeenCalledOnce();
 });
 
 vitest.test.each([
@@ -185,7 +189,7 @@ vitest.test.each([
     const view = compose(overrides);
     const draft = view.getByRole("textbox");
     await act(async () => {
-      fireEvent.keyDown(draft, { key: "Enter", ctrlKey: true });
+      fireEvent.keyDown(draft, { key: "Enter" });
       fireEvent.submit(draft.closest("form")!);
     });
     vitest.expect(view.send).not.toHaveBeenCalled();
@@ -198,7 +202,6 @@ vitest.test("IME composition does not submit a draft", async () => {
   await act(async () => {
     fireEvent.keyDown(view.getByRole("textbox"), {
       key: "Enter",
-      ctrlKey: true,
       isComposing: true,
     });
   });
@@ -217,8 +220,8 @@ vitest.test(
     );
     const view = compose({ send });
     const draft = view.getByRole("textbox");
-    fireEvent.keyDown(draft, { key: "Enter", ctrlKey: true });
-    fireEvent.keyDown(draft, { key: "Enter", metaKey: true });
+    fireEvent.keyDown(draft, { key: "Enter" });
+    fireEvent.keyDown(draft, { key: "Enter" });
     fireEvent.submit(draft.closest("form")!);
     vitest.expect(send).toHaveBeenCalledOnce();
     vitest
@@ -254,7 +257,6 @@ vitest.test.each(["running", "starting"])(
     vitest.expect(button.querySelector("svg rect")).not.toBeNull();
     fireEvent.keyDown(view.getByRole("textbox"), {
       key: "Enter",
-      ctrlKey: true,
     });
     fireEvent.submit(view.getByRole("textbox").closest("form")!);
     vitest.expect(view.stop).not.toHaveBeenCalled();

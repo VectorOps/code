@@ -7,6 +7,8 @@ import type { InputRequest } from "../src/models/runner";
 import { createPortal } from "react-dom";
 import { useFocusBlocker, useFocusRegion } from "../src/focus/FocusProvider";
 import { defaultStepRegistry } from "../src/components/steps/defaults";
+import { PromptHistoryApi } from "../src/communication/prompt-history";
+import { RunnerConnection } from "../src/communication/websocket";
 
 vitest.beforeEach(() => {
   vitest.vi.stubGlobal(
@@ -118,6 +120,71 @@ function workspaceProps(): ComponentProps<typeof Workspace> {
     hasOlder: false,
   };
 }
+
+vitest.test(
+  "only accepted messages are recorded on the host, with stable retry keys",
+  async () => {
+    const props = workspaceProps();
+    const history = new PromptHistoryApi(
+      new RunnerConnection("ws://localhost", "test"),
+    );
+    const append = vitest.vi.spyOn(history, "append").mockResolvedValue({
+      id: 1,
+      project_id: "host-project",
+      execution_id: "session-a",
+      timestamp: "2026-01-01T00:00:00Z",
+      text: "Saved prompt",
+    });
+    vitest.vi
+      .mocked(props.onReply)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const view = render(<Workspace {...props} promptHistory={history} />);
+    const user = userEvent.setup();
+    await user.type(view.getByLabelText("Message draft"), "Saved prompt");
+    await user.keyboard("{Enter}");
+    vitest.expect(append).not.toHaveBeenCalled();
+    vitest
+      .expect(view.getByLabelText("Message draft"))
+      .toHaveProperty("value", "Saved prompt");
+    await user.keyboard("{Enter}");
+    await waitFor(() => vitest.expect(append).toHaveBeenCalledOnce());
+    const key = vitest.vi.mocked(props.onReply).mock.calls[0][2];
+    vitest
+      .expect(append)
+      .toHaveBeenCalledWith("Saved prompt", "session-a", key);
+    vitest.expect(vitest.vi.mocked(props.onReply).mock.calls[1][2]).toBe(key);
+    vitest
+      .expect(view.getByLabelText("Message draft"))
+      .toHaveProperty("value", "");
+  },
+);
+
+vitest.test(
+  "history storage failure does not retry an accepted message or retain its draft",
+  async () => {
+    const props = workspaceProps();
+    const history = new PromptHistoryApi(
+      new RunnerConnection("ws://localhost", "test"),
+    );
+    vitest.vi
+      .spyOn(history, "append")
+      .mockRejectedValue(new Error("Storage unavailable"));
+    const view = render(<Workspace {...props} promptHistory={history} />);
+    const user = userEvent.setup();
+    await user.type(view.getByLabelText("Message draft"), "Accepted text");
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      vitest
+        .expect(view.getByRole("alert").textContent)
+        .toContain("Message sent"),
+    );
+    vitest.expect(props.onReply).toHaveBeenCalledOnce();
+    vitest
+      .expect(view.getByLabelText("Message draft"))
+      .toHaveProperty("value", "");
+  },
+);
 
 vitest.test.each(["", "Change direction"])(
   "a running steering workflow uses the same control for draft %j and stop",
@@ -409,7 +476,7 @@ vitest.test(
     const view = render(<Workspace {...props} pending={[]} />);
     const user = userEvent.setup();
     await user.type(view.getByLabelText("Message draft"), "Hello");
-    await user.keyboard("{Control>}{Enter}{/Control}");
+    await user.keyboard("{Enter}");
     vitest.expect(props.onReply).not.toHaveBeenCalled();
     view.rerender(
       <Workspace
@@ -417,10 +484,10 @@ vitest.test(
         pending={[request, { ...request, request_id: "other" }]}
       />,
     );
-    await user.keyboard("{Control>}{Enter}{/Control}");
+    await user.keyboard("{Enter}");
     vitest.expect(props.onReply).not.toHaveBeenCalled();
     view.rerender(<Workspace {...props} />);
-    await user.keyboard("{Control>}{Enter}{/Control}");
+    await user.keyboard("{Enter}");
     vitest.expect(props.onReply).toHaveBeenCalledWith(
       request,
       {
@@ -441,11 +508,11 @@ vitest.test(
     const view = render(<Workspace {...workspaceProps()} onReply={onReply} />);
     const user = userEvent.setup();
     await user.type(view.getByLabelText("Message draft"), "Try again");
-    await user.keyboard("{Control>}{Enter}{/Control}");
+    await user.keyboard("{Enter}");
     vitest
       .expect(view.getByLabelText("Message draft"))
       .toHaveProperty("value", "Try again");
-    await user.keyboard("{Control>}{Enter}{/Control}");
+    await user.keyboard("{Enter}");
     vitest.expect(onReply).toHaveBeenCalledTimes(2);
     vitest.expect(onReply.mock.calls[1]).toEqual(onReply.mock.calls[0]);
     vitest
@@ -468,7 +535,7 @@ vitest.test(
     const user = userEvent.setup();
     const draft = view.getByLabelText("Message draft");
     await user.type(draft, "First");
-    await user.keyboard("{Control>}{Enter}{/Control}");
+    await user.keyboard("{Enter}");
     vitest.expect(draft).toHaveProperty("value", "First");
     vitest.expect(view.getByText("Sending message…")).toBeTruthy();
     await user.type(draft, " more");
@@ -498,7 +565,7 @@ vitest.test(
     const view = render(<Workspace {...props} onReply={onReply} />);
     const user = userEvent.setup();
     await user.type(view.getByLabelText("Message draft"), "Session A");
-    await user.keyboard("{Control>}{Enter}{/Control}");
+    await user.keyboard("{Enter}");
     view.rerender(
       <Workspace
         {...props}

@@ -51,11 +51,56 @@ uv run runner-desktop serve --workspace /path/to/workspace --origin http://127.0
 
 In another terminal run `npm run dev` in `frontend/`, open `http://127.0.0.1:5173`, and enter the endpoint and token. Repeat `--origin` to allow multiple exact frontend origins. Connections without an allowed Origin are rejected, including non-browser clients unless they supply an allowed origin.
 
+## Message input and prompt recall
+
+| Shortcut | Behavior |
+| --- | --- |
+| Enter | Send when sending is available; never stop or resume a workflow |
+| Shift/Alt/Ctrl/Cmd+Enter | Insert a newline at the selection |
+| Ctrl+J | Insert a newline |
+| Up on the first visual line | Recall an older submitted prompt, globally across projects and chats |
+| Down on the last visual line | Recall a newer prompt, then restore the unsent draft |
+| Ctrl+R or Cmd+R inside the composer | Search prompt input history |
+
+The input grows and shrinks with wrapped content, starting at one row and growing
+to ten rows or the viewport-based cap, whichever is smaller. Longer input scrolls
+inside the composer. Multiline paste stays multiline, and IME confirmation does
+not submit a message.
+
+Prompt history is separate from conversation transcripts. Runner-desktop workers
+store the latest 1,000 successfully submitted text prompts in
+`$XDG_STATE_HOME/runner-desktop/prompt-history.sqlite3`, defaulting to
+`~/.local/state/runner-desktop/prompt-history.sqlite3` on the host. It survives
+restarts and is shared by clients and workspaces using that host account. The
+database contains plaintext prompts and has owner-only permissions on POSIX.
+Drafts, connection tokens, and image payloads are not copied into prompt history.
+
+Ctrl+R opens a search dialog with Global, This project, and This chat filters.
+Search is case-insensitive and literal; duplicate text appears only once, at its
+latest position within the selected scope. Enter or a result click restores text
+without sending it, changing chats, or importing attachments/context. Escape
+preserves the draft. Each composer owns its navigation position, independent of
+other clients. History errors do not retry an already accepted message.
+
+History access uses the authenticated `prompt_history.append` and
+`prompt_history.list` desktop extensions. An attached host must run a compatible
+runner-desktop worker; no browser-storage fallback is used. For example:
+
+```json
+{"kind":"request","id":"recall","method":"prompt_history.list","params":{"scope":"global","query":"fix tests","limit":20}}
+```
+
+`list` returns `entries` and `next_before`; pass that cursor as `before` to fetch
+older entries. Pages contain at most 20 entries. Entries contain `id`,
+`project_id`, `execution_id`, `timestamp`, and `text`. The host supplies project
+identity. Session-scoped queries also require `execution_id`. `append` accepts
+`text`, `execution_id`, and `idempotency_key`; unchanged retries reuse the key.
+
 ## Protocol and recovery
 
 The WebSocket endpoint transports the runner's version-2 control packets unchanged as JSON text messages. Authentication is the first message, followed by requests, responses, errors, and subscription events. The adapter reuses the runner's authentication, limits, dispatch, and task ownership instead of maintaining a second implementation.
 
-The frontend subscribes before refreshing persisted state, refreshes again when events arrive during a refresh, and polls every five seconds as a fallback. Reconnection reauthenticates and resubscribes. There is no durable event replay: sequence numbers are connection-local, and the history panel displays the latest 100 persisted steps. Start and input-response retries reuse their idempotency key when retried with unchanged content in the same mounted UI; commands are not automatically replayed after disconnect.
+The frontend subscribes before fetching persisted snapshots and applies pushed execution summaries directly, without periodic polling. Reconnection reauthenticates, resubscribes, and reconciles snapshots and history. There is no durable event replay: sequence numbers are connection-local, and the history panel displays the latest 100 persisted steps. Start and input-response retries reuse their idempotency key when retried with unchanged content in the same mounted UI; commands are not automatically replayed after disconnect.
 
 The current UI is a functional workflow inspector, not yet a rich chat renderer. It displays structured history and schema-driven JSON input rather than assuming all workflows accept a prompt. Specialized tool/diff views, paginated history navigation, OAuth interaction UI, durable replay, and native installers are not implemented.
 

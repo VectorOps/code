@@ -7,9 +7,9 @@ from threading import Thread
 from typing import Optional
 
 from vectorops.runner.control import protocol
-from vectorops.runner.control.service import RunnerService
 
 from runner_desktop.server import wait_for_shutdown, websocket_server
+from runner_desktop.service import DesktopService
 
 
 class Worker:
@@ -24,7 +24,7 @@ class Worker:
     async def _serve(self) -> None:
         self.loop = asyncio.get_running_loop()
         self.stop = asyncio.Event()
-        async with RunnerService(self.workspace) as service:
+        async with DesktopService(self.workspace) as service:
             async with websocket_server(service, self.token, [self.origin]) as listener:
                 port = next(iter(listener.sockets)).getsockname()[1]
                 self.ready.set_result(f"ws://127.0.0.1:{port}")

@@ -8,9 +8,9 @@ import signal
 from typing import Optional
 
 from vectorops.runner.control.auth import validate_token
-from vectorops.runner.control.service import RunnerService
 
 from runner_desktop.server import wait_for_shutdown, websocket_server
+from runner_desktop.service import DesktopService
 
 
 async def serve(workspace: Path, token: str, origins: list[str], port: int) -> None:
@@ -19,7 +19,7 @@ async def serve(workspace: Path, token: str, origins: list[str], port: int) -> N
     previous = signal.getsignal(signal.SIGTERM)
     signal.signal(signal.SIGTERM, lambda *_: loop.call_soon_threadsafe(stop.set))
     try:
-        async with RunnerService(workspace) as service:
+        async with DesktopService(workspace) as service:
             async with websocket_server(service, token, origins, port) as listener:
                 actual_port = next(iter(listener.sockets)).getsockname()[1]
                 print(

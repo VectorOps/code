@@ -15,6 +15,7 @@ import { Composer } from "../components/Composer";
 import { useConversationScroll } from "../hooks/useConversationScroll";
 import { useImageAttachments } from "../hooks/useImageAttachments";
 import * as chatInput from "../models/chat-input";
+import type { PromptHistoryApi } from "../communication/prompt-history";
 import { defaultToolFormatters } from "../components/tools/defaults";
 import type { ToolFormatterFactory } from "../components/tools/factory";
 import { approvalFor, stepView, toolDescription } from "../models/steps";
@@ -71,6 +72,7 @@ function WorkspaceContent({
   hasOlder,
   stepRegistry = defaultStepRegistry,
   toolFormatters = defaultToolFormatters,
+  promptHistory,
 }: {
   toolFormatters?: ToolFormatterFactory;
   stepRegistry?: StepRegistry;
@@ -107,10 +109,12 @@ function WorkspaceContent({
   error: string;
   dismiss: () => void;
   hasOlder: boolean;
+  promptHistory?: PromptHistoryApi;
 }) {
   const [leftOpen, setLeftOpen] = React.useState(true);
   const [inspector, setInspector] = React.useState<Inspector | null>(null);
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const [historyError, setHistoryError] = React.useState("");
   const inspectorRef = React.useRef<HTMLElement>(null);
   const workspaceRef = useFocusRegion<HTMLElement>("workspace");
   useFocusBlocker(inspector !== null, true);
@@ -225,11 +229,14 @@ function WorkspaceContent({
       item.state === "ready" ? [item.image] : [],
     );
     if (!chat) {
-      if (onSteer && (await onSteer(draft)))
+      const historyKey = crypto.randomUUID();
+      if (onSteer && (await onSteer(draft))) {
         setDrafts((values) => ({
           ...values,
           [scope]: values[scope] === draft ? "" : values[scope],
         }));
+        remember(draft, historyKey);
+      }
       return;
     }
     const response = models.inputResponse(chat, draft, images);
@@ -237,7 +244,8 @@ function WorkspaceContent({
     const signature = JSON.stringify([scope, chat.request_id, response]);
     if (retry.current.signature !== signature)
       retry.current = { signature, key: crypto.randomUUID() };
-    if (await onReply(chat, response, retry.current.key)) {
+    const key = retry.current.key;
+    if (await onReply(chat, response, key)) {
       attachments.remove(
         attachments.images.map((image) => image.id),
         scope,
@@ -246,7 +254,19 @@ function WorkspaceContent({
         ...values,
         [scope]: values[scope] === submittedDraft ? "" : values[scope],
       }));
+      remember(submittedDraft, key);
     }
+  }
+
+  function remember(text: string, key: string) {
+    if (!promptHistory || !text.trim()) return;
+    void promptHistory.append(text, selected, key).then(
+      () => setHistoryError(""),
+      () =>
+        setHistoryError(
+          "Message sent, but prompt history could not be saved on the host.",
+        ),
+    );
   }
 
   return (
@@ -385,6 +405,9 @@ function WorkspaceContent({
         )}
         <Composer
           selected={Boolean(selected)}
+          promptHistory={promptHistory}
+          executionId={selected}
+          scope={scope}
           session={current}
           history={history}
           pendingCount={decisions.length}
@@ -407,6 +430,11 @@ function WorkspaceContent({
           resume={onResume}
           review={() => open({ kind: "decisions" })}
         />
+        {historyError && (
+          <p role="alert" className="prompt-history-error">
+            {historyError}
+          </p>
+        )}
       </section>
       {inspector && (
         <button

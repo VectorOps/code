@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { PromptHistoryApi } from "../communication/prompt-history";
 import type { ConnectionSettings } from "../models/runner";
 import { useRunner } from "../hooks/useRunner";
 import { ConnectionForm } from "../components/ConnectionForm";
@@ -8,10 +9,16 @@ import { Settings } from "./Settings";
 
 export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
   const runner = useRunner(initial);
+  const promptHistory = useMemo(
+    () =>
+      runner.api ? new PromptHistoryApi(runner.api.connection) : undefined,
+    [runner.api],
+  );
   const [connection, setConnection] = useState(initial);
   const [draft, setDraft] = useState({ reference: "", input: "{}" });
   return (
     <Workspace
+      promptHistory={promptHistory}
       settings={
         <Settings
           api={runner.api}

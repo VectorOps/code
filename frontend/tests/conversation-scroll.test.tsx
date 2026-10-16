@@ -462,7 +462,9 @@ vitest.test(
     const props = workspaceProps();
     const view = render(<Workspace {...props} />);
     const area = view.getByRole("region", { name: "Conversation history" });
-    const previous = ObservedResize.instances[0];
+    const previous = ObservedResize.instances.find((observer) =>
+      observer.targets.has(area),
+    )!;
     view.rerender(<Workspace {...props} selected="session-b" />);
     vitest.expect(previous.targets.size).toBe(0);
     scrollUp(area, 200);

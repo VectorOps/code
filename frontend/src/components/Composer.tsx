@@ -4,6 +4,8 @@ import type { HistoryItem, Session } from "../models/runner";
 import * as chatInput from "../models/chat-input";
 import { ImageThumbnail } from "./ImageThumbnail";
 import { ComposerUsage } from "./ComposerUsage";
+import { PromptTextarea } from "./PromptTextarea";
+import type { PromptHistoryApi } from "../communication/prompt-history";
 import { useComposerTarget, useFocusCoordinator } from "../focus/FocusProvider";
 
 type Activity = "send" | "stop" | "resume" | "review" | "idle";
@@ -68,6 +70,9 @@ export function Composer({
   stop,
   resume,
   review,
+  promptHistory,
+  executionId,
+  scope,
 }: {
   selected: boolean;
   session?: WorkflowState;
@@ -89,6 +94,9 @@ export function Composer({
   stop?: () => void | Promise<void>;
   resume?: () => Promise<void>;
   review: () => void;
+  promptHistory?: PromptHistoryApi;
+  executionId?: string;
+  scope?: string;
 }) {
   const inFlight = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -248,27 +256,16 @@ export function Composer({
         <label htmlFor="message-draft" className="sr-only">
           Message draft
         </label>
-        <textarea
-          ref={textarea}
-          id="message-draft"
-          rows={3}
-          placeholder={
-            selected
-              ? "Write an instruction..."
-              : "Select a conversation to write a message"
-          }
-          disabled={!selected}
+        <PromptTextarea
+          inputRef={textarea}
+          selected={selected}
           value={value}
-          onChange={(event) => change(event.target.value)}
-          onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              (event.ctrlKey || event.metaKey) &&
-              !event.nativeEvent.isComposing
-            ) {
-              event.preventDefault();
-              if (activity === "send") void submit();
-            }
+          change={change}
+          historyApi={promptHistory}
+          executionId={executionId}
+          scope={scope}
+          submit={() => {
+            if (activity === "send") void submit();
           }}
         />
         <div className="composer-actions">
@@ -319,7 +316,7 @@ export function Composer({
             {operating
               ? `${progressLabels[operating]}…`
               : activity === "send" && ready
-                ? "Ready for your message. Ctrl/Cmd+Enter to send."
+                ? "Enter to send · Modifier+Enter for newline · Ctrl+R for history"
                 : activity === "stop"
                   ? "Draft freely while the workflow runs."
                   : activity === "resume"
