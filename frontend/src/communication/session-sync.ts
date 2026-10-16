@@ -67,7 +67,7 @@ export class SessionSync {
       ? this.sessions.map((session) =>
           session.execution_id === summary.execution_id ? summary : session,
         )
-      : [...this.sessions, summary];
+      : [summary, ...this.sessions];
     this.publish(this.sessions);
     return { summary, previous };
   }

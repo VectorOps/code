@@ -53,13 +53,13 @@ vitest.test(
     push(created);
     fetched([original]);
     await vitest.expect(loading).resolves.toBe(true);
-    vitest.expect(publish.mock.lastCall![0]).toEqual([titled, created]);
+    vitest.expect(publish.mock.lastCall![0]).toEqual([created, titled]);
     vitest.expect(sync.get("existing")).toBe(titled);
   },
 );
 
 vitest.test(
-  "replaces complete summaries in place and appends new executions without requests",
+  "prepends new executions and replaces complete summaries in place without requests",
   async () => {
     const { sync, sessions, publish, push } = setup();
     const second = { ...original, execution_id: "second" };
@@ -91,7 +91,17 @@ vitest.test(
     push(created);
     vitest
       .expect(publish.mock.lastCall![0])
-      .toEqual([replaced, second, created]);
+      .toEqual([created, replaced, second]);
+    const updatedSecond = { ...second, name: "Updated title" };
+    push(updatedSecond);
+    vitest
+      .expect(publish.mock.lastCall![0])
+      .toEqual([created, replaced, updatedSecond]);
+    const newest = { ...original, execution_id: "fourth" };
+    push(newest);
+    vitest
+      .expect(publish.mock.lastCall![0])
+      .toEqual([newest, created, replaced, updatedSecond]);
     vitest.expect(sessions).toHaveBeenCalledTimes(1);
   },
 );
