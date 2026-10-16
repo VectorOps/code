@@ -27,7 +27,11 @@ test("theme selection lives in settings, not the session sidebar", () => {
     }),
   );
   assert.match(settings, /Settings categories/);
-  assert.match(settings, /flex-col/);
+  assert.match(settings, /settings-nav/);
   assert.match(settings, /aria-current="page"/);
   assert.match(settings, /value="dark"/);
+  assert.doesNotMatch(
+    settings,
+    /Choose a light or dark theme|saved on this device/,
+  );
 });
