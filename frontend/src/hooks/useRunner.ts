@@ -157,16 +157,10 @@ export function useRunner(initial: models.ConnectionSettings) {
         }, 150);
     };
     connection.connect();
-    const poll = setInterval(() => {
-      if (!ready.current) return;
-      void refresh();
-      refreshHistory.current(false);
-    }, 5000);
     return () => {
       alive = false;
       ready.current = false;
       clearTimeout(timer);
-      clearInterval(poll);
       connection.close();
     };
   }, [api]);
