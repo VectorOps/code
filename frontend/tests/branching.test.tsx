@@ -659,6 +659,7 @@ function mockRunner() {
   ]);
   vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
   vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
+  vitest.vi.spyOn(RunnerApi.prototype, "inboxes").mockResolvedValue([]);
   vitest.vi
     .spyOn(RunnerApi.prototype, "history")
     .mockResolvedValue({ items: [], next_cursor: null });
@@ -668,7 +669,7 @@ function mockRunner() {
 }
 
 vitest.test(
-  "branch retries reuse keys, auto-resume via RPC only, and refresh selected heads on application",
+  "branch retries reuse keys, auto-resume via RPC only, and apply pushed heads without reads",
   async () => {
     const read = mockRunner();
     const branch = vitest.vi
@@ -722,18 +723,40 @@ vitest.test(
       ...execution,
       checkpoint: { heads: { root: "restarted" } },
     };
-    read.mockResolvedValue(updated);
-    testing.act(() =>
-      view.result.current.api!.connection.onEvent({
+    const synthetic = {
+      id: "synthetic",
+      revision: 1,
+      workflow_id: "root",
+      operation: { kind: "mailbox.input" },
+      outcome: { kind: "completed", result: "Edited input" },
+    };
+    testing.act(() => {
+      const connection = view.result.current.api!.connection;
+      connection.onEvent({
+        kind: "step.completed",
+        execution_id: "existing",
+        position: 1,
+        step: synthetic,
+      });
+      connection.onEvent({
         kind: "execution.branch_applied",
         execution_id: "existing",
         operation_id: "operation",
         input_step_id: "synthetic",
-      }),
-    );
-    await testing.waitFor(() =>
-      vitest.expect(view.result.current.execution).toEqual(updated),
-    );
+      });
+      connection.onEvent({
+        kind: "execution.state_updated",
+        execution_id: "existing",
+        execution: updated,
+      });
+    });
+    vitest.expect(view.result.current.execution).toEqual(updated);
+    vitest
+      .expect(view.result.current.history.items)
+      .toEqual([{ position: 1, step: synthetic }]);
+    vitest.expect(view.result.current.branching).toBeUndefined();
+    vitest.expect(read).toHaveBeenCalledTimes(1);
+    vitest.expect(RunnerApi.prototype.history).toHaveBeenCalledTimes(1);
     vitest.expect(view.result.current.enabled).toBe(true);
     vitest.expect(start).not.toHaveBeenCalled();
     vitest.expect(stop).not.toHaveBeenCalled();

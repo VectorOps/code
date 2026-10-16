@@ -7,11 +7,16 @@ import { stepView } from "../src/models/steps";
 import type { HistoryItem } from "../src/models/runner";
 import type { Params } from "../src/models/json";
 
-function item(position: number, state = "completed"): HistoryItem {
+function item(
+  position: number,
+  state = "completed",
+  revision = 1,
+): HistoryItem {
   return {
     position,
     step: {
       id: `step-${position}`,
+      revision,
       workflow_id: "root",
       operation: { kind: "llm.generate" },
       outcome: { kind: state, result: {} },
@@ -45,7 +50,7 @@ class Connection extends RunnerConnection {
   }
 }
 
-test("history loads once, fetches only the tail, and preserves unchanged identities", async () => {
+test("history bootstraps once and merges positioned pushes without reads", async () => {
   const connection = new Connection();
   connection.items = Array.from({ length: 1200 }, (_, index) =>
     item(index + 1),
@@ -55,59 +60,82 @@ test("history loads once, fetches only the tail, and preserves unchanged identit
   assert.equal(initial.items.length, 1200);
   assert.equal(connection.queries.length, 3);
   connection.queries = [];
-  assert.equal(await sync.refresh(() => true), initial);
-  assert.equal(connection.queries.length, 1);
-  connection.items.push(item(1201));
-  const updated = await sync.refresh(() => true);
+  const pushed = item(1201);
+  const updated = sync.apply({
+    kind: "step.completed",
+    execution_id: "execution",
+    ...pushed,
+  })!;
   assert.equal(updated.items.length, 1201);
   assert.equal(updated.items[0], initial.items[0]);
-  connection.items.push(
-    ...Array.from({ length: 250 }, (_, index) => item(index + 1202)),
+  assert.equal(connection.queries.length, 0);
+  assert.equal(
+    sync.apply({
+      kind: "step.completed",
+      execution_id: "execution",
+      ...pushed,
+    }),
+    updated,
   );
-  const caughtUp = await sync.refresh(() => true);
-  assert.equal(caughtUp.items.length, 1451);
-  assert.equal(caughtUp.items[0], initial.items[0]);
 });
 
-test("targeted invalidations, retry, and reconnect reconcile older steps", async () => {
+test("reconnect backfills missed revisions and new steps, preserving unchanged identities", async () => {
   const connection = new Connection();
   connection.items = Array.from({ length: 600 }, (_, index) => item(index + 1));
   const sync = new HistorySync(new RunnerApi(connection), "execution");
   const initial = await sync.refresh(() => true);
-  connection.items[0] = item(1, "failed");
-  sync.invalidate("step-1");
+  connection.items[0] = item(1, "failed", 2);
   connection.fail = true;
   await assert.rejects(sync.refresh(() => true));
   connection.fail = false;
   const updated = await sync.refresh(() => true);
   assert.notEqual(updated.items[0], initial.items[0]);
   assert.equal(updated.items[1], initial.items[1]);
-  assert.ok(
-    connection.queries.some(
-      (query) =>
-        Array.isArray(query.step_ids) && query.step_ids.includes("step-1"),
-    ),
-  );
-  connection.items[1] = item(2, "failed");
-  sync.reconcile();
+  connection.items[1] = item(2, "failed", 2);
+  connection.items.push(item(601));
   const reconciled = await sync.refresh(() => true);
   assert.notEqual(reconciled.items[1], updated.items[1]);
   assert.equal(reconciled.items[2], updated.items[2]);
+  assert.equal(reconciled.items.length, 601);
 });
 
-test("inactive loads are discarded and unfinished steps are refreshed by ID", async () => {
+test("inactive loads are discarded and step revisions reject stale replacement snapshots", async () => {
   const connection = new Connection();
   connection.items = [item(1, "streaming")];
   const sync = new HistorySync(new RunnerApi(connection), "execution");
   assert.equal((await sync.refresh(() => false)).items.length, 0);
-  await sync.refresh(() => true);
+  const initial = await sync.refresh(() => true);
   connection.queries = [];
-  connection.items[0] = item(1);
-  await sync.refresh(() => true);
-  assert.deepEqual(connection.queries[1].step_ids, ["step-1"]);
-  connection.queries = [];
-  await sync.refresh(() => true);
-  assert.equal(connection.queries.length, 1);
+  const event = {
+    kind: "step.completed",
+    execution_id: "execution",
+    ...item(1, "completed", 3),
+  };
+  const updated = sync.apply(event)!;
+  assert.notEqual(updated.items[0], initial.items[0]);
+  assert.equal(sync.apply({ ...event, ...item(1, "streaming", 2) }), updated);
+  assert.equal(sync.apply(event), updated);
+  assert.equal(sync.apply({ ...event, execution_id: "other" }), undefined);
+  assert.equal(sync.apply({ ...event, position: null }), undefined);
+  assert.equal(connection.queries.length, 0);
+  assert.equal(await sync.refresh(() => true), updated);
+});
+
+test("pushes received during history backfill take precedence over its response", async () => {
+  const connection = new Connection();
+  const sync = new HistorySync(new RunnerApi(connection), "execution");
+  let finish = (_value: unknown) => {};
+  connection.request = <T>() =>
+    new Promise<T>((resolve) => (finish = (value) => resolve(value as T)));
+  const loading = sync.refresh(() => true);
+  sync.apply({
+    kind: "step.updated",
+    execution_id: "execution",
+    ...item(1, "streaming", 2),
+  });
+  finish({ items: [item(1)], next_cursor: null });
+  assert.equal((await loading).items[0].step, sync.snapshot.items[0].step);
+  assert.equal((sync.snapshot.items[0].step as Params).revision, 2);
 });
 
 test("tool lookup respects workflow, name, position, and nearest generation", () => {

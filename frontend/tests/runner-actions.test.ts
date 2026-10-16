@@ -51,6 +51,9 @@ vitest.test(
     const inboxes = vitest.vi
       .spyOn(RunnerApi.prototype, "inboxes")
       .mockResolvedValue([]);
+    const stop = vitest.vi
+      .spyOn(RunnerApi.prototype, "stop")
+      .mockResolvedValue({});
     try {
       const view = testing.renderHook(() =>
         useRunner({ endpoint: "ws://localhost", token: "test" }),
@@ -125,10 +128,64 @@ vitest.test(
       vitest.expect(sessions).toHaveBeenCalledTimes(1);
       await testing.act(() => vitest.vi.advanceTimersByTimeAsync(1));
       vitest.expect(sessions).toHaveBeenCalledTimes(1);
-      vitest.expect(execution).toHaveBeenCalledTimes(2);
-      vitest.expect(history).toHaveBeenCalledTimes(2);
+      for (const read of [execution, history, pending, inboxes])
+        vitest.expect(read).toHaveBeenCalledTimes(1);
       vitest.expect(view.result.current.sessions[0].pending_inputs).toBe(1);
       vitest.expect(view.result.current.execution?.status).toBe("paused");
+
+      const step = {
+        id: "tool-step",
+        revision: 1,
+        workflow_id: "root",
+        operation: { kind: "llm.tool" },
+        outcome: { kind: "completed", result: { tool_name: "read_file" } },
+      };
+      const approval = {
+        execution_id: "existing",
+        request_id: "approval",
+        status: "pending",
+        channel: "tools.approval",
+        payload: {},
+        response_type: "json",
+      };
+      testing.act(() => {
+        const connection = view.result.current.api!.connection;
+        connection.onEvent({
+          kind: "step.completed",
+          execution_id: "existing",
+          position: 1,
+          step,
+        });
+        connection.onEvent({
+          kind: "execution.state_updated",
+          execution_id: "existing",
+          execution: {
+            id: "existing",
+            root_workflow_id: "root",
+            status: "paused",
+            checkpoint: { heads: { root: "tool-step" } },
+          },
+        });
+        connection.onEvent({
+          kind: "mailbox.requested",
+          execution_id: "existing",
+          request: approval,
+        });
+      });
+      vitest
+        .expect(view.result.current.history.items)
+        .toEqual([{ position: 1, step }]);
+      vitest
+        .expect(view.result.current.execution?.checkpoint.heads)
+        .toEqual({ root: "tool-step" });
+      vitest.expect(view.result.current.pending).toEqual([approval]);
+      await testing.act(async () => {
+        vitest.expect(await view.result.current.stop()).toBe(true);
+      });
+      vitest.expect(stop).toHaveBeenCalledWith("existing");
+      await testing.act(() => vitest.vi.advanceTimersByTimeAsync(1000));
+      for (const read of [sessions, execution, history, pending, inboxes])
+        vitest.expect(read).toHaveBeenCalledTimes(1);
 
       session = {
         ...session,
@@ -146,7 +203,7 @@ vitest.test(
       vitest.expect(subscribe).toHaveBeenCalledTimes(2);
       vitest.expect(workflows).toHaveBeenCalledTimes(2);
       vitest.expect(sessions).toHaveBeenCalledTimes(2);
-      vitest.expect(history).toHaveBeenCalledTimes(3);
+      vitest.expect(history).toHaveBeenCalledTimes(2);
       vitest.expect(view.result.current.sessions[0].status).toBe("completed");
       vitest.expect(view.result.current.execution?.status).toBe("completed");
     } finally {
