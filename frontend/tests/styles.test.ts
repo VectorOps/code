@@ -146,6 +146,14 @@ test("frontend CSS preserves global layer order and appearance overrides", async
     /margin-left:\s*auto/,
   );
   for (const selector of [
+    ".tool-failure-marker",
+    '.tool-step .entry-state > [aria-label="Failed"]',
+  ]) {
+    const rule = lastRule(css, selector);
+    assert.match(rule, /color:\s*var\(--color-neutral-400(?:,|\))/);
+    assert.doesNotMatch(rule, /#a16207|#fbbf24/);
+  }
+  for (const selector of [
     ".user-step .message-text",
     ".composer-area textarea",
     ".assistant-step",

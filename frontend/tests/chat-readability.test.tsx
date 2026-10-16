@@ -131,6 +131,7 @@ test("successful workflow completion reduces historical failures to group marker
 
 test("standalone failures keep their warning and clickable card without error text", () => {
   const html = feed([call(1, "failed")]);
+  assert.match(html, /<code>uname -a<\/code>/);
   assert.doesNotMatch(html, /Command was not found\.|failure-text/);
   assert.match(html, /aria-label="Failed"/);
   assert.match(

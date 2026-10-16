@@ -62,8 +62,10 @@
   }
   .tool-failure-marker,
   .tool-step .entry-state > [aria-label="Failed"] {
-    @apply shrink-0 text-xs;
-    color: light-dark(#a16207, #fbbf24);
+    @apply shrink-0 text-xs text-neutral-400;
+  }
+  .tool-step .entry-state > [aria-label="Failed"] > svg {
+    @apply size-3;
   }
   .tool-group-calls {
     @apply my-1;
