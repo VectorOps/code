@@ -1,6 +1,21 @@
 import type { Json } from "./json";
 import { chatMessage, type ImageInput } from "./chat-input";
 
+export type ExecutionUsage = {
+  totals: {
+    input_tokens: number;
+    output_tokens: number;
+    cost_estimate_usd: string;
+    estimated_calls: number;
+    incomplete_calls: number;
+  };
+  root_context: {
+    step_id: string;
+    input_tokens_estimate: number | null;
+    context_window: number | null;
+  } | null;
+};
+
 export type Session = {
   execution_id: string;
   root_workflow_id?: string | null;
@@ -9,6 +24,7 @@ export type Session = {
   status: string;
   active: boolean;
   pending_inputs: number;
+  usage?: ExecutionUsage | null;
 };
 export type Workflow = {
   descriptor: {

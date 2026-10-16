@@ -165,8 +165,22 @@
   .composer-actions {
     @apply flex items-center justify-between gap-3 pt-1;
   }
-  .composer-actions > span {
-    @apply min-w-0 flex-1;
+  .composer-help {
+    @apply min-w-0 flex-1 truncate;
+  }
+  .composer-usage {
+    @apply ml-auto flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .composer-model {
+    @apply min-w-0 truncate border-r border-neutral-300 pr-2;
+  }
+  .composer-tokens,
+  .composer-cost {
+    @apply shrink-0;
+  }
+  .composer-cost {
+    @apply border-l border-neutral-300 pl-2;
   }
   .composer-images {
     @apply m-0 flex max-h-48 flex-wrap gap-2 overflow-auto p-1;
@@ -194,7 +208,7 @@
     @apply text-xs text-neutral-500;
   }
   .composer-submit {
-    @apply flex size-9 shrink-0 items-center justify-center rounded-full border-0 p-0;
+    @apply flex size-8 shrink-0 items-center justify-center rounded-full border-0 p-0;
   }
   .pending-banner {
     @apply mb-1 block w-full max-w-none border-neutral-200 bg-neutral-50 text-left text-xs text-neutral-700;

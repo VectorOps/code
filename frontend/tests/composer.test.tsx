@@ -284,15 +284,16 @@ vitest.test.each([
   { value: "" },
   { messageError: "Remove failed images before sending." },
 ])(
-  "stop remains available beside send despite draft validation %j",
+  "the single control stops an active workflow without a sendable draft %j",
   async (overrides) => {
     const view = compose({
       session: { status: "running", active: true, pending_inputs: 0 },
       ...overrides,
     });
     vitest
-      .expect(view.getByRole("button", { name: "Send message" }))
-      .toHaveProperty("disabled", true);
+      .expect(view.queryByRole("button", { name: "Send message" }))
+      .toBeNull();
+    vitest.expect(view.getAllByRole("button")).toHaveLength(1);
     await userEvent
       .setup()
       .click(view.getByRole("button", { name: "Stop workflow" }));
@@ -305,10 +306,11 @@ vitest.test.each([
 );
 
 vitest.test.each([{ enabled: false }, { busy: true }])(
-  "stop beside send honors unavailable state %j",
+  "the single stop control honors unavailable state %j",
   async (unavailable) => {
     const view = compose({
       session: { status: "running", active: true, pending_inputs: 0 },
+      value: "",
       ...unavailable,
     });
     const stop = view.getByRole("button", { name: "Stop workflow" });
@@ -319,7 +321,7 @@ vitest.test.each([{ enabled: false }, { busy: true }])(
 );
 
 vitest.test.each(["stop", "send"] as const)(
-  "%s disables both composer actions while in flight",
+  "%s disables the single composer action while in flight",
   async (activity) => {
     let finish: () => void = () => {};
     const callback = vitest.vi.fn(
@@ -330,24 +332,52 @@ vitest.test.each(["stop", "send"] as const)(
     );
     const view = compose({
       session: { status: "running", active: true, pending_inputs: 0 },
+      value: activity === "stop" ? "" : "Hello",
       [activity]: callback,
     });
-    const stop = view.getByRole("button", { name: "Stop workflow" });
-    const send = view.getByRole("button", { name: "Send message" });
-    const control = activity === "stop" ? stop : send;
+    const control = view.getByRole("button");
     fireEvent.click(control);
     fireEvent.click(control);
-    fireEvent.click(activity === "stop" ? send : stop);
     fireEvent.submit(view.getByRole("textbox").closest("form")!);
     vitest.expect(callback).toHaveBeenCalledOnce();
     vitest
       .expect(view[activity === "stop" ? "send" : "stop"])
       .not.toHaveBeenCalled();
-    vitest.expect(stop).toHaveProperty("disabled", true);
-    vitest.expect(send).toHaveProperty("disabled", true);
+    vitest.expect(control).toHaveProperty("disabled", true);
+    vitest.expect(view.getAllByRole("button")).toHaveLength(1);
     await act(async () => finish());
-    vitest.expect(send).toHaveProperty("disabled", false);
-    vitest.expect(view.getByRole("textbox")).toHaveProperty("value", "Hello");
+    vitest.expect(control).toHaveProperty("disabled", false);
+    vitest
+      .expect(view.getByRole("textbox"))
+      .toHaveProperty("value", activity === "stop" ? "" : "Hello");
+  },
+);
+
+vitest.test(
+  "the right-most control switches between stop and send as the draft changes",
+  async () => {
+    const view = compose({
+      value: "",
+      attach: vitest.vi.fn(),
+      session: { status: "running", active: true, pending_inputs: 0 },
+    });
+    const control = view.getByRole("button", { name: "Stop workflow" });
+    const user = userEvent.setup();
+    await user.type(view.getByRole("textbox"), "Steer the workflow");
+    vitest
+      .expect(view.getByRole("button", { name: "Send message" }))
+      .toBe(control);
+    vitest
+      .expect(view.queryByRole("button", { name: "Stop workflow" }))
+      .toBeNull();
+    await user.clear(view.getByRole("textbox"));
+    vitest
+      .expect(view.getByRole("button", { name: "Stop workflow" }))
+      .toBe(control);
+    vitest.expect(control.parentElement?.lastElementChild).toBe(control);
+    await user.click(control);
+    vitest.expect(view.stop).toHaveBeenCalledOnce();
+    vitest.expect(view.send).not.toHaveBeenCalled();
   },
 );
 

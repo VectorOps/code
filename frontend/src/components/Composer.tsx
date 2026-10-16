@@ -1,22 +1,28 @@
 import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import type { Session } from "../models/runner";
+import type { HistoryItem, Session } from "../models/runner";
 import * as chatInput from "../models/chat-input";
 import { ImageThumbnail } from "./ImageThumbnail";
+import { ComposerUsage } from "./ComposerUsage";
 import { useComposerTarget, useFocusCoordinator } from "../focus/FocusProvider";
 
 type Activity = "send" | "stop" | "resume" | "review" | "idle";
-type WorkflowState = Pick<Session, "status" | "active" | "pending_inputs">;
+type WorkflowState = Pick<
+  Session,
+  "status" | "active" | "pending_inputs" | "usage"
+>;
 
 function workflowActivity(
   selected: boolean,
   ready: boolean,
+  sendable: boolean,
   pendingCount: number,
   session?: WorkflowState,
 ): Activity {
   if (!selected) return "idle";
   if (session?.status === "stopping") return "stop";
-  if (ready) return "send";
+  if (ready && (sendable || !session?.active || session.pending_inputs > 0))
+    return "send";
   if (session?.status === "paused") return pendingCount > 0 ? "review" : "send";
   if (session?.active) return "stop";
   if (pendingCount > 0) return "review";
@@ -44,6 +50,7 @@ const progressLabels: Record<Activity, string> = {
 export function Composer({
   selected,
   session,
+  history = [],
   pendingCount,
   steeringCount = 0,
   reviewSteering,
@@ -64,6 +71,7 @@ export function Composer({
 }: {
   selected: boolean;
   session?: WorkflowState;
+  history?: HistoryItem[];
   pendingCount: number;
   steeringCount?: number;
   reviewSteering?: () => void;
@@ -105,7 +113,13 @@ export function Composer({
   });
   const [operating, setOperating] = useState<Activity | null>(null);
   const inputError = messageError || chatInput.messageError(value, images);
-  const activity = workflowActivity(selected, ready, pendingCount, session);
+  const activity = workflowActivity(
+    selected,
+    ready,
+    Boolean(value.trim() || images.length) && !inputError,
+    pendingCount,
+    session,
+  );
   const callbacks = { send, stop, resume, review, idle: undefined };
   const available =
     selected &&
@@ -113,7 +127,6 @@ export function Composer({
     !busy &&
     !operating &&
     session?.status !== "stopping";
-  const separateStop = activity === "send" && Boolean(session?.active && stop);
   function canAct(next: Activity) {
     return (
       available &&
@@ -299,7 +312,10 @@ export function Composer({
               </button>
             </>
           )}
-          <span role={operating ? "status" : undefined}>
+          <span
+            className="composer-help"
+            role={operating ? "status" : undefined}
+          >
             {operating
               ? `${progressLabels[operating]}…`
               : activity === "send" && ready
@@ -324,18 +340,8 @@ export function Composer({
               Steering · {steeringCount}
             </button>
           )}
-          {separateStop && (
-            <button
-              type="button"
-              className="quiet-button"
-              aria-label="Stop workflow"
-              title="Stop workflow"
-              aria-busy={operating === "stop"}
-              disabled={!canAct("stop")}
-              onClick={() => void submit("stop")}
-            >
-              Stop
-            </button>
+          {selected && session && (
+            <ComposerUsage session={session} history={history} />
           )}
           <button
             className="composer-submit"

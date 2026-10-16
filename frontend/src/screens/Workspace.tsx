@@ -386,6 +386,7 @@ function WorkspaceContent({
         <Composer
           selected={Boolean(selected)}
           session={current}
+          history={history}
           pendingCount={decisions.length}
           steeringCount={steering?.count ?? 0}
           reviewSteering={() => open({ kind: "steering" })}

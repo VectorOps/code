@@ -120,7 +120,7 @@ function workspaceProps(): ComponentProps<typeof Workspace> {
 }
 
 vitest.test.each(["", "Change direction"])(
-  "a running steering workflow can stop with draft %j without submitting it",
+  "a running steering workflow uses the same control for draft %j and stop",
   async (value) => {
     const props = workspaceProps();
     const onSteer = vitest.vi.fn(async () => true);
@@ -152,21 +152,21 @@ vitest.test.each(["", "Change direction"])(
     const user = userEvent.setup();
     const draft = view.getByLabelText("Message draft");
     if (value) await user.type(draft, value);
-    vitest
-      .expect(view.getByRole("button", { name: "Send message" }))
-      .toHaveProperty("disabled", !value);
-    const stop = view.getByRole("button", { name: "Stop workflow" });
-    vitest.expect(stop).toHaveProperty("disabled", false);
-    await user.click(stop);
-    vitest.expect(props.onStop).toHaveBeenCalledOnce();
-    vitest.expect(onSteer).not.toHaveBeenCalled();
-    vitest.expect(props.onReply).not.toHaveBeenCalled();
-    vitest.expect(draft).toHaveProperty("value", value);
     if (value) {
+      vitest
+        .expect(view.queryByRole("button", { name: "Stop workflow" }))
+        .toBeNull();
       await user.click(view.getByRole("button", { name: "Send message" }));
       vitest.expect(onSteer).toHaveBeenCalledWith(value);
       vitest.expect(draft).toHaveProperty("value", "");
     }
+    const stop = view.getByRole("button", { name: "Stop workflow" });
+    vitest.expect(stop).toHaveProperty("disabled", false);
+    await user.click(stop);
+    vitest.expect(props.onStop).toHaveBeenCalledOnce();
+    vitest.expect(onSteer).toHaveBeenCalledTimes(value ? 1 : 0);
+    vitest.expect(props.onReply).not.toHaveBeenCalled();
+    vitest.expect(draft).toHaveProperty("value", "");
   },
 );
 

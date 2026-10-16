@@ -35,6 +35,20 @@ test("frontend CSS preserves global layer order and appearance overrides", async
   const styles: unknown = JSON.parse(stdout);
   assert.ok(Array.isArray(styles) && styles.length > 0);
   const css = styles.join("\n");
+  assert.match(lastRule(css, ".composer-help"), /flex:\s*1/);
+  assert.match(lastRule(css, ".composer-usage"), /margin-left:\s*auto/);
+  assert.match(lastRule(css, ".composer-model"), /border-right/);
+  assert.match(lastRule(css, ".composer-cost"), /border-left/);
+  const composerButton = lastRule(css, ".composer-submit");
+  assert.match(
+    composerButton,
+    /width:\s*calc\(var\(--spacing(?:,[^)]*)?\)\s*\*\s*8\)/,
+  );
+  assert.match(
+    composerButton,
+    /height:\s*calc\(var\(--spacing(?:,[^)]*)?\)\s*\*\s*8\)/,
+  );
+  assert.match(composerButton, /flex-shrink:\s*0/);
   assert.match(css, /\.image-thumbnail/);
   assert.match(css, /\.tool-plan/);
   const inlinePlan = lastRule(css, ".tool-activity-row > .tool-plan");
