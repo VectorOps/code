@@ -9,7 +9,7 @@ import type { Session } from "../src/models/runner";
 vitest.afterEach(() => vitest.vi.restoreAllMocks());
 
 vitest.test(
-  "refreshes on pushes and reconnect, but performs no idle polling",
+  "applies summaries from pushes and reconciles on reconnect without idle polling",
   async () => {
     vitest.vi.useFakeTimers();
     let session: Session = {
@@ -71,19 +71,60 @@ vitest.test(
       ])
         vitest.expect(read).toHaveBeenCalledTimes(1);
 
+      session = {
+        ...session,
+        name: "Generated title",
+        usage: {
+          totals: {
+            input_tokens: 100,
+            output_tokens: 20,
+            cost_estimate_usd: "0.01",
+            estimated_calls: 1,
+            incomplete_calls: 0,
+          },
+          root_context: null,
+        },
+      };
+      testing.act(() => {
+        view.result.current.api!.connection.onEvent({
+          kind: "workflow.updated",
+          execution_id: "existing",
+          workflow: {
+            id: "root",
+            definition_ref: "chat:workflow",
+            name: "Generated title",
+          },
+        });
+        view.result.current.api!.connection.onEvent({
+          kind: "execution.updated",
+          execution_id: session.execution_id,
+          summary: session,
+        });
+      });
+      vitest.expect(view.result.current.sessions[0]).toEqual(session);
+      await testing.act(() => vitest.vi.advanceTimersByTimeAsync(200));
+      for (const read of [
+        sessions,
+        workflows,
+        execution,
+        history,
+        pending,
+        inboxes,
+      ])
+        vitest.expect(read).toHaveBeenCalledTimes(1);
+
       session = { ...session, status: "paused", pending_inputs: 1 };
       testing.act(() => {
-        for (let index = 0; index < 2; index++)
-          view.result.current.api!.connection.onEvent({
-            kind: "execution.branch_applied",
-            execution_id: "existing",
-            operation_id: `update-${index}`,
-          });
+        view.result.current.api!.connection.onEvent({
+          kind: "execution.updated",
+          execution_id: session.execution_id,
+          summary: session,
+        });
       });
       await testing.act(() => vitest.vi.advanceTimersByTimeAsync(149));
       vitest.expect(sessions).toHaveBeenCalledTimes(1);
       await testing.act(() => vitest.vi.advanceTimersByTimeAsync(1));
-      vitest.expect(sessions).toHaveBeenCalledTimes(2);
+      vitest.expect(sessions).toHaveBeenCalledTimes(1);
       vitest.expect(execution).toHaveBeenCalledTimes(2);
       vitest.expect(history).toHaveBeenCalledTimes(2);
       vitest.expect(view.result.current.sessions[0].pending_inputs).toBe(1);
@@ -104,10 +145,73 @@ vitest.test(
       await testing.act(() => vitest.vi.advanceTimersByTimeAsync(150));
       vitest.expect(subscribe).toHaveBeenCalledTimes(2);
       vitest.expect(workflows).toHaveBeenCalledTimes(2);
-      vitest.expect(sessions).toHaveBeenCalledTimes(3);
+      vitest.expect(sessions).toHaveBeenCalledTimes(2);
       vitest.expect(history).toHaveBeenCalledTimes(3);
       vitest.expect(view.result.current.sessions[0].status).toBe("completed");
       vitest.expect(view.result.current.execution?.status).toBe("completed");
+    } finally {
+      testing.cleanup();
+      vitest.vi.useRealTimers();
+    }
+  },
+);
+
+vitest.test(
+  "pushed status survives an older selected-execution response",
+  async () => {
+    vitest.vi.useFakeTimers();
+    const session: Session = {
+      execution_id: "existing",
+      reference: "chat:workflow",
+      status: "running",
+      active: true,
+      pending_inputs: 0,
+    };
+    vitest.vi
+      .spyOn(RunnerConnection.prototype, "connect")
+      .mockImplementation(function (this: RunnerConnection) {
+        this.onStatus("Connected");
+        this.onReady();
+      });
+    vitest.vi.spyOn(RunnerApi.prototype, "subscribe").mockResolvedValue({});
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "sessions")
+      .mockResolvedValue([session]);
+    vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "inboxes").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "history").mockResolvedValue({
+      items: [],
+      next_cursor: null,
+    });
+    const record = {
+      id: "existing",
+      root_workflow_id: "root",
+      status: "running",
+      checkpoint: { heads: {} },
+    };
+    let finish = (_value: typeof record) => {};
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "execution")
+      .mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    try {
+      const view = testing.renderHook(() =>
+        useRunner({ endpoint: "ws://localhost", token: "test" }),
+      );
+      await testing.act(async () => {});
+      testing.act(() => view.result.current.select("existing"));
+      await testing.act(() => vitest.vi.advanceTimersByTimeAsync(150));
+      await testing.act(async () => {
+        view.result.current.api!.connection.onEvent({
+          kind: "execution.updated",
+          execution_id: session.execution_id,
+          summary: { ...session, status: "completed", active: false },
+        });
+        finish(record);
+      });
+      vitest.expect(view.result.current.execution?.status).toBe("completed");
+      vitest.expect(record.status).toBe("running");
+      vitest.expect(RunnerApi.prototype.sessions).toHaveBeenCalledTimes(1);
     } finally {
       testing.cleanup();
       vitest.vi.useRealTimers();
@@ -146,7 +250,7 @@ vitest.test(
 );
 
 vitest.test(
-  "resume retains retry keys, refreshes state and stays in the selected conversation",
+  "resume retains retry keys, uses pushed state and stays in the selected conversation",
   async () => {
     let session: Session = {
       execution_id: "existing",
@@ -155,9 +259,11 @@ vitest.test(
       active: false,
       pending_inputs: 0,
     };
+    let connection: RunnerConnection;
     vitest.vi
       .spyOn(RunnerConnection.prototype, "connect")
       .mockImplementation(function (this: RunnerConnection) {
+        connection = this;
         this.onStatus("Connected");
         this.onReady();
       });
@@ -181,6 +287,11 @@ vitest.test(
       .spyOn(RunnerApi.prototype, "resume")
       .mockImplementation(async () => {
         session = { ...session, status: "starting", active: true };
+        connection.onEvent({
+          kind: "execution.updated",
+          execution_id: session.execution_id,
+          summary: session,
+        });
         return { execution_id: session.execution_id, status: "starting" };
       })
       .mockRejectedValueOnce(new Error("Connection lost"));
@@ -188,6 +299,11 @@ vitest.test(
       .spyOn(RunnerApi.prototype, "stop")
       .mockImplementation(async () => {
         session = { ...session, status: "cancelled", active: false };
+        connection.onEvent({
+          kind: "execution.updated",
+          execution_id: session.execution_id,
+          summary: session,
+        });
         return {};
       });
     const view = testing.renderHook(() =>
@@ -221,6 +337,7 @@ vitest.test(
     vitest.expect(resume.mock.calls[2][0]).toBe("existing");
     vitest.expect(resume.mock.calls[2][1]).not.toBe(resume.mock.calls[1][1]);
     vitest.expect(start).not.toHaveBeenCalled();
+    vitest.expect(RunnerApi.prototype.sessions).toHaveBeenCalledTimes(1);
     view.unmount();
   },
 );

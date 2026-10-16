@@ -2,6 +2,7 @@ import * as React from "react";
 import { RunnerApi } from "../communication/runner-api";
 import { RunnerConnection } from "../communication/websocket";
 import { HistorySync } from "../communication/history-sync";
+import { SessionSync } from "../communication/session-sync";
 import { object, text } from "../models/json";
 import type { Json, Params } from "../models/json";
 import type * as models from "../models/runner";
@@ -14,6 +15,10 @@ export function useRunner(initial: models.ConnectionSettings) {
   const [error, setError] = React.useState("");
   const [workflows, setWorkflows] = React.useState<models.Workflow[]>([]);
   const [sessions, setSessions] = React.useState<models.Session[]>([]);
+  const sessionSync = React.useMemo(
+    () => (api ? new SessionSync(api, setSessions) : undefined),
+    [api],
+  );
   const [activitySessions, setActivitySessions] = React.useState<Set<string>>(
     () => new Set(),
   );
@@ -60,75 +65,55 @@ export function useRunner(initial: models.ConnectionSettings) {
     if (initial.token) connect(initial);
   }, []);
   React.useEffect(() => {
-    if (!api) return;
-    let alive = true,
-      running = false,
-      dirty = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const active = () => alive;
-    async function refresh() {
-      if (running) {
-        dirty = true;
-        return;
-      }
-      running = true;
-      try {
-        do {
-          dirty = false;
-          const list = await api!.sessions(active);
-          if (!alive) return;
-          setSessions((previous) => {
-            const refreshed = new Map(
-              list.map((session) => [session.execution_id, session]),
-            );
-            const ordered = previous
-              .filter((session) => refreshed.has(session.execution_id))
-              .map((session) => refreshed.get(session.execution_id)!);
-            const known = new Set(
-              ordered.map((session) => session.execution_id),
-            );
-            return [
-              ...ordered,
-              ...list.filter((session) => !known.has(session.execution_id)),
-            ];
-          });
-        } while (dirty && alive);
-      } catch (reason) {
-        if (alive) setError(String(reason));
-      } finally {
-        running = false;
-      }
-    }
+    if (!api || !sessionSync) return;
+    let alive = true;
+    let generation = 0;
     const connection = api.connection;
     connection.onStatus = (value) => {
       if (value !== "Connected") {
+        generation++;
+        sessionSync.invalidate();
         ready.current = false;
         setBranching(undefined);
       }
       if (alive) setStatus(value);
     };
     connection.onReady = () => {
+      const currentGeneration = ++generation;
+      const current = () => alive && generation === currentGeneration;
       void (async () => {
-        await api.subscribe();
-        if (!alive) return;
+        if (!(await sessionSync.synchronize(current))) return;
         ready.current = true;
         refreshHistory.current(true);
-        const list = await api.workflows(active);
-        if (alive) {
+        const list = await api.workflows(current);
+        if (current()) {
           setWorkflows(list);
           setError("");
-          await refresh();
         }
       })().catch((reason) => {
-        if (alive) setError(String(reason));
+        if (current()) setError(String(reason));
       });
     };
     connection.onEvent = (event) => {
+      if (!alive || event.kind === "workflow.updated") return;
       const eventExecution = text(event.execution_id);
       if (eventExecution && eventExecution !== selectedRef.current) {
         setActivitySessions((previous) =>
           new Set(previous).add(eventExecution),
         );
+      }
+      if (event.kind === "execution.updated") {
+        const update = sessionSync.apply(event);
+        if (update && eventExecution === selectedRef.current) {
+          setExecution((previous) =>
+            previous?.id === eventExecution
+              ? { ...previous, status: update.summary.status }
+              : previous,
+          );
+          if (update.previous?.pending_inputs !== update.summary.pending_inputs)
+            refreshHistory.current(false, event);
+        }
+        return;
       }
       if (
         event.kind === "execution.branch_applied" ||
@@ -149,21 +134,15 @@ export function useRunner(initial: models.ConnectionSettings) {
           setError(text(event.error) || "Branch preparation failed.");
       }
       refreshHistory.current(false, event);
-      dirty = true;
-      if (!timer)
-        timer = setTimeout(() => {
-          timer = undefined;
-          void refresh();
-        }, 150);
     };
     connection.connect();
     return () => {
       alive = false;
+      sessionSync.invalidate();
       ready.current = false;
-      clearTimeout(timer);
       connection.close();
     };
-  }, [api]);
+  }, [api, sessionSync]);
 
   React.useEffect(() => {
     if (selected)
@@ -179,7 +158,7 @@ export function useRunner(initial: models.ConnectionSettings) {
     setPending([]);
     setSteering(undefined);
     setExecution(undefined);
-    if (!api || !selected) return;
+    if (!api || !sessionSync || !selected) return;
     const sync = new HistorySync(api, selected);
     let alive = true;
     let running = false;
@@ -196,7 +175,8 @@ export function useRunner(initial: models.ConnectionSettings) {
       try {
         do {
           dirty = false;
-          const execution = await api!.execution(selected);
+          const previousSummary = sessionSync!.get(selected);
+          let execution = await api!.execution(selected);
           const [history, pending, inboxes] = await Promise.all([
             sync.refresh(active),
             api!.pending(selected, active),
@@ -205,6 +185,9 @@ export function useRunner(initial: models.ConnectionSettings) {
               : Promise.resolve([]),
           ]);
           if (!active()) return;
+          const latestSummary = sessionSync!.get(selected);
+          if (latestSummary && latestSummary !== previousSummary)
+            execution = { ...execution, status: latestSummary.status };
           setExecution((previous) =>
             JSON.stringify(previous) === JSON.stringify(execution)
               ? previous
@@ -260,7 +243,7 @@ export function useRunner(initial: models.ConnectionSettings) {
       clearTimeout(timer);
       if (refreshHistory.current === trigger) refreshHistory.current = () => {};
     };
-  }, [api, selected]);
+  }, [api, sessionSync, selected]);
   React.useEffect(() => {
     if (revision) refreshHistory.current(false);
   }, [revision]);
@@ -337,7 +320,6 @@ export function useRunner(initial: models.ConnectionSettings) {
       const result = await api.start(reference, input, startKey.current.key);
       setSelected(result.execution_id);
       startKey.current = { signature: "", key: "" };
-      setSessions(await api.sessions());
     });
   }
 
@@ -347,7 +329,6 @@ export function useRunner(initial: models.ConnectionSettings) {
       if (resumeKey.current.execution !== selected)
         resumeKey.current = { execution: selected, key: crypto.randomUUID() };
       await api.resume(selected, resumeKey.current.key);
-      setSessions(await api.sessions());
       resumeKey.current = { execution: "", key: "" };
     });
   }
@@ -376,7 +357,6 @@ export function useRunner(initial: models.ConnectionSettings) {
     stop: () =>
       action(async (api) => {
         await api.stop(selected);
-        setSessions(await api.sessions());
       }),
     reply,
     steer,
