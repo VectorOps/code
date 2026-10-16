@@ -1,12 +1,11 @@
 import { useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import type { HistoryItem, Session } from "../models/runner";
 import * as chatInput from "../models/chat-input";
 import { ImageThumbnail } from "./ImageThumbnail";
 import { ComposerUsage } from "./ComposerUsage";
 import { PromptTextarea } from "./PromptTextarea";
 import type { PromptHistoryApi } from "../communication/prompt-history";
-import { useComposerTarget, useFocusCoordinator } from "../focus/FocusProvider";
+import { useFocusCoordinator } from "../focus/FocusProvider";
 
 type Activity = "send" | "stop" | "resume" | "review" | "idle";
 type WorkflowState = Pick<
@@ -103,22 +102,6 @@ export function Composer({
   const form = useRef<HTMLFormElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const coordinator = useFocusCoordinator();
-  useComposerTarget(textarea, {
-    isEditable: () =>
-      Boolean(
-        textarea.current &&
-        !textarea.current.disabled &&
-        !textarea.current.readOnly,
-      ),
-    focus: () => textarea.current?.focus({ preventScroll: true }),
-    beginTyping: (text) => {
-      flushSync(() => change(value + text));
-      const element = textarea.current;
-      if (!element) return;
-      element.focus({ preventScroll: true });
-      element.setSelectionRange(element.value.length, element.value.length);
-    },
-  });
   const [operating, setOperating] = useState<Activity | null>(null);
   const inputError = messageError || chatInput.messageError(value, images);
   const activity = workflowActivity(
@@ -181,21 +164,6 @@ export function Composer({
       )}
       <form
         ref={form}
-        onPaste={(event) => {
-          if (!selected || !attach) return;
-          const files = Array.from(event.clipboardData.files);
-          if (!files.length) {
-            for (const item of Array.from(event.clipboardData.items)) {
-              if (item.kind !== "file") continue;
-              const file = item.getAsFile();
-              if (file) files.push(file);
-            }
-          }
-          if (!files.length) return;
-          if (!event.clipboardData.getData("text/plain"))
-            event.preventDefault();
-          attach(files);
-        }}
         onSubmit={(event) => {
           event.preventDefault();
           if (activity === "send") void submit();
@@ -258,6 +226,7 @@ export function Composer({
         </label>
         <PromptTextarea
           inputRef={textarea}
+          attach={attach}
           selected={selected}
           value={value}
           change={change}

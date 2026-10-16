@@ -163,28 +163,69 @@
     @apply m-0 min-h-0 resize-none border-0 p-1 font-sans text-[0.9375rem] leading-6 shadow-none;
   }
   .prompt-history-overlay {
-    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4;
+    @apply fixed inset-0 z-50 flex items-center justify-center p-4;
+    background-color: rgb(0 0 0 / 45%);
   }
   .prompt-history-dialog {
-    @apply flex max-h-[80vh] w-full max-w-2xl flex-col gap-3 overflow-y-auto rounded-xl border border-neutral-300 bg-white p-5 shadow-xl;
+    @apply flex min-h-0 w-full max-w-2xl flex-col gap-2 overflow-hidden rounded-xl border border-neutral-300 bg-white p-3 text-neutral-950 shadow-xl;
+    height: min(36rem, calc(100dvh - 2rem));
+  }
+  .prompt-history-dialog > h2 {
+    @apply m-0 shrink-0 text-base font-semibold leading-6;
+  }
+  .prompt-history-dialog > p {
+    @apply m-0 shrink-0 text-xs leading-4;
+  }
+  .prompt-history-controls {
+    @apply grid shrink-0 grid-cols-[minmax(0,1fr)_10rem] gap-2;
+  }
+  .prompt-history-controls label {
+    @apply m-0 flex min-w-0 flex-col gap-1 text-xs leading-4 text-neutral-600;
+  }
+  .prompt-history-controls input,
+  .prompt-history-controls select {
+    @apply m-0 h-8 min-w-0 px-2 py-1 text-sm;
   }
   .prompt-history-results {
-    @apply flex min-h-0 flex-col gap-1 overflow-y-auto;
+    @apply flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain;
   }
   .prompt-history-results button {
-    @apply flex flex-col gap-1 text-left;
+    @apply flex w-full min-w-0 shrink-0 flex-col gap-0.5 border-transparent bg-transparent px-2 py-1.5 text-left text-sm font-normal leading-5 text-neutral-800;
+  }
+  .prompt-history-results button:hover:not(:disabled),
+  .prompt-history-results button:focus-visible {
+    @apply bg-neutral-50 text-neutral-950;
   }
   .prompt-history-results button[aria-selected="true"] {
-    @apply border-neutral-500 bg-neutral-100;
+    @apply border-neutral-400 bg-neutral-100 text-neutral-950;
+  }
+  .prompt-history-results button[aria-selected="true"]:hover:not(:disabled),
+  .prompt-history-results button[aria-selected="true"]:focus-visible {
+    @apply bg-neutral-200 text-neutral-950;
   }
   .prompt-history-results button > span {
-    @apply max-h-24 overflow-hidden whitespace-pre-wrap break-words;
+    @apply block w-full min-w-0 truncate;
   }
   .prompt-history-results small {
-    @apply break-all text-neutral-500;
+    @apply m-0 flex w-full min-w-0 items-center gap-2 text-xs leading-4 text-neutral-500;
+  }
+  .prompt-history-project {
+    @apply min-w-0 flex-1 truncate;
+  }
+  .prompt-history-results time {
+    @apply shrink-0 whitespace-nowrap;
+  }
+  .prompt-history-footer {
+    @apply flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-neutral-200 pt-2;
+  }
+  .prompt-history-footer p {
+    @apply m-0 min-w-0 flex-1 text-xs leading-4 text-neutral-500;
   }
   .prompt-history-actions {
-    @apply flex justify-end gap-2;
+    @apply flex shrink-0 justify-end gap-1;
+  }
+  .prompt-history-actions button {
+    @apply px-2 py-1 text-xs leading-5;
   }
   .prompt-history-error {
     @apply mx-6 my-1 text-xs text-neutral-700;
@@ -335,6 +376,12 @@
   .composer-area {
     padding-left: 16px;
     padding-right: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .prompt-history-controls {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

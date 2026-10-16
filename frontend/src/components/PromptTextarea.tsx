@@ -3,6 +3,9 @@ import { createPortal, flushSync } from "react-dom";
 import type { PromptHistoryApi } from "../communication/prompt-history";
 import { usePromptRecall } from "../hooks/usePromptRecall";
 import { PromptHistorySearch } from "./PromptHistorySearch";
+import { useComposerTarget } from "../focus/FocusProvider";
+import { isHistoryShortcut } from "../focus/shortcuts";
+import * as chatInput from "../models/chat-input";
 
 function atBoundary(
   element: HTMLTextAreaElement,
@@ -60,6 +63,7 @@ export function PromptTextarea({
   historyApi,
   executionId = "",
   scope = "",
+  attach,
 }: {
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   value: string;
@@ -69,6 +73,7 @@ export function PromptTextarea({
   historyApi?: PromptHistoryApi;
   executionId?: string;
   scope?: string;
+  attach?: (files: File[]) => void;
 }) {
   const [search, setSearch] = React.useState(false);
   function restore(text: string, edge: "start" | "end") {
@@ -79,6 +84,35 @@ export function PromptTextarea({
     element?.setSelectionRange(position, position);
   }
   const recall = usePromptRecall(historyApi, scope, value, restore);
+  function openHistory() {
+    if (!selected || !historyApi) return false;
+    recall.reset();
+    setSearch(true);
+    return true;
+  }
+  useComposerTarget(inputRef, {
+    isEditable: () =>
+      Boolean(
+        inputRef.current &&
+        !inputRef.current.disabled &&
+        !inputRef.current.readOnly,
+      ),
+    focus: () => inputRef.current?.focus({ preventScroll: true }),
+    beginTyping: (text) => {
+      recall.reset();
+      restore(value + text, "end");
+    },
+    openHistory,
+    paste: (clipboard) => {
+      const { text, files } = chatInput.clipboardInput(clipboard);
+      if (!selected || (!text && (!files.length || !attach))) return false;
+      recall.reset();
+      if (text) restore(value + text, "end");
+      else inputRef.current?.focus({ preventScroll: true });
+      if (files.length) attach?.(files);
+      return true;
+    },
+  });
   React.useEffect(() => setSearch(false), [scope, historyApi]);
   React.useLayoutEffect(() => {
     const element = inputRef.current;
@@ -157,20 +191,22 @@ export function PromptTextarea({
           recall.reset();
           change(event.target.value);
         }}
+        onPaste={(event) => {
+          if (event.defaultPrevented || !selected || !attach) return;
+          const { text, files } = chatInput.clipboardInput(event.clipboardData);
+          if (!files.length) return;
+          if (!text) event.preventDefault();
+          attach(files);
+        }}
         onKeyDown={(event) => {
           if (
             event.nativeEvent.isComposing ||
             event.nativeEvent.keyCode === 229
           )
             return;
-          if (
-            (event.ctrlKey || event.metaKey) &&
-            event.key.toLowerCase() === "r" &&
-            historyApi
-          ) {
+          if (isHistoryShortcut(event.nativeEvent) && historyApi) {
             event.preventDefault();
-            recall.reset();
-            setSearch(true);
+            openHistory();
           } else if (event.ctrlKey && event.key.toLowerCase() === "j") {
             event.preventDefault();
             newline();

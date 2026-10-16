@@ -1,3 +1,5 @@
+import { isHistoryShortcut } from "./shortcuts";
+
 export type FocusMode = "workspace" | "protected";
 
 export type ComposerTarget = {
@@ -5,6 +7,8 @@ export type ComposerTarget = {
   isEditable: () => boolean;
   focus: () => void;
   beginTyping: (text: string) => void;
+  openHistory?: () => boolean;
+  paste?: (clipboard: DataTransfer) => boolean;
 };
 
 const typingOwnerSelector = [
@@ -130,8 +134,11 @@ export class FocusCoordinator {
     const changed = () => {
       this.revision++;
     };
-    const keydown = (event: KeyboardEvent) =>
+    const keydown = (event: KeyboardEvent) => {
+      this.handleHistoryShortcut(event, document);
       this.handleTyping(event, document);
+    };
+    const paste = (event: ClipboardEvent) => this.handlePaste(event, document);
     const compositionStart = () => {
       this.composing = true;
       changed();
@@ -155,6 +162,7 @@ export class FocusCoordinator {
     document.addEventListener("focusin", changed, true);
     document.addEventListener("keydown", changed, true);
     document.addEventListener("keydown", keydown);
+    document.addEventListener("paste", paste);
     document.addEventListener("compositionstart", compositionStart, true);
     document.addEventListener("compositionend", compositionEnd, true);
     document.addEventListener("visibilitychange", visibility);
@@ -165,6 +173,7 @@ export class FocusCoordinator {
       document.removeEventListener("focusin", changed, true);
       document.removeEventListener("keydown", changed, true);
       document.removeEventListener("keydown", keydown);
+      document.removeEventListener("paste", paste);
       document.removeEventListener("compositionstart", compositionStart, true);
       document.removeEventListener("compositionend", compositionEnd, true);
       document.removeEventListener("visibilitychange", visibility);
@@ -176,14 +185,17 @@ export class FocusCoordinator {
     };
   }
 
-  private available() {
+  private activeWorkspace() {
     return (
       this.connected &&
       this.active &&
-      this.blockers.size === 0 &&
       this.composer?.element.ownerDocument.visibilityState !== "hidden" &&
       Boolean(this.composer?.element.isConnected)
     );
+  }
+
+  private available() {
+    return this.activeWorkspace() && this.blockers.size === 0;
   }
 
   private hasSelection(document: Document) {
@@ -231,6 +243,52 @@ export class FocusCoordinator {
     );
   }
 
+  private routingPath(event: Event, document: Document): EventTarget[] | null {
+    const eventPath = event.composedPath();
+    const focusedPath = this.ancestors(document.activeElement);
+    if (
+      !this.withinWorkspace(eventPath, document) ||
+      !this.withinWorkspace(focusedPath, document) ||
+      this.ownsTyping(eventPath) ||
+      this.ownsTyping(focusedPath)
+    )
+      return null;
+    return [...eventPath, ...focusedPath];
+  }
+
+  private handleHistoryShortcut(event: KeyboardEvent, document: Document) {
+    if (
+      event.defaultPrevented ||
+      !isHistoryShortcut(event) ||
+      !this.activeWorkspace()
+    )
+      return;
+    event.preventDefault();
+    if (
+      event.isComposing ||
+      event.keyCode === 229 ||
+      this.composing ||
+      !this.available() ||
+      !this.composer?.isEditable() ||
+      !this.routingPath(event, document)
+    )
+      return;
+    this.composer.openHistory?.();
+  }
+
+  private handlePaste(event: ClipboardEvent, document: Document) {
+    if (
+      event.defaultPrevented ||
+      !event.clipboardData ||
+      this.composing ||
+      !this.available() ||
+      !this.composer?.isEditable() ||
+      !this.routingPath(event, document)
+    )
+      return;
+    if (this.composer.paste?.(event.clipboardData)) event.preventDefault();
+  }
+
   private handleTyping(event: KeyboardEvent, document: Document) {
     if (
       event.defaultPrevented ||
@@ -248,15 +306,11 @@ export class FocusCoordinator {
       !this.composer?.isEditable()
     )
       return;
-    const eventPath = event.composedPath();
-    const focusedPath = this.ancestors(document.activeElement);
+    const path = this.routingPath(event, document);
     if (
-      !this.withinWorkspace(eventPath, document) ||
-      !this.withinWorkspace(focusedPath, document) ||
-      this.ownsTyping(eventPath) ||
-      this.ownsTyping(focusedPath) ||
+      !path ||
       (event.key === " " &&
-        [...eventPath, ...focusedPath].some(
+        path.some(
           (target) =>
             target instanceof Element && target.matches(activationSelector),
         ))

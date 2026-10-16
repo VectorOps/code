@@ -121,6 +121,197 @@ function workspaceProps(): ComponentProps<typeof Workspace> {
   };
 }
 
+vitest.test.each(["ctrlKey", "metaKey"])(
+  "%s+R opens prompt history from conversation focus and blocks refresh elsewhere",
+  async (modifier) => {
+    const props = workspaceProps();
+    const history = new PromptHistoryApi(
+      new RunnerConnection("ws://localhost", "test"),
+    );
+    vitest.vi
+      .spyOn(history, "list")
+      .mockResolvedValue({ entries: [], next_before: null });
+    const view = render(
+      <Workspace
+        {...props}
+        promptHistory={history}
+        settings={<input aria-label="Setting value" />}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(
+      view.getByRole("region", { name: "Conversation history" }),
+    );
+    const event = new KeyboardEvent("keydown", {
+      key: "r",
+      [modifier]: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      document.activeElement!.dispatchEvent(event);
+    });
+    vitest.expect(event.defaultPrevented).toBe(true);
+    vitest
+      .expect(view.getByRole("dialog", { name: "Prompt history" }))
+      .toBeDefined();
+    vitest
+      .expect(document.activeElement)
+      .toBe(view.getByLabelText("Search submitted prompts"));
+    const cancel = view.getByRole("button", { name: "Cancel" });
+    act(() => cancel.focus());
+    const repeated = new KeyboardEvent("keydown", {
+      key: "r",
+      [modifier]: true,
+      repeat: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      cancel.dispatchEvent(repeated);
+    });
+    vitest.expect(repeated.defaultPrevented).toBe(true);
+    vitest
+      .expect(view.getAllByRole("dialog", { name: "Prompt history" }))
+      .toHaveLength(1);
+    await user.keyboard("{Escape}");
+    const filter = view.getByLabelText("Find a session");
+    await user.click(filter);
+    const native = new KeyboardEvent("keydown", {
+      key: "r",
+      [modifier]: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      filter.dispatchEvent(native);
+    });
+    vitest.expect(native.defaultPrevented).toBe(true);
+    vitest
+      .expect(view.queryByRole("dialog", { name: "Prompt history" }))
+      .toBeNull();
+    vitest.expect(document.activeElement).toBe(filter);
+    await user.click(view.getByRole("button", { name: "Settings" }));
+    const blocked = new KeyboardEvent("keydown", {
+      key: "r",
+      [modifier]: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      document.activeElement!.dispatchEvent(blocked);
+    });
+    vitest.expect(blocked.defaultPrevented).toBe(true);
+    vitest
+      .expect(view.queryByRole("dialog", { name: "Prompt history" }))
+      .toBeNull();
+    vitest.expect(props.onReply).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
+  "unfocused paste appends once without replacing a stale selection, while focused paste stays native",
+  async () => {
+    const props = workspaceProps();
+    const view = render(
+      <StrictMode>
+        <Workspace {...props} />
+      </StrictMode>,
+    );
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft") as HTMLTextAreaElement;
+    const viewport = view.getByRole("region", { name: "Conversation history" });
+    await user.type(draft, "Saved");
+    draft.setSelectionRange(0, 5);
+    await user.click(
+      view.getByRole("region", { name: "Conversation history" }),
+    );
+    viewport.scrollTop = 37;
+    const focus = vitest.vi.spyOn(draft, "focus");
+    await user.paste("one\r\ntwo");
+    vitest.expect(draft.value).toBe("Savedone\ntwo");
+    vitest.expect(document.activeElement).toBe(draft);
+    vitest.expect(draft.selectionStart).toBe(draft.value.length);
+    vitest.expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    vitest.expect(viewport.scrollTop).toBe(37);
+    draft.setSelectionRange(0, 5);
+    await user.paste("New");
+    vitest.expect(draft.value).toBe("Newone\ntwo");
+    vitest.expect(props.onReply).not.toHaveBeenCalled();
+  },
+);
+
+function pasteClipboard(target: EventTarget, text: string, files: File[] = []) {
+  const event = new Event("paste", {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+  });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      files,
+      items: [],
+      getData: (type: string) => (type === "text/plain" ? text : ""),
+    },
+  });
+  act(() => {
+    target.dispatchEvent(event);
+  });
+  return event;
+}
+
+vitest.test.each(["", "Pasted caption"])(
+  "pasting images outside the composer attaches once and retains mixed text %j",
+  async (text) => {
+    const props = workspaceProps();
+    const view = render(<Workspace {...props} />);
+    const user = userEvent.setup();
+    const draft = view.getByLabelText("Message draft");
+    await user.type(draft, "Saved draft");
+    await user.click(
+      view.getByRole("region", { name: "Conversation history" }),
+    );
+    const event = pasteClipboard(document.activeElement!, text, [
+      new File(["png"], "shot.png", { type: "image/png" }),
+    ]);
+    vitest.expect(event.defaultPrevented).toBe(true);
+    await waitFor(() =>
+      vitest.expect(view.getAllByAltText("shot.png")).toHaveLength(1),
+    );
+    vitest.expect(draft).toHaveProperty("value", "Saved draft" + text);
+    vitest.expect(document.activeElement).toBe(draft);
+    vitest.expect(props.onReply).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
+  "paste stays in other editors and does not enter the composer through a popup",
+  async () => {
+    const props = workspaceProps();
+    const view = render(
+      <Workspace {...props} settings={<input aria-label="Setting value" />} />,
+    );
+    const user = userEvent.setup();
+    const filter = view.getByLabelText("Find a session");
+    await user.click(filter);
+    await user.paste("Filter text");
+    vitest.expect(filter).toHaveProperty("value", "Filter text");
+    const draft = view.getByLabelText("Message draft");
+    vitest.expect(draft).toHaveProperty("value", "");
+    await user.click(view.getByRole("button", { name: "Settings" }));
+    const setting = view.getByLabelText("Setting value");
+    await user.click(setting);
+    await user.paste("Setting text");
+    vitest.expect(setting).toHaveProperty("value", "Setting text");
+    const blocked = pasteClipboard(document.body, "Blocked caption", [
+      new File(["png"], "blocked.png", { type: "image/png" }),
+    ]);
+    vitest.expect(blocked.defaultPrevented).toBe(false);
+    vitest.expect(draft).toHaveProperty("value", "");
+    vitest.expect(view.queryByAltText("blocked.png")).toBeNull();
+  },
+);
+
 vitest.test(
   "only accepted messages are recorded on the host, with stable retry keys",
   async () => {

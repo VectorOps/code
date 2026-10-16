@@ -1,6 +1,7 @@
 import * as React from "react";
 import type * as history from "../communication/prompt-history";
 import { useFocusBlocker } from "../focus/FocusProvider";
+import { isHistoryShortcut } from "../focus/shortcuts";
 
 export function PromptHistorySearch({
   api,
@@ -106,10 +107,7 @@ export function PromptHistorySearch({
             event.preventDefault();
             event.stopPropagation();
             close();
-          } else if (
-            (event.ctrlKey || event.metaKey) &&
-            event.key.toLowerCase() === "r"
-          ) {
+          } else if (isHistoryShortcut(event.nativeEvent)) {
             event.preventDefault();
             next();
           } else if (event.target instanceof HTMLSelectElement) {
@@ -147,37 +145,39 @@ export function PromptHistorySearch({
         }}
       >
         <h2 id="prompt-history-title">Prompt history</h2>
-        <label>
-          Search submitted prompts
-          <input
-            ref={input}
-            value={query}
-            onChange={(event) => {
-              generation.current++;
-              setQuery(event.target.value);
-            }}
-            aria-controls="prompt-history-results"
-            aria-activedescendant={
-              entries[selected]
-                ? `prompt-result-${entries[selected].id}`
-                : undefined
-            }
-          />
-        </label>
-        <label>
-          History scope
-          <select
-            value={scope}
-            onChange={(event) => {
-              generation.current++;
-              setScope(event.target.value as history.HistoryScope);
-            }}
-          >
-            <option value="global">Global</option>
-            <option value="project">This project</option>
-            <option value="session">This chat</option>
-          </select>
-        </label>
+        <div className="prompt-history-controls">
+          <label>
+            Search submitted prompts
+            <input
+              ref={input}
+              value={query}
+              onChange={(event) => {
+                generation.current++;
+                setQuery(event.target.value);
+              }}
+              aria-controls="prompt-history-results"
+              aria-activedescendant={
+                entries[selected]
+                  ? `prompt-result-${entries[selected].id}`
+                  : undefined
+              }
+            />
+          </label>
+          <label>
+            History scope
+            <select
+              value={scope}
+              onChange={(event) => {
+                generation.current++;
+                setScope(event.target.value as history.HistoryScope);
+              }}
+            >
+              <option value="global">Global</option>
+              <option value="project">This project</option>
+              <option value="session">This chat</option>
+            </select>
+          </label>
+        </div>
         {error && <p role="alert">{error}</p>}
         {loading && <p role="status">Loading prompt history…</p>}
         {!loading && !entries.length && !error && (
@@ -201,29 +201,36 @@ export function PromptHistorySearch({
             >
               <span>{entry.text}</span>
               <small>
-                {entry.project_id} ·{" "}
-                {new Date(entry.timestamp).toLocaleString()}
+                <span
+                  className="prompt-history-project"
+                  title={entry.project_id}
+                >
+                  {entry.project_id}
+                </span>
+                <time dateTime={entry.timestamp}>
+                  {new Date(entry.timestamp).toLocaleString()}
+                </time>
               </small>
             </button>
           ))}
         </div>
-        <p>
-          Enter recalls text only. Escape keeps your draft. Ctrl+R selects an
-          older match.
-        </p>
-        <div className="prompt-history-actions">
-          {before !== null && (
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => void load(true, generation.current)}
-            >
-              Load older
+        <div className="prompt-history-footer">
+          <p>Enter recalls text · Esc cancels · Ctrl+R selects older</p>
+          <div className="prompt-history-actions">
+            {before !== null && (
+              <button
+                type="button"
+                className="quiet-button"
+                disabled={loading}
+                onClick={() => void load(true, generation.current)}
+              >
+                Load older
+              </button>
+            )}
+            <button type="button" className="quiet-button" onClick={close}>
+              Cancel
             </button>
-          )}
-          <button type="button" onClick={close}>
-            Cancel
-          </button>
+          </div>
         </div>
       </section>
     </div>

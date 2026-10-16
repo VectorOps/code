@@ -22,6 +22,8 @@ function fixture() {
     composer.value += value;
     focus();
   });
+  const openHistory = vitest.vi.fn(() => true);
+  const paste = vitest.vi.fn(() => true);
   cleanups.push(() => root.remove());
   cleanups.push(coordinator.registerRegion(root, "workspace"));
   cleanups.push(
@@ -30,12 +32,177 @@ function fixture() {
       isEditable: () => !composer.disabled && !composer.readOnly,
       focus,
       beginTyping,
+      openHistory,
+      paste,
     }),
   );
   const disconnect = coordinator.connect(document);
   cleanups.push(disconnect);
-  return { root, text, composer, coordinator, focus, beginTyping, disconnect };
+  return {
+    root,
+    text,
+    composer,
+    coordinator,
+    focus,
+    beginTyping,
+    openHistory,
+    paste,
+    disconnect,
+  };
 }
+
+function clipboardEvent(
+  target: EventTarget,
+  text = "Pasted text",
+  handled = false,
+) {
+  const event = new Event("paste", {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+  });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [], items: [], getData: () => text },
+  });
+  if (handled) event.preventDefault();
+  target.dispatchEvent(event);
+  return event;
+}
+
+vitest.test.each(["ctrlKey", "metaKey"])(
+  "%s+R routes body and navigation focus to history without reloading",
+  (modifier) => {
+    const { root, openHistory, beginTyping } = fixture();
+    vitest
+      .expect(fireEvent.keyDown(document.body, { key: "r", [modifier]: true }))
+      .toBe(false);
+    const button = document.createElement("button");
+    root.append(button);
+    button.focus();
+    vitest
+      .expect(fireEvent.keyDown(button, { key: "r", [modifier]: true }))
+      .toBe(false);
+    vitest.expect(openHistory).toHaveBeenCalledTimes(2);
+    vitest.expect(beginTyping).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
+  "history shortcut prevents refresh without replacing another editor or opening over a blocker",
+  () => {
+    const { root, coordinator, openHistory } = fixture();
+    const input = document.createElement("input");
+    root.append(input);
+    input.focus();
+    vitest
+      .expect(fireEvent.keyDown(input, { key: "r", ctrlKey: true }))
+      .toBe(false);
+    vitest.expect(document.activeElement).toBe(input);
+    input.blur();
+    const release = coordinator.block();
+    vitest
+      .expect(fireEvent.keyDown(document.body, { key: "r", ctrlKey: true }))
+      .toBe(false);
+    release();
+    vitest.expect(openHistory).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
+  "history stays reserved while disabled, but explicit hard-refresh and unrelated shortcuts are untouched",
+  () => {
+    const { composer, openHistory } = fixture();
+    composer.disabled = true;
+    vitest
+      .expect(fireEvent.keyDown(document.body, { key: "r", ctrlKey: true }))
+      .toBe(false);
+    vitest.expect(openHistory).not.toHaveBeenCalled();
+    for (const event of [
+      { key: "r", ctrlKey: true, shiftKey: true },
+      { key: "r", metaKey: true, shiftKey: true },
+      { key: "r", ctrlKey: true, altKey: true },
+      { key: "v", ctrlKey: true },
+      { key: "c", metaKey: true },
+    ])
+      vitest.expect(fireEvent.keyDown(document.body, event)).toBe(true);
+  },
+);
+
+vitest.test(
+  "paste delegates from body or workspace navigation and ignores unsupported or handled events",
+  () => {
+    const { root, paste } = fixture();
+    vitest.expect(clipboardEvent(document.body).defaultPrevented).toBe(true);
+    const button = document.createElement("button");
+    root.append(button);
+    button.focus();
+    vitest.expect(clipboardEvent(button).defaultPrevented).toBe(true);
+    vitest.expect(paste).toHaveBeenCalledTimes(2);
+    clipboardEvent(button, "Handled", true);
+    vitest.expect(paste).toHaveBeenCalledTimes(2);
+    paste.mockReturnValue(false);
+    vitest.expect(clipboardEvent(button, "").defaultPrevented).toBe(false);
+  },
+);
+
+vitest.test(
+  "paste preserves native editors, protected regions, selections in editors, and shadow DOM owners",
+  () => {
+    const { root, paste, coordinator } = fixture();
+    const input = document.createElement("input");
+    root.append(input);
+    input.focus();
+    vitest.expect(clipboardEvent(input).defaultPrevented).toBe(false);
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    editor.setAttribute("contenteditable", "true");
+    editor.tabIndex = 0;
+    root.append(editor);
+    editor.focus();
+    vitest.expect(clipboardEvent(editor).defaultPrevented).toBe(false);
+    const widget = document.createElement("div");
+    widget.tabIndex = 0;
+    root.append(widget);
+    cleanups.push(coordinator.registerRegion(widget, "protected"));
+    widget.focus();
+    vitest.expect(clipboardEvent(widget).defaultPrevented).toBe(false);
+    const host = document.createElement("div");
+    const shadow = host.attachShadow({ mode: "open" });
+    const shadowInput = document.createElement("input");
+    shadow.append(shadowInput);
+    root.append(host);
+    shadowInput.focus();
+    vitest.expect(clipboardEvent(shadowInput).defaultPrevented).toBe(false);
+    vitest.expect(paste).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
+  "paste is not redirected outside the workspace or through a blocker, composition, or unavailable composer",
+  () => {
+    const { composer, coordinator, paste, disconnect } = fixture();
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    cleanups.push(() => outside.remove());
+    outside.focus();
+    vitest.expect(clipboardEvent(outside).defaultPrevented).toBe(false);
+    outside.blur();
+    const release = coordinator.block();
+    vitest.expect(clipboardEvent(document.body).defaultPrevented).toBe(false);
+    release();
+    for (const property of ["disabled", "readOnly"] as const) {
+      composer[property] = true;
+      vitest.expect(clipboardEvent(document.body).defaultPrevented).toBe(false);
+      composer[property] = false;
+    }
+    fireEvent.compositionStart(document.body);
+    vitest.expect(clipboardEvent(document.body).defaultPrevented).toBe(false);
+    fireEvent.compositionEnd(document.body);
+    disconnect();
+    vitest.expect(clipboardEvent(document.body).defaultPrevented).toBe(false);
+    vitest.expect(paste).not.toHaveBeenCalled();
+  },
+);
 
 vitest.test(
   "typing from body enters the composer without a preceding click",

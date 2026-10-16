@@ -60,12 +60,19 @@ In another terminal run `npm run dev` in `frontend/`, open `http://127.0.0.1:517
 | Ctrl+J | Insert a newline |
 | Up on the first visual line | Recall an older submitted prompt, globally across projects and chats |
 | Down on the last visual line | Recall a newer prompt, then restore the unsent draft |
-| Ctrl+R or Cmd+R inside the composer | Search prompt input history |
+| Ctrl+R or Cmd+R | Search prompt input history from the composer or conversation area |
 
 The input grows and shrinks with wrapped content, starting at one row and growing
 to ten rows or the viewport-based cap, whichever is smaller. Longer input scrolls
 inside the composer. Multiline paste stays multiline, and IME confirmation does
 not submit a message.
+
+Ctrl/Cmd+R is reserved by the app so it does not refresh the page. Other editors
+and open dialogs keep focus rather than opening a second history dialog.
+Ctrl/Cmd+Shift+R remains available for an explicit browser hard refresh.
+Pasting text or images from the conversation area focuses the composer and
+appends to its draft without submitting. Paste inside an editable field keeps
+that field's native selection and paste behavior.
 
 Prompt history is separate from conversation transcripts. Runner-desktop workers
 store the latest 1,000 successfully submitted text prompts in

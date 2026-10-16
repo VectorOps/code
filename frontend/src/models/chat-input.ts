@@ -10,6 +10,24 @@ export const imageAccept = imageTypes.join(",");
 export const maxImageBytes = 786432;
 export const maxContentBlocks = 4;
 
+export function clipboardInput(clipboard: DataTransfer): {
+  text: string;
+  files: File[];
+} {
+  const files = Array.from(clipboard.files);
+  if (!files.length) {
+    for (const item of Array.from(clipboard.items)) {
+      if (item.kind !== "file") continue;
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  }
+  return {
+    text: clipboard.getData("text/plain").replace(/\r\n?/g, "\n"),
+    files,
+  };
+}
+
 export type ImageInput = {
   type: "image";
   mime_type: (typeof imageTypes)[number];

@@ -339,6 +339,47 @@ vitest.test(
 );
 
 vitest.test(
+  "compact history previews retain complete multiline text for recall",
+  async () => {
+    const view = setup();
+    const text =
+      "First line\n" +
+      "A long prompt that should not enlarge the row. ".repeat(30);
+    view.list.mockResolvedValue({
+      entries: Array.from({ length: 12 }, (_, index) =>
+        entry(20 - index, index ? `Prompt ${index}` : text),
+      ),
+      next_before: null,
+    });
+    testing.fireEvent.keyDown(view.input, { key: "r", ctrlKey: true });
+    const results = await view.findByRole("listbox", {
+      name: "Submitted prompts",
+    });
+    await testing.waitFor(() =>
+      vitest
+        .expect(testing.within(results).getAllByRole("option"))
+        .toHaveLength(12),
+    );
+    const dialog = view.getByRole("dialog");
+    vitest
+      .expect(
+        dialog
+          .querySelector(".prompt-history-controls")
+          ?.contains(view.getByLabelText("History scope")),
+      )
+      .toBe(true);
+    const project = results.querySelector(".prompt-history-project");
+    vitest.expect(project?.getAttribute("title")).toBe("/host/project");
+    vitest
+      .expect(results.querySelector("time")?.getAttribute("datetime"))
+      .toBe("2026-01-01T00:00:00Z");
+    await userEvent.setup().keyboard("{Enter}");
+    vitest.expect(view.input.value).toBe(text);
+    vitest.expect(view.submit).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
   "prompt history RPCs carry text/session metadata but no browser storage",
   async () => {
     const connection = new RunnerConnection("ws://localhost", "test");

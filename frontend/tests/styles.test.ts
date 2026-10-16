@@ -35,6 +35,46 @@ test("frontend CSS preserves global layer order and appearance overrides", async
   const styles: unknown = JSON.parse(stdout);
   assert.ok(Array.isArray(styles) && styles.length > 0);
   const css = styles.join("\n");
+  const historyDialog = lastRule(css, ".prompt-history-dialog");
+  assert.match(
+    historyDialog,
+    /height:\s*min\(36rem,\s*(?:calc\()?100dvh\s*-\s*2rem/,
+  );
+  assert.match(historyDialog, /overflow:\s*hidden/);
+  assert.match(historyDialog, /color:\s*var\(--color-neutral-950(?:,|\))/);
+  assert.doesNotMatch(
+    lastRule(css, ".prompt-history-overlay"),
+    /--color-black/,
+  );
+  assert.match(lastRule(css, ".prompt-history-controls label"), /margin:\s*0/);
+  assert.match(lastRule(css, ".prompt-history-controls input"), /height:/);
+  const historyResults = lastRule(css, ".prompt-history-results");
+  assert.match(historyResults, /flex:\s*1/);
+  assert.match(historyResults, /overflow-y:\s*auto/);
+  const historyRow = lastRule(css, ".prompt-history-results button");
+  assert.match(historyRow, /flex-shrink:\s*0/);
+  assert.match(historyRow, /color:\s*var\(--color-neutral-800(?:,|\))/);
+  assert.match(historyRow, /background-color:\s*(?:transparent|#0000)/);
+  for (const selector of [
+    '.prompt-history-results button[aria-selected="true"]',
+    ".prompt-history-results button:hover:not(:disabled)",
+    ".prompt-history-results button:focus-visible",
+    '.prompt-history-results button[aria-selected="true"]:hover:not(:disabled)',
+    '.prompt-history-results button[aria-selected="true"]:focus-visible',
+  ])
+    assert.match(
+      lastRule(css, selector),
+      /color:\s*var\(--color-neutral-950(?:,|\))/,
+    );
+  for (const selector of [
+    ".prompt-history-results button > span",
+    ".prompt-history-project",
+  ]) {
+    assert.match(lastRule(css, selector), /white-space:\s*nowrap/);
+    assert.match(lastRule(css, selector), /text-overflow:\s*ellipsis/);
+  }
+  assert.match(lastRule(css, ".prompt-history-results small"), /margin:\s*0/);
+  assert.match(lastRule(css, ".prompt-history-footer p"), /margin:\s*0/);
   assert.match(lastRule(css, ".composer-help"), /flex:\s*1/);
   assert.match(lastRule(css, ".composer-usage"), /margin-left:\s*auto/);
   assert.match(lastRule(css, ".composer-model"), /border-right/);

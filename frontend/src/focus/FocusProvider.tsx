@@ -72,6 +72,8 @@ export function useComposerTarget(
       isEditable: () => latest.current.isEditable(),
       focus: () => latest.current.focus(),
       beginTyping: (text) => latest.current.beginTyping(text),
+      openHistory: () => latest.current.openHistory?.() ?? false,
+      paste: (clipboard) => latest.current.paste?.(clipboard) ?? false,
     });
   }, [coordinator, element]);
 }
