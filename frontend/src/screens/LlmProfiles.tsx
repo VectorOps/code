@@ -5,8 +5,9 @@ import type {
   LlmField,
 } from "../communication/llm-settings-api";
 import type { RunnerApi } from "../communication/runner-api";
+import { SettingField } from "../components/SettingsControls";
+import { SettingsIcon } from "../components/SettingsIcon";
 import { object } from "../models/json";
-import type { Json } from "../models/json";
 
 const fields: {
   name: LlmField;
@@ -158,8 +159,14 @@ export function LlmProfiles({ api: runner }: { api: RunnerApi }) {
             </select>
           </label>
         )}
-        <button disabled={busy} onClick={() => void refresh()}>
-          Refresh settings
+        <button
+          className="settings-icon-button"
+          title="Refresh settings"
+          aria-label="Refresh settings"
+          disabled={busy}
+          onClick={() => void refresh()}
+        >
+          <SettingsIcon name="refresh" />
         </button>
       </div>
       {snapshot && (
@@ -183,9 +190,8 @@ export function LlmProfiles({ api: runner }: { api: RunnerApi }) {
             {fields.map((field) => (
               <SettingField
                 key={`${profile === null ? "shared" : `profile:${profile}`}/${field.name}`}
-                api={api}
-                profile={profile}
                 field={field}
+                suggest={(prefix) => api.suggest(profile, field.name, prefix)}
                 value={
                   field.name === "reasoning.effort"
                     ? object(settings.reasoning).effort
@@ -217,123 +223,5 @@ export function LlmProfiles({ api: runner }: { api: RunnerApi }) {
         </>
       )}
     </>
-  );
-}
-
-function SettingField({
-  api,
-  profile,
-  field,
-  value,
-  apply,
-  reset,
-}: {
-  api: LlmSettingsApi;
-  profile: string | null;
-  field: (typeof fields)[number];
-  value: Json | undefined;
-  apply: (value: string | number, permanent: boolean) => Promise<void>;
-  reset: () => Promise<void>;
-}) {
-  const id = React.useId();
-  const initial =
-    typeof value === "string" || typeof value === "number" ? String(value) : "";
-  const [draft, setDraft] = React.useState(initial);
-  const [permanent, setPermanent] = React.useState(false);
-  const [suggestions, setSuggestions] = React.useState<string[]>([]);
-  const [suggestionError, setSuggestionError] = React.useState(false);
-
-  React.useEffect(() => setDraft(initial), [initial]);
-
-  React.useEffect(() => {
-    if (field.numeric) return;
-    let active = true;
-    setSuggestions([]);
-    setSuggestionError(false);
-    const timer = setTimeout(() => {
-      void api.suggest(profile, field.name, draft).then(
-        (values) => {
-          if (active) setSuggestions(values);
-        },
-        () => {
-          if (active) setSuggestionError(true);
-        },
-      );
-    }, 200);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [api, profile, field.name, field.numeric, draft]);
-
-  const valid =
-    draft.trim() !== "" && (!field.numeric || Number.isFinite(Number(draft)));
-
-  return (
-    <form
-      className="settings-field"
-      aria-label={`Edit ${field.label}`}
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (valid) void apply(field.numeric ? Number(draft) : draft, permanent);
-      }}
-    >
-      <div className="settings-field-value">
-        <label htmlFor={id}>{field.label}</label>
-        <input
-          id={id}
-          type={field.numeric ? "number" : "text"}
-          min={field.min}
-          max={field.max}
-          step={field.step}
-          required
-          placeholder={field.placeholder}
-          value={draft}
-          list={field.numeric ? undefined : `${id}-suggestions`}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <div className="settings-current">
-          Configured:{" "}
-          <code>
-            {value === undefined ? "Not configured" : JSON.stringify(value)}
-          </code>
-        </div>
-        {!field.numeric && (
-          <datalist id={`${id}-suggestions`}>
-            {suggestions.map((value) => (
-              <option key={value} value={value} />
-            ))}
-          </datalist>
-        )}
-        {suggestionError && <small>Suggestions unavailable.</small>}
-      </div>
-      <div>
-        <label htmlFor={`${id}-lifetime`}>Apply as</label>
-        <select
-          id={`${id}-lifetime`}
-          aria-label={`${field.label} override lifetime`}
-          value={permanent ? "permanent" : "temporary"}
-          onChange={(event) => setPermanent(event.target.value === "permanent")}
-        >
-          <option value="temporary">Temporary — until runner restart</option>
-          <option value="permanent">Permanent — workspace override</option>
-        </select>
-      </div>
-      <div className="settings-actions">
-        <button
-          aria-label={`Apply ${field.label.toLowerCase()}`}
-          disabled={!valid}
-        >
-          Apply
-        </button>
-        <button
-          aria-label={`Reset ${field.label.toLowerCase()} to TOML`}
-          type="button"
-          onClick={() => void reset()}
-        >
-          Reset to TOML
-        </button>
-      </div>
-    </form>
   );
 }

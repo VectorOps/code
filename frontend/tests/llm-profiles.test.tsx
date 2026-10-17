@@ -178,9 +178,10 @@ vitest.test(
       view.getByLabelText("Model"),
       "openrouter/anthropic/claude:tag",
     );
-    await user.selectOptions(
-      view.getByLabelText("Model override lifetime"),
-      "permanent",
+    await user.click(
+      testing
+        .within(view.getByRole("group", { name: "Model override lifetime" }))
+        .getByRole("radio", { name: "Workspace" }),
     );
     connection.value = {
       profiles: { strong: { model: "openrouter/anthropic/claude:tag" } },
@@ -225,9 +226,14 @@ vitest.test(
       "profile:custom.name",
     );
     await user.type(view.getByLabelText("Maximum output tokens"), "2048");
-    await user.selectOptions(
-      view.getByLabelText("Maximum output tokens override lifetime"),
-      "permanent",
+    await user.click(
+      testing
+        .within(
+          view.getByRole("group", {
+            name: "Maximum output tokens override lifetime",
+          }),
+        )
+        .getByRole("radio", { name: "Workspace" }),
     );
     connection.value = {
       profiles: {

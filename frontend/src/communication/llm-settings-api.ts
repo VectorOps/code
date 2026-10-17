@@ -1,14 +1,10 @@
 import type { RunnerConnection } from "./websocket";
-import type { Json } from "../models/json";
+import { ConfigurationApi } from "./configuration-api";
+
+export type { ConfigurationSnapshot } from "./configuration-api";
 
 export type LlmField =
   "model" | "temperature" | "max_output_tokens" | "reasoning.effort";
-
-export interface ConfigurationSnapshot {
-  name: string;
-  exists: boolean;
-  value: Json;
-}
 
 function fieldName(profile: string | null, field: LlmField): string {
   const target = ["components", "llm"];
@@ -19,12 +15,14 @@ function fieldName(profile: string | null, field: LlmField): string {
 }
 
 export class LlmSettingsApi {
-  constructor(private connection: RunnerConnection) {}
+  private configuration: ConfigurationApi;
+
+  constructor(connection: RunnerConnection) {
+    this.configuration = new ConfigurationApi(connection);
+  }
 
   get() {
-    return this.connection.request<ConfigurationSnapshot>("configuration.get", {
-      name: "components.llm",
-    });
+    return this.configuration.get("components.llm");
   }
 
   set(
@@ -33,26 +31,14 @@ export class LlmSettingsApi {
     value: string | number,
     permanent: boolean,
   ) {
-    return this.connection.request<null>("configuration.set", {
-      name: fieldName(profile, field),
-      value,
-      permanent,
-    });
+    return this.configuration.set(fieldName(profile, field), value, permanent);
   }
 
   reset(profile: string | null, field: LlmField) {
-    return this.connection.request<null>("configuration.reset", {
-      name: fieldName(profile, field),
-    });
+    return this.configuration.reset(fieldName(profile, field));
   }
 
   async suggest(profile: string | null, field: LlmField, prefix: string) {
-    const result = await this.connection.request<{ values: Json[] }>(
-      "configuration.suggest",
-      { name: fieldName(profile, field), prefix },
-    );
-    return result.values.filter(
-      (value): value is string => typeof value === "string",
-    );
+    return this.configuration.suggest(fieldName(profile, field), prefix);
   }
 }

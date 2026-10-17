@@ -4,6 +4,7 @@ import type { RunnerApi } from "../communication/runner-api";
 import type { ConnectionSettings, Workflow } from "../models/runner";
 import { Authentication } from "./Authentication";
 import { LlmProfiles } from "./LlmProfiles";
+import { WorkflowSettings } from "./WorkflowSettings";
 import { resolveDefaultWorkflow } from "../hooks/useDefaultWorkflow";
 import "./settings.css";
 
@@ -12,6 +13,7 @@ const categories = {
   conversations: "Conversations",
   authentication: "LLM authentication",
   profiles: "LLM profiles",
+  workflows: "Workflows",
 };
 
 type Category = keyof typeof categories;
@@ -100,6 +102,11 @@ export function Settings({
           </>
         ) : !connected || !api ? (
           <p role="status">Runner disconnected.</p>
+        ) : category === "workflows" ? (
+          <WorkflowSettings
+            key={`${connection.endpoint}/${connection.token}`}
+            api={api}
+          />
         ) : category === "profiles" ? (
           <LlmProfiles
             key={`${connection.endpoint}/${connection.token}`}
