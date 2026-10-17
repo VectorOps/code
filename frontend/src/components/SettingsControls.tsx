@@ -155,6 +155,9 @@ export function SettingField({
   const valid =
     (field.allowEmpty || draft.trim() !== "") &&
     (!field.numeric || Number.isFinite(Number(draft)));
+  const showConfigured =
+    draft !== initial ||
+    (typeof value !== "string" && typeof value !== "number");
 
   return (
     <form
@@ -199,12 +202,14 @@ export function SettingField({
             onChange={(event) => setDraft(event.target.value)}
           />
         )}
-        <div className="settings-current">
-          Configured:{" "}
-          <code>
-            {value === undefined ? "Not configured" : JSON.stringify(value)}
-          </code>
-        </div>
+        {showConfigured && (
+          <div className="settings-current">
+            Configured:{" "}
+            <code>
+              {value === undefined ? "Not configured" : JSON.stringify(value)}
+            </code>
+          </div>
+        )}
         {suggest && !field.numeric && (
           <datalist id={`${id}-suggestions`}>
             {suggestions.map((value) => (
