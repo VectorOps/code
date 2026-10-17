@@ -1,11 +1,20 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PromptHistoryApi } from "../communication/prompt-history";
 import type { ConnectionSettings } from "../models/runner";
 import { useRunner } from "../hooks/useRunner";
 import { ConnectionForm } from "../components/ConnectionForm";
-import { NewSessionForm } from "../components/NewSessionForm";
+import {
+  NewSessionForm,
+  type NewSessionDraft,
+} from "../components/NewSessionForm";
 import { Workspace } from "./Workspace";
 import { Settings } from "./Settings";
+import {
+  resolveDefaultWorkflow,
+  useDefaultWorkflow,
+} from "../hooks/useDefaultWorkflow";
+import type { Params } from "../models/json";
+import { workflowDefaults } from "../models/workflow-input";
 
 export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
   const runner = useRunner(initial);
@@ -15,15 +24,51 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
     [runner.api],
   );
   const [connection, setConnection] = useState(initial);
-  const [draft, setDraft] = useState({ reference: "", input: "{}" });
+  const defaultWorkflow = useDefaultWorkflow();
+  const [launchError, setLaunchError] = useState("");
+  const starting = useRef(false);
+  const [draft, setDraft] = useState<NewSessionDraft>({
+    reference: "",
+    input: "{}",
+  });
+  async function start(reference: string, input: Params) {
+    if (!runner.enabled || starting.current) return false;
+    starting.current = true;
+    setLaunchError("");
+    try {
+      return await runner.start(reference, input);
+    } finally {
+      starting.current = false;
+    }
+  }
+  async function create() {
+    const workflow = resolveDefaultWorkflow(
+      runner.workflows,
+      defaultWorkflow.reference,
+    );
+    if (!workflow) {
+      setLaunchError(
+        `Default workflow “${defaultWorkflow.reference}” is unavailable. Choose another in Settings or use Advanced.`,
+      );
+      return false;
+    }
+    return start(
+      workflow.descriptor.reference,
+      workflowDefaults(workflow.descriptor.input_schema),
+    );
+  }
   return (
     <Workspace
+      onCreate={create}
       promptHistory={promptHistory}
       settings={
         <Settings
           api={runner.api}
           connected={runner.status === "Connected"}
           connection={runner.settings}
+          workflows={runner.workflows}
+          defaultWorkflow={defaultWorkflow.reference}
+          onDefaultWorkflowChange={defaultWorkflow.change}
         />
       }
       sessions={runner.sessions}
@@ -41,8 +86,11 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
       endpoint={runner.settings.endpoint}
       enabled={runner.enabled}
       busy={runner.busy}
-      error={runner.error}
-      dismiss={runner.dismiss}
+      error={launchError || runner.error}
+      dismiss={() => {
+        setLaunchError("");
+        runner.dismiss();
+      }}
       onStop={async () => {
         await runner.stop();
       }}
@@ -65,7 +113,7 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
           enabled={runner.enabled}
           value={draft}
           change={setDraft}
-          start={runner.start}
+          start={start}
         />
       }
     />

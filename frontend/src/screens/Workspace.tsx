@@ -50,6 +50,7 @@ function WorkspaceContent({
   workflows = [],
   selected,
   onSelect,
+  onCreate,
   history,
   execution,
   branching = false,
@@ -81,6 +82,7 @@ function WorkspaceContent({
   workflows?: models.Workflow[];
   selected: string;
   onSelect: (id: string) => void;
+  onCreate?: () => Promise<boolean>;
   history: models.HistoryItem[];
   execution?: models.Execution;
   branching?: boolean;
@@ -217,6 +219,34 @@ function WorkspaceContent({
     setInspector(null);
   }, [scope]);
 
+  const create = React.useCallback(() => {
+    if (!enabled) return;
+    if (onCreate) {
+      setInspector(null);
+      void onCreate();
+    } else open({ kind: "new" });
+  }, [enabled, onCreate, open]);
+
+  React.useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.key.toLowerCase() !== "n" ||
+        event.isComposing ||
+        event.keyCode === 229
+      )
+        return;
+      event.preventDefault();
+      if (event.repeat) return;
+      if (event.shiftKey) open({ kind: "new" });
+      else create();
+    };
+    document.addEventListener("keydown", keydown);
+    return () => document.removeEventListener("keydown", keydown);
+  }, [create, open]);
+
   async function send() {
     if (
       (!chat && !canSteer) ||
@@ -280,7 +310,9 @@ function WorkspaceContent({
         status={status}
         select={onSelect}
         collapse={() => setLeftOpen((value) => !value)}
-        create={() => open({ kind: "new" })}
+        create={create}
+        advanced={() => open({ kind: "new" })}
+        enabled={enabled}
         configure={() => open({ kind: "connection" })}
       />
       <section className="chat-workspace" aria-label="Conversation">
@@ -358,11 +390,17 @@ function WorkspaceContent({
             <div className="welcome-state" ref={feed.content}>
               <h2>What would you like to work on?</h2>
               <p>
-                Choose a workflow to start, or return to a conversation in the
-                sidebar.
+                Start with your default workflow, or return to a conversation in
+                the sidebar.
               </p>
-              <button onClick={() => open({ kind: "new" })}>
+              <button disabled={!enabled} onClick={create}>
                 New conversation
+              </button>
+              <button
+                className="quiet-button"
+                onClick={() => open({ kind: "new" })}
+              >
+                Advanced
               </button>
             </div>
           ) : (
@@ -472,7 +510,7 @@ function WorkspaceContent({
                   decisions: "Pending decisions",
                   steering: "Queued steering messages",
                   session: "Session details",
-                  new: "New conversation",
+                  new: "Advanced new conversation",
                   connection: "Connection",
                   settings: "Settings",
                 }[inspector.kind]

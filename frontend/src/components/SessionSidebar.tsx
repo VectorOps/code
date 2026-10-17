@@ -10,6 +10,8 @@ export function SessionSidebar({
   select,
   collapse,
   create,
+  advanced,
+  enabled = true,
   configure,
   collapsed = false,
 }: {
@@ -22,6 +24,8 @@ export function SessionSidebar({
   select: (id: string) => void;
   collapse: () => void;
   create: () => void;
+  advanced?: () => void;
+  enabled?: boolean;
   configure: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -66,13 +70,37 @@ export function SessionSidebar({
           )}
         </button>
       </div>
-      <button
-        onClick={create}
-        aria-label="New conversation"
-        title={collapsed ? "New conversation" : undefined}
-      >
-        {collapsed ? "+" : "New conversation"}
-      </button>
+      <div className="new-conversation-actions">
+        <button
+          onClick={create}
+          disabled={!enabled}
+          aria-label="New conversation"
+          aria-keyshortcuts="Meta+N Control+N"
+          title="New conversation (Cmd/Ctrl+N)"
+        >
+          {collapsed ? "+" : "New conversation"}
+        </button>
+        <button
+          onClick={advanced ?? create}
+          aria-label="Advanced new conversation"
+          aria-keyshortcuts="Meta+Shift+N Control+Shift+N"
+          title="Advanced: choose workflow and inputs (Cmd/Ctrl+Shift+N)"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            aria-hidden="true"
+          >
+            <path d="M4 7h16M4 17h16" />
+            <circle cx="9" cy="7" r="3" />
+            <circle cx="15" cy="17" r="3" />
+          </svg>
+        </button>
+      </div>
       {!collapsed && (
         <>
           <label className="search-label">
