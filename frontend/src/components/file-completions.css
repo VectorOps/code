@@ -1,0 +1,66 @@
+.prompt-input {
+  position: relative;
+  min-width: 0;
+}
+.file-completions {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 10px;
+  background: var(--color-white);
+  box-shadow: 0 8px 28px #00000018;
+}
+.file-completions-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-neutral-100);
+  color: var(--color-neutral-500);
+  font-size: 10px;
+}
+.file-completions [role="listbox"] {
+  max-height: min(280px, 35vh);
+  overflow-y: auto;
+  padding: 4px;
+}
+.file-completions [role="option"] {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-neutral-600);
+  text-align: left;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 400;
+}
+.file-completions [role="option"]:hover,
+.file-completions [role="option"][aria-selected="true"] {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-950);
+}
+.file-completions [role="option"] > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-completions svg {
+  flex-shrink: 0;
+  color: var(--color-neutral-400);
+}
+.file-completions mark {
+  background: transparent;
+  color: var(--color-neutral-950);
+  font-weight: 600;
+}

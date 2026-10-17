@@ -16,6 +16,7 @@ import { useConversationScroll } from "../hooks/useConversationScroll";
 import { useImageAttachments } from "../hooks/useImageAttachments";
 import * as chatInput from "../models/chat-input";
 import type { PromptHistoryApi } from "../communication/prompt-history";
+import type { FileSearchApi } from "../communication/file-search";
 import { defaultToolFormatters } from "../components/tools/defaults";
 import type { ToolFormatterFactory } from "../components/tools/factory";
 import { approvalFor, stepView, toolDescription } from "../models/steps";
@@ -74,6 +75,7 @@ function WorkspaceContent({
   stepRegistry = defaultStepRegistry,
   toolFormatters = defaultToolFormatters,
   promptHistory,
+  fileSearch,
 }: {
   toolFormatters?: ToolFormatterFactory;
   stepRegistry?: StepRegistry;
@@ -112,6 +114,7 @@ function WorkspaceContent({
   dismiss: () => void;
   hasOlder: boolean;
   promptHistory?: PromptHistoryApi;
+  fileSearch?: FileSearchApi;
 }) {
   const [leftOpen, setLeftOpen] = React.useState(true);
   const [inspector, setInspector] = React.useState<Inspector | null>(null);
@@ -444,6 +447,7 @@ function WorkspaceContent({
         <Composer
           selected={Boolean(selected)}
           promptHistory={promptHistory}
+          fileSearch={fileSearch}
           executionId={selected}
           scope={scope}
           session={current}

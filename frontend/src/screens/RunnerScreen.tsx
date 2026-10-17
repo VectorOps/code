@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { PromptHistoryApi } from "../communication/prompt-history";
+import { FileSearchApi } from "../communication/file-search";
 import type { ConnectionSettings } from "../models/runner";
 import { useRunner } from "../hooks/useRunner";
 import { ConnectionForm } from "../components/ConnectionForm";
@@ -24,6 +25,13 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
     [runner.api],
   );
   const [connection, setConnection] = useState(initial);
+  const fileSearch = useMemo(
+    () =>
+      runner.api && runner.status === "Connected"
+        ? new FileSearchApi(runner.api.connection)
+        : undefined,
+    [runner.api, runner.status],
+  );
   const defaultWorkflow = useDefaultWorkflow();
   const [launchError, setLaunchError] = useState("");
   const starting = useRef(false);
@@ -61,6 +69,7 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
     <Workspace
       onCreate={create}
       promptHistory={promptHistory}
+      fileSearch={fileSearch}
       settings={
         <Settings
           api={runner.api}

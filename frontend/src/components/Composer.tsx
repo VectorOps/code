@@ -5,6 +5,7 @@ import { ImageThumbnail } from "./ImageThumbnail";
 import { ComposerUsage } from "./ComposerUsage";
 import { PromptTextarea } from "./PromptTextarea";
 import type { PromptHistoryApi } from "../communication/prompt-history";
+import type { FileSearchApi } from "../communication/file-search";
 import { useFocusCoordinator } from "../focus/FocusProvider";
 
 type Activity = "send" | "stop" | "resume" | "review" | "idle";
@@ -70,6 +71,7 @@ export function Composer({
   resume,
   review,
   promptHistory,
+  fileSearch,
   executionId,
   scope,
 }: {
@@ -94,6 +96,7 @@ export function Composer({
   resume?: () => Promise<void>;
   review: () => void;
   promptHistory?: PromptHistoryApi;
+  fileSearch?: FileSearchApi;
   executionId?: string;
   scope?: string;
 }) {
@@ -231,6 +234,7 @@ export function Composer({
           value={value}
           change={change}
           historyApi={promptHistory}
+          fileSearch={fileSearch}
           executionId={executionId}
           scope={scope}
           submit={() => {
@@ -285,7 +289,7 @@ export function Composer({
             {operating
               ? `${progressLabels[operating]}…`
               : activity === "send" && ready
-                ? "Enter to send · Modifier+Enter for newline · Ctrl+R for history"
+                ? `Enter to send · Modifier+Enter for newline · Ctrl+R for history${fileSearch ? " · @ for files" : ""}`
                 : activity === "stop"
                   ? "Draft freely while the workflow runs."
                   : activity === "resume"

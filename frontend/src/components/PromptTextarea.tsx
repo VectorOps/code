@@ -1,8 +1,11 @@
 import * as React from "react";
 import { createPortal, flushSync } from "react-dom";
 import type { PromptHistoryApi } from "../communication/prompt-history";
+import type { FileSearchApi } from "../communication/file-search";
 import { usePromptRecall } from "../hooks/usePromptRecall";
+import { useFileCompletion } from "../hooks/useFileCompletion";
 import { PromptHistorySearch } from "./PromptHistorySearch";
+import { FileCompletions } from "./FileCompletions";
 import { useComposerTarget } from "../focus/FocusProvider";
 import { isHistoryShortcut } from "../focus/shortcuts";
 import * as chatInput from "../models/chat-input";
@@ -61,6 +64,7 @@ export function PromptTextarea({
   submit,
   selected,
   historyApi,
+  fileSearch,
   executionId = "",
   scope = "",
   attach,
@@ -71,6 +75,7 @@ export function PromptTextarea({
   submit: () => void;
   selected: boolean;
   historyApi?: PromptHistoryApi;
+  fileSearch?: FileSearchApi;
   executionId?: string;
   scope?: string;
   attach?: (files: File[]) => void;
@@ -84,6 +89,21 @@ export function PromptTextarea({
     element?.setSelectionRange(position, position);
   }
   const recall = usePromptRecall(historyApi, scope, value, restore);
+  const completionId = React.useId();
+  const files = useFileCompletion({
+    api: fileSearch,
+    scope,
+    value,
+    enabled: selected && !search,
+    replace: (text, caret) => {
+      recall.reset();
+      flushSync(() => change(text));
+      const element = inputRef.current;
+      element?.focus({ preventScroll: true });
+      element?.setSelectionRange(caret, caret);
+      if (element) files.track(element);
+    },
+  });
   function openHistory() {
     if (!selected || !historyApi) return false;
     recall.reset();
@@ -175,82 +195,113 @@ export function PromptTextarea({
 
   return (
     <>
-      <textarea
-        ref={inputRef}
-        id="message-draft"
-        rows={1}
-        aria-describedby="message-draft-help"
-        placeholder={
-          selected
-            ? "Write an instruction..."
-            : "Select a conversation to write a message"
-        }
-        disabled={!selected}
-        value={value}
-        onChange={(event) => {
-          recall.reset();
-          change(event.target.value);
-        }}
-        onPaste={(event) => {
-          if (event.defaultPrevented || !selected || !attach) return;
-          const { text, files } = chatInput.clipboardInput(event.clipboardData);
-          if (!files.length) return;
-          if (!text) event.preventDefault();
-          attach(files);
-        }}
-        onKeyDown={(event) => {
-          if (
-            event.nativeEvent.isComposing ||
-            event.nativeEvent.keyCode === 229
-          )
-            return;
-          if (isHistoryShortcut(event.nativeEvent) && historyApi) {
-            event.preventDefault();
-            openHistory();
-          } else if (event.ctrlKey && event.key.toLowerCase() === "j") {
-            event.preventDefault();
-            newline();
-          } else if (event.key === "Enter") {
-            event.preventDefault();
-            if (
-              event.shiftKey ||
-              event.altKey ||
-              event.ctrlKey ||
-              event.metaKey
-            )
-              newline();
-            else if (!event.repeat) {
-              submit();
-            }
-          } else if (
-            historyApi &&
-            !event.shiftKey &&
-            !event.ctrlKey &&
-            !event.metaKey &&
-            !event.altKey &&
-            event.currentTarget.selectionStart ===
-              event.currentTarget.selectionEnd
-          ) {
-            if (
-              event.key === "ArrowUp" &&
-              atBoundary(event.currentTarget, "start")
-            ) {
-              event.preventDefault();
-              void recall.older();
-            } else if (
-              event.key === "ArrowDown" &&
-              atBoundary(event.currentTarget, "end")
-            ) {
-              event.preventDefault();
-              recall.newer();
-            }
+      <div className="prompt-input">
+        {files.open && (
+          <FileCompletions
+            id={completionId}
+            results={files.results}
+            activePath={files.activePath}
+            choose={files.choose}
+            loading={files.loading}
+            snapshot={files.snapshot}
+            error={files.error}
+          />
+        )}
+        <textarea
+          ref={inputRef}
+          id="message-draft"
+          rows={1}
+          aria-describedby="message-draft-help"
+          role={files.open ? "combobox" : undefined}
+          aria-autocomplete={fileSearch ? "list" : undefined}
+          aria-expanded={files.open ? true : undefined}
+          aria-controls={files.open ? completionId : undefined}
+          aria-activedescendant={
+            files.open && files.activePath
+              ? `${completionId}-${files.results.findIndex((result) => result.path === files.activePath)}`
+              : undefined
           }
-        }}
-      />
+          placeholder={
+            selected
+              ? "Write an instruction..."
+              : "Select a conversation to write a message"
+          }
+          disabled={!selected}
+          value={value}
+          onChange={(event) => {
+            recall.reset();
+            files.track(event.currentTarget);
+            change(event.target.value);
+          }}
+          onSelect={(event) => files.track(event.currentTarget)}
+          onFocus={(event) => files.focus(event.currentTarget)}
+          onBlur={files.blur}
+          onPaste={(event) => {
+            if (event.defaultPrevented || !selected || !attach) return;
+            const { text, files } = chatInput.clipboardInput(
+              event.clipboardData,
+            );
+            if (!files.length) return;
+            if (!text) event.preventDefault();
+            attach(files);
+          }}
+          onKeyDown={(event) => {
+            if (
+              event.nativeEvent.isComposing ||
+              event.nativeEvent.keyCode === 229
+            )
+              return;
+            if (files.keyDown(event)) return;
+            if (isHistoryShortcut(event.nativeEvent) && historyApi) {
+              event.preventDefault();
+              openHistory();
+            } else if (event.ctrlKey && event.key.toLowerCase() === "j") {
+              event.preventDefault();
+              newline();
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              if (
+                event.shiftKey ||
+                event.altKey ||
+                event.ctrlKey ||
+                event.metaKey
+              )
+                newline();
+              else if (!event.repeat) {
+                submit();
+              }
+            } else if (
+              historyApi &&
+              !event.shiftKey &&
+              !event.ctrlKey &&
+              !event.metaKey &&
+              !event.altKey &&
+              event.currentTarget.selectionStart ===
+                event.currentTarget.selectionEnd
+            ) {
+              if (
+                event.key === "ArrowUp" &&
+                atBoundary(event.currentTarget, "start")
+              ) {
+                event.preventDefault();
+                void recall.older();
+              } else if (
+                event.key === "ArrowDown" &&
+                atBoundary(event.currentTarget, "end")
+              ) {
+                event.preventDefault();
+                recall.newer();
+              }
+            }
+          }}
+        />
+      </div>
       <span className="sr-only" id="message-draft-help">
         Enter sends. Shift, Alt, Ctrl, or Cmd+Enter adds a line. Up on the first
         line and Down on the last line recall global prompts. Ctrl+R searches
         prompt history.
+        {fileSearch &&
+          " Type @ to find workspace files. Use Up and Down to select, Tab or Enter to insert, and Escape to dismiss."}
       </span>
       {recall.error && <p role="alert">{recall.error}</p>}
       {search &&
