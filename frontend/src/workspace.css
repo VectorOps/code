@@ -68,6 +68,15 @@
     margin-left: auto;
     flex-shrink: 0;
   }
+  .session-pagination {
+    @apply shrink-0 text-xs text-neutral-500;
+  }
+  .session-pagination > div {
+    @apply flex justify-between gap-2;
+  }
+  .session-search-scope {
+    @apply m-0 text-xs;
+  }
   .sidebar-footer {
     @apply flex flex-col gap-2 border-t border-neutral-200 pt-3 text-xs text-neutral-500;
     overflow-wrap: anywhere;

@@ -33,13 +33,16 @@ export class RunnerApi {
   subscribe() {
     return this.connection.request("events.subscribe");
   }
-  sessions(active?: () => boolean) {
-    return this.pages<models.Session>(
-      "executions.summaries",
-      "executions",
-      {},
-      active,
-    );
+  sessions(after: string | null = null) {
+    return this.connection.request<models.SessionPage>("executions.summaries", {
+      after,
+      limit: 100,
+    });
+  }
+  session(execution_id: string) {
+    return this.connection.request<models.Session>("executions.summary", {
+      execution_id,
+    });
   }
   workflows(active?: () => boolean) {
     return this.pages<models.Workflow>(

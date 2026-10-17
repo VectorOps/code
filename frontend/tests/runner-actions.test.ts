@@ -9,6 +9,93 @@ import type { Session } from "../src/models/runner";
 vitest.afterEach(() => vitest.vi.restoreAllMocks());
 
 vitest.test(
+  "loads older sessions on demand and refreshes an older selection after reconnect",
+  async () => {
+    const first: Session = {
+      execution_id: "first",
+      reference: null,
+      name: "Recent",
+      status: "completed",
+      active: false,
+      pending_inputs: 0,
+    };
+    const older = { ...first, execution_id: "older", name: "Older" };
+    const refreshed = { ...older, name: "Refreshed older conversation" };
+    vitest.vi
+      .spyOn(RunnerConnection.prototype, "connect")
+      .mockImplementation(function (this: RunnerConnection) {
+        this.onStatus("Connected");
+        this.onReady();
+      });
+    vitest.vi.spyOn(RunnerApi.prototype, "subscribe").mockResolvedValue({});
+    const sessions = vitest.vi
+      .spyOn(RunnerApi.prototype, "sessions")
+      .mockResolvedValueOnce({ executions: [first], next_after: "first" })
+      .mockResolvedValueOnce({ executions: [older], next_after: null })
+      .mockResolvedValue({ executions: [first], next_after: "first" });
+    const summary = vitest.vi
+      .spyOn(RunnerApi.prototype, "session")
+      .mockResolvedValue(refreshed);
+    const workflows = vitest.vi
+      .spyOn(RunnerApi.prototype, "workflows")
+      .mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "inboxes").mockResolvedValue([]);
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "history")
+      .mockResolvedValue({ items: [], next_cursor: null });
+    vitest.vi.spyOn(RunnerApi.prototype, "execution").mockResolvedValue({
+      id: "older",
+      root_workflow_id: "root",
+      status: "completed",
+      checkpoint: { heads: {} },
+    });
+    const view = testing.renderHook(() =>
+      useRunner({ endpoint: "ws://localhost", token: "test" }),
+    );
+    await testing.waitFor(() =>
+      vitest.expect(view.result.current.sessions).toEqual([first]),
+    );
+    vitest.expect(sessions).toHaveBeenCalledTimes(1);
+    vitest.expect(workflows).toHaveBeenCalledTimes(1);
+    vitest.expect(view.result.current.hasMoreSessions).toBe(true);
+    await testing.act(async () => {
+      vitest.expect(await view.result.current.loadMoreSessions()).toBe(true);
+    });
+    vitest.expect(sessions).toHaveBeenLastCalledWith("first");
+    vitest.expect(view.result.current.hasMoreSessions).toBe(false);
+    testing.act(() => view.result.current.select("older"));
+    await testing.act(async () => {
+      const connection = view.result.current.api!.connection;
+      connection.onStatus("Disconnected");
+      connection.onStatus("Connected");
+      connection.onReady();
+    });
+    await testing.waitFor(() =>
+      vitest.expect(view.result.current.sessions).toContainEqual(refreshed),
+    );
+    vitest.expect(view.result.current.selected).toBe("older");
+    vitest.expect(sessions).toHaveBeenCalledTimes(3);
+    vitest.expect(summary).toHaveBeenCalledExactlyOnceWith("older");
+    testing.act(() =>
+      view.result.current.api!.connection.onEvent({
+        kind: "step.started",
+        execution_id: "background",
+      }),
+    );
+    const activity = view.result.current.activitySessions;
+    testing.act(() =>
+      view.result.current.api!.connection.onEvent({
+        kind: "step.started",
+        execution_id: "background",
+      }),
+    );
+    vitest.expect(view.result.current.activitySessions).toBe(activity);
+    view.unmount();
+  },
+);
+
+vitest.test(
   "applies summaries from pushes and reconciles on reconnect without idle polling",
   async () => {
     vitest.vi.useFakeTimers();
@@ -30,7 +117,13 @@ vitest.test(
       .mockResolvedValue({});
     const sessions = vitest.vi
       .spyOn(RunnerApi.prototype, "sessions")
-      .mockImplementation(async () => [session]);
+      .mockImplementation(async () => ({
+        executions: [session],
+        next_after: null,
+      }));
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "session")
+      .mockImplementation(async () => session);
     const workflows = vitest.vi
       .spyOn(RunnerApi.prototype, "workflows")
       .mockResolvedValue([]);
@@ -233,7 +326,7 @@ vitest.test(
     vitest.vi.spyOn(RunnerApi.prototype, "subscribe").mockResolvedValue({});
     vitest.vi
       .spyOn(RunnerApi.prototype, "sessions")
-      .mockResolvedValue([session]);
+      .mockResolvedValue({ executions: [session], next_after: null });
     vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
     vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
     vitest.vi.spyOn(RunnerApi.prototype, "inboxes").mockResolvedValue([]);
@@ -327,7 +420,10 @@ vitest.test(
     vitest.vi.spyOn(RunnerApi.prototype, "subscribe").mockResolvedValue({});
     vitest.vi
       .spyOn(RunnerApi.prototype, "sessions")
-      .mockImplementation(async () => [session]);
+      .mockImplementation(async () => ({
+        executions: [session],
+        next_after: null,
+      }));
     vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
     vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
     vitest.vi.spyOn(RunnerApi.prototype, "execution").mockResolvedValue({

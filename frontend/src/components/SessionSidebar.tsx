@@ -1,9 +1,76 @@
-import { useState } from "react";
+import * as React from "react";
 import * as models from "../models/runner";
 
-export function SessionSidebar({
+const pageSize = 100;
+const noActivity = new Set<string>();
+
+type SessionEntry = { session: models.Session; name: string; search: string };
+
+const SessionRow = React.memo(function SessionRow({
+  session,
+  name,
+  selected,
+  activity,
+  select,
+}: {
+  session: models.Session;
+  name: string;
+  selected: boolean;
+  activity: boolean;
+  select: (id: string) => void;
+}) {
+  return (
+    <button
+      aria-current={selected ? "page" : undefined}
+      onClick={() => select(session.execution_id)}
+    >
+      <span>{name}</span>
+      <span className="session-list-meta">
+        <small>
+          {session.pending_inputs
+            ? `${session.pending_inputs} pending`
+            : session.status}{" "}
+          / {session.execution_id.slice(0, 8)}
+        </small>
+        {activity && (
+          <span aria-label="New activity" title="New activity">
+            ●
+          </span>
+        )}
+      </span>
+    </button>
+  );
+});
+
+const SessionRows = React.memo(function SessionRows({
+  entries,
+  selected,
+  activity,
+  select,
+}: {
+  entries: SessionEntry[];
+  selected: string;
+  activity: Set<string>;
+  select: (id: string) => void;
+}) {
+  return entries.map(({ session, name }) => (
+    <SessionRow
+      key={session.execution_id}
+      session={session}
+      name={name}
+      selected={selected === session.execution_id}
+      activity={activity.has(session.execution_id)}
+      select={select}
+    />
+  ));
+});
+
+export const SessionSidebar = React.memo(function SessionSidebar({
   sessions,
-  activitySessions = new Set<string>(),
+  activitySessions = noActivity,
+  hasMore = false,
+  loading = false,
+  loadMore,
   workflows,
   selected,
   status,
@@ -17,6 +84,9 @@ export function SessionSidebar({
 }: {
   collapsed?: boolean;
   sessions: models.Session[];
+  hasMore?: boolean;
+  loading?: boolean;
+  loadMore?: () => Promise<boolean>;
   activitySessions?: Set<string>;
   workflows: models.Workflow[];
   selected: string;
@@ -28,16 +98,87 @@ export function SessionSidebar({
   enabled?: boolean;
   configure: () => void;
 }) {
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
-  const visible = sessions.filter(
-    (session) =>
-      `${models.workflowDisplayName(session.reference, workflows, session.name)} ${session.reference} ${session.execution_id}`
-        .toLowerCase()
-        .includes(search.toLowerCase()) &&
-      (filter !== "running" || session.active) &&
-      (filter !== "attention" || session.pending_inputs > 0),
+  const [search, setSearch] = React.useState("");
+  const [filter, setFilter] = React.useState("all");
+  const [position, setPosition] = React.useState<{
+    after: string | null;
+    first: string | null;
+  }>({ after: null, first: null });
+  const list = React.useRef<HTMLElement>(null);
+  const query = React.useRef("");
+  query.current = JSON.stringify([search, filter]);
+  const names = React.useMemo(
+    () =>
+      new Map(
+        collapsed
+          ? []
+          : workflows.map(({ descriptor }) => [
+              descriptor.reference,
+              descriptor.name,
+            ]),
+      ),
+    [workflows, collapsed],
   );
+  const entries = React.useMemo(
+    () =>
+      collapsed
+        ? []
+        : sessions.map((session) => {
+            const name = models.workflowDisplayName(
+              session.reference,
+              names,
+              session.name,
+            );
+            return {
+              session,
+              name,
+              search:
+                `${name} ${session.reference} ${session.execution_id}`.toLowerCase(),
+            };
+          }),
+    [sessions, names, collapsed],
+  );
+  const visible = React.useMemo(() => {
+    const normalized = search.toLowerCase();
+    return entries.filter(
+      ({ session, search: value }) =>
+        (filter !== "running" || session.active) &&
+        (filter !== "attention" || session.pending_inputs > 0) &&
+        value.includes(normalized),
+    );
+  }, [entries, search, filter]);
+  const start = React.useMemo(() => {
+    if (position.after === null) return 0;
+    const boundary = visible.findIndex(
+      ({ session }) => session.execution_id === position.after,
+    );
+    if (boundary >= 0 && boundary + 1 < visible.length) return boundary + 1;
+    return Math.max(
+      0,
+      visible.findIndex(
+        ({ session }) => session.execution_id === position.first,
+      ),
+    );
+  }, [visible, position]);
+  const rows = React.useMemo(
+    () => visible.slice(start, start + pageSize),
+    [visible, start],
+  );
+  const moreLoaded = start + pageSize < visible.length;
+  React.useEffect(() => {
+    if (list.current) list.current.scrollTop = 0;
+  }, [position, search, filter]);
+  async function older() {
+    const next = {
+      after: rows.at(-1)?.session.execution_id ?? null,
+      first: rows[0]?.session.execution_id ?? null,
+    };
+    if (moreLoaded) setPosition(next);
+    else {
+      const current = query.current;
+      if ((await loadMore?.()) && query.current === current) setPosition(next);
+    }
+  }
   return (
     <aside
       className={`session-sidebar${collapsed ? " session-sidebar-collapsed" : ""}`}
@@ -109,7 +250,10 @@ export function SessionSidebar({
               type="search"
               placeholder="Workflow or execution ID"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPosition({ after: null, first: null });
+              }}
             />
           </label>
           <div className="session-filters" aria-label="Filter sessions">
@@ -117,45 +261,83 @@ export function SessionSidebar({
               <button
                 key={value}
                 aria-pressed={filter === value}
-                onClick={() => setFilter(value)}
+                onClick={() => {
+                  setFilter(value);
+                  setPosition({ after: null, first: null });
+                }}
               >
                 {value === "attention" ? "Needs input" : value}
               </button>
             ))}
           </div>
-          <nav className="session-list" aria-label="Conversations">
-            {visible.map((session) => (
-              <button
-                key={session.execution_id}
-                aria-current={
-                  selected === session.execution_id ? "page" : undefined
-                }
-                onClick={() => select(session.execution_id)}
-              >
-                <span>
-                  {models.workflowDisplayName(
-                    session.reference,
-                    workflows,
-                    session.name,
-                  )}
-                </span>
-                <span className="session-list-meta">
-                  <small>
-                    {session.pending_inputs
-                      ? `${session.pending_inputs} pending`
-                      : session.status}{" "}
-                    / {session.execution_id.slice(0, 8)}
-                  </small>
-                  {activitySessions.has(session.execution_id) && (
-                    <span aria-label="New activity" title="New activity">
-                      ●
-                    </span>
-                  )}
-                </span>
-              </button>
-            ))}
+          <nav
+            ref={list}
+            className="session-list"
+            aria-label="Conversations"
+            aria-busy={loading}
+          >
+            <SessionRows
+              entries={rows}
+              selected={selected}
+              activity={activitySessions}
+              select={select}
+            />
           </nav>
-          {sessions.length === 0 && <p>No conversations yet.</p>}
+          {(visible.length > pageSize || hasMore || loading) && (
+            <div
+              className="session-pagination"
+              role="group"
+              aria-label="Conversation pages"
+            >
+              <span aria-live="polite">
+                {visible.length
+                  ? `${start + 1}–${start + rows.length} of ${visible.length} loaded`
+                  : "No loaded matches"}
+              </span>
+              <div>
+                <button
+                  className="quiet-button"
+                  disabled={start === 0}
+                  onClick={() =>
+                    setPosition({
+                      after:
+                        visible[Math.max(0, start - pageSize) - 1]?.session
+                          .execution_id ?? null,
+                      first: null,
+                    })
+                  }
+                  aria-label="Newer conversations"
+                >
+                  Newer
+                </button>
+                <button
+                  className="quiet-button"
+                  disabled={
+                    !moreLoaded &&
+                    (!hasMore || loading || !loadMore || status !== "Connected")
+                  }
+                  onClick={() => void older()}
+                  aria-label={
+                    moreLoaded
+                      ? "Older conversations"
+                      : "Load older conversations"
+                  }
+                >
+                  {moreLoaded ? "Older" : loading ? "Loading…" : "Load older"}
+                </button>
+              </div>
+            </div>
+          )}
+          {hasMore && (
+            <p className="session-search-scope">
+              Search and filters cover loaded conversations. Load older
+              conversations to include more.
+            </p>
+          )}
+          {!loading && sessions.length === 0 && <p>No conversations yet.</p>}
+          {!loading && sessions.length > 0 && visible.length === 0 && (
+            <p>No matching loaded conversations.</p>
+          )}
         </>
       )}
       <div className="sidebar-footer">
@@ -185,4 +367,4 @@ export function SessionSidebar({
       </div>
     </aside>
   );
-}
+});

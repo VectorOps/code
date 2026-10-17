@@ -26,6 +26,10 @@ export type Session = {
   pending_inputs: number;
   usage?: ExecutionUsage | null;
 };
+export type SessionPage = {
+  executions: Session[];
+  next_after: string | null;
+};
 export type Workflow = {
   descriptor: {
     reference: string;
@@ -37,13 +41,16 @@ export type Workflow = {
 
 export function workflowDisplayName(
   reference: string | null,
-  workflows: Workflow[],
+  workflows: Workflow[] | ReadonlyMap<string, string>,
   name?: string | null,
 ): string {
   return (
     name ||
-    workflows.find((workflow) => workflow.descriptor.reference === reference)
-      ?.descriptor.name ||
+    (Array.isArray(workflows)
+      ? workflows.find(
+          (workflow) => workflow.descriptor.reference === reference,
+        )?.descriptor.name
+      : workflows.get(reference ?? "")) ||
     reference ||
     "Workflow"
   );

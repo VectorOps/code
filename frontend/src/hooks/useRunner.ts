@@ -2,7 +2,7 @@ import * as React from "react";
 import { RunnerApi } from "../communication/runner-api";
 import { RunnerConnection } from "../communication/websocket";
 import { ExecutionSync } from "../communication/execution-sync";
-import { SessionSync } from "../communication/session-sync";
+import { SessionSync, type SessionList } from "../communication/session-sync";
 import { text } from "../models/json";
 import type { Json, Params } from "../models/json";
 import type * as models from "../models/runner";
@@ -14,9 +14,13 @@ export function useRunner(initial: models.ConnectionSettings) {
   const [status, setStatus] = React.useState("Disconnected");
   const [error, setError] = React.useState("");
   const [workflows, setWorkflows] = React.useState<models.Workflow[]>([]);
-  const [sessions, setSessions] = React.useState<models.Session[]>([]);
+  const [sessionList, setSessionList] = React.useState<SessionList>({
+    sessions: [],
+    hasMore: false,
+    loading: false,
+  });
   const sessionSync = React.useMemo(
-    () => (api ? new SessionSync(api, setSessions) : undefined),
+    () => (api ? new SessionSync(api, setSessionList) : undefined),
     [api],
   );
   const [activitySessions, setActivitySessions] = React.useState<Set<string>>(
@@ -81,9 +85,16 @@ export function useRunner(initial: models.ConnectionSettings) {
       const currentGeneration = ++generation;
       const current = () => alive && generation === currentGeneration;
       void (async () => {
-        if (!(await sessionSync.synchronize(current))) return;
+        if (!(await sessionSync.synchronize(current, selectedRef.current)))
+          return;
         ready.current = true;
         refreshSelected.current();
+        if (selectedRef.current)
+          void sessionSync
+            .refresh(selectedRef.current, current)
+            .catch((reason) => {
+              if (current()) setError(String(reason));
+            });
         const list = await api.workflows(current);
         if (current()) {
           setWorkflows(list);
@@ -98,7 +109,9 @@ export function useRunner(initial: models.ConnectionSettings) {
       const eventExecution = text(event.execution_id);
       if (eventExecution && eventExecution !== selectedRef.current) {
         setActivitySessions((previous) =>
-          new Set(previous).add(eventExecution),
+          previous.has(eventExecution)
+            ? previous
+            : new Set(previous).add(eventExecution),
         );
       }
       if (event.kind === "execution.updated") {
@@ -136,6 +149,7 @@ export function useRunner(initial: models.ConnectionSettings) {
   React.useEffect(() => {
     if (selected)
       setActivitySessions((previous) => {
+        if (!previous.has(selected)) return previous;
         const next = new Set(previous);
         next.delete(selected);
         return next;
@@ -185,6 +199,16 @@ export function useRunner(initial: models.ConnectionSettings) {
         refreshSelected.current = () => {};
     };
   }, [api, sessionSync, selected]);
+
+  const loadMoreSessions = React.useCallback(async () => {
+    if (!sessionSync || !ready.current) return false;
+    try {
+      return await sessionSync.loadMore(() => ready.current);
+    } catch (reason) {
+      if (ready.current) setError(String(reason));
+      return false;
+    }
+  }, [sessionSync]);
 
   const action = React.useCallback(
     async function action(
@@ -278,7 +302,10 @@ export function useRunner(initial: models.ConnectionSettings) {
     error,
     dismiss: () => setError(""),
     workflows,
-    sessions,
+    sessions: sessionList.sessions,
+    hasMoreSessions: sessionList.hasMore,
+    sessionsLoading: sessionList.loading,
+    loadMoreSessions,
     activitySessions,
     selected,
     select: setSelected,

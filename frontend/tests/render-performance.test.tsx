@@ -495,10 +495,21 @@ vitest.test("collapsed tool groups never render their calls", () => {
 });
 
 vitest.test(
-  "composer, navigation, inspector and enabled-state changes do not reparse markdown",
+  "composer, navigation, inspector and enabled-state changes reuse markdown and sidebar projections",
   () => {
+    const names = vitest.vi.fn();
     const props: React.ComponentProps<typeof Workspace> = {
-      sessions: [],
+      sessions: Array.from({ length: 1000 }, (_, index) => ({
+        execution_id: index === 0 ? "session" : `session-${index}`,
+        reference: null,
+        get name() {
+          if (index > 0) names();
+          return `Conversation ${index}`;
+        },
+        status: "completed",
+        active: false,
+        pending_inputs: 0,
+      })),
       selected: "session",
       onSelect: vitest.vi.fn(),
       history: [item(1, "llm.generate")],
@@ -519,9 +530,11 @@ vitest.test(
     const view = testing.render(<Workspace {...props} />);
     const renders = vitest.vi.mocked(ReactMarkdown).mock.calls.length;
     resolve.mockClear();
+    names.mockClear();
     testing.fireEvent.change(view.getByLabelText("Message draft"), {
       target: { value: "Typing" },
     });
+    vitest.expect(names).not.toHaveBeenCalled();
     testing.fireEvent.click(
       view.getByRole("button", { name: "Collapse navigation" }),
     );

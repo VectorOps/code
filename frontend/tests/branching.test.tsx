@@ -648,15 +648,18 @@ function mockRunner() {
       this.onReady();
     });
   vitest.vi.spyOn(RunnerApi.prototype, "subscribe").mockResolvedValue({});
-  vitest.vi.spyOn(RunnerApi.prototype, "sessions").mockResolvedValue([
-    {
-      execution_id: "existing",
-      reference: "chat:workflow",
-      status: "cancelled",
-      active: false,
-      pending_inputs: 0,
-    },
-  ]);
+  vitest.vi.spyOn(RunnerApi.prototype, "sessions").mockResolvedValue({
+    executions: [
+      {
+        execution_id: "existing",
+        reference: "chat:workflow",
+        status: "cancelled",
+        active: false,
+        pending_inputs: 0,
+      },
+    ],
+    next_after: null,
+  });
   vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
   vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
   vitest.vi.spyOn(RunnerApi.prototype, "inboxes").mockResolvedValue([]);

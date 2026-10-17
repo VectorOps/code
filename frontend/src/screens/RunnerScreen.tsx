@@ -83,6 +83,9 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
         />
       }
       sessions={runner.sessions}
+      hasMoreSessions={runner.hasMoreSessions}
+      sessionsLoading={runner.sessionsLoading}
+      onLoadMoreSessions={runner.loadMoreSessions}
       activitySessions={runner.activitySessions}
       workflows={runner.workflows}
       selected={runner.selected}

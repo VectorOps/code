@@ -35,6 +35,9 @@ type Inspector =
   | { kind: "settings" }
   | { kind: "connection" };
 
+const noActivity = new Set<string>();
+const noWorkflows: models.Workflow[] = [];
+
 export function Workspace(
   props: React.ComponentProps<typeof WorkspaceContent>,
 ) {
@@ -47,8 +50,11 @@ export function Workspace(
 
 function WorkspaceContent({
   sessions,
-  activitySessions = new Set<string>(),
-  workflows = [],
+  hasMoreSessions = false,
+  sessionsLoading = false,
+  onLoadMoreSessions,
+  activitySessions = noActivity,
+  workflows = noWorkflows,
   selected,
   onSelect,
   onCreate,
@@ -80,6 +86,9 @@ function WorkspaceContent({
   toolFormatters?: ToolFormatterFactory;
   stepRegistry?: StepRegistry;
   sessions: models.Session[];
+  hasMoreSessions?: boolean;
+  sessionsLoading?: boolean;
+  onLoadMoreSessions?: () => Promise<boolean>;
   activitySessions?: Set<string>;
   workflows?: models.Workflow[];
   selected: string;
@@ -124,7 +133,10 @@ function WorkspaceContent({
   const workspaceRef = useFocusRegion<HTMLElement>("workspace");
   useFocusBlocker(inspector !== null, true);
   const retry = React.useRef({ signature: "", key: "" });
-  const current = sessions.find((session) => session.execution_id === selected);
+  const current = React.useMemo(
+    () => sessions.find((session) => session.execution_id === selected),
+    [sessions, selected],
+  );
   const currentName = models.workflowDisplayName(
     current?.reference ?? null,
     workflows,
@@ -186,6 +198,15 @@ function WorkspaceContent({
   const open = React.useCallback((next: Inspector) => {
     setInspector(next);
   }, []);
+  const collapseSidebar = React.useCallback(
+    () => setLeftOpen((value) => !value),
+    [],
+  );
+  const advanced = React.useCallback(() => open({ kind: "new" }), [open]);
+  const configure = React.useCallback(
+    () => open({ kind: "connection" }),
+    [open],
+  );
   const inspect = React.useCallback(
     (id: string) => open({ kind: "activity", id }),
     [open],
@@ -305,18 +326,22 @@ function WorkspaceContent({
   return (
     <main className="workspace-shell" ref={workspaceRef}>
       <SessionSidebar
+        key={endpoint}
         collapsed={!leftOpen}
         sessions={sessions}
+        hasMore={hasMoreSessions}
+        loading={sessionsLoading}
+        loadMore={onLoadMoreSessions}
         activitySessions={activitySessions}
         workflows={workflows}
         selected={selected}
         status={status}
         select={onSelect}
-        collapse={() => setLeftOpen((value) => !value)}
+        collapse={collapseSidebar}
         create={create}
-        advanced={() => open({ kind: "new" })}
+        advanced={advanced}
         enabled={enabled}
-        configure={() => open({ kind: "connection" })}
+        configure={configure}
       />
       <section className="chat-workspace" aria-label="Conversation">
         <header className="session-header">

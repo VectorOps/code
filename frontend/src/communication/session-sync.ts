@@ -2,51 +2,128 @@ import type { RunnerApi } from "./runner-api";
 import { object, type Params } from "../models/json";
 import type { Session } from "../models/runner";
 
+export type SessionList = {
+  sessions: Session[];
+  hasMore: boolean;
+  loading: boolean;
+};
+
 export class SessionSync {
-  private sessions: Session[] = [];
+  private sessions = new Map<string, Session>();
+  private values: Session[] = [];
   private updates = new Map<string, Session>();
   private generation = 0;
+  private after: string | null = null;
+  private loading = false;
 
   constructor(
     private api: RunnerApi,
-    private publish: (sessions: Session[]) => void,
+    private publish: (view: SessionList) => void,
   ) {}
+
+  private emit(changed = false) {
+    if (changed) this.values = [...this.sessions.values()];
+    this.publish({
+      sessions: this.values,
+      hasMore: this.after !== null,
+      loading: this.loading,
+    });
+  }
 
   invalidate() {
     this.generation++;
     this.updates.clear();
+    this.after = null;
+    this.loading = false;
+    this.emit();
   }
 
-  async synchronize(active: () => boolean): Promise<boolean> {
+  async synchronize(active: () => boolean, selected = ""): Promise<boolean> {
     this.invalidate();
     const generation = this.generation;
     const current = () => active() && generation === this.generation;
-    await this.api.subscribe();
-    if (!current()) return false;
-    const list = await this.api.sessions(current);
-    if (!current()) return false;
-    const refreshed = new Map(
-      list.map((session) => [session.execution_id, session]),
-    );
-    for (const [id, summary] of this.updates) refreshed.set(id, summary);
-    const ordered = this.sessions
-      .filter((session) => refreshed.has(session.execution_id))
-      .map((session) => refreshed.get(session.execution_id)!);
-    const known = new Set(ordered.map((session) => session.execution_id));
-    this.sessions = [
-      ...ordered,
-      ...[...refreshed.values()].filter(
-        (session) => !known.has(session.execution_id),
-      ),
-    ];
-    this.publish(this.sessions);
-    return true;
+    this.loading = true;
+    this.emit();
+    try {
+      await this.api.subscribe();
+      if (!current()) return false;
+      const page = await this.api.sessions();
+      if (!current()) return false;
+      const refreshed = new Map(
+        page.executions.map((session) => [session.execution_id, session]),
+      );
+      const retained = this.sessions.get(selected);
+      if (retained && !refreshed.has(selected))
+        refreshed.set(selected, retained);
+      for (const [id, summary] of this.updates) refreshed.set(id, summary);
+      this.sessions = new Map([
+        ...[...this.sessions.keys()]
+          .filter((id) => refreshed.has(id))
+          .map((id) => [id, refreshed.get(id)!] as const),
+        ...refreshed,
+      ]);
+      this.after = page.next_after;
+      this.emit(true);
+      return true;
+    } catch (reason) {
+      if (!current()) return false;
+      throw reason;
+    } finally {
+      if (current()) {
+        this.loading = false;
+        this.updates.clear();
+        this.emit();
+      }
+    }
+  }
+
+  async loadMore(active: () => boolean): Promise<boolean> {
+    if (this.loading || this.after === null || !active()) return false;
+    const generation = this.generation;
+    const current = () => active() && generation === this.generation;
+    const after = this.after;
+    this.loading = true;
+    this.updates.clear();
+    this.emit();
+    try {
+      const page = await this.api.sessions(after);
+      if (!current()) return false;
+      for (const summary of page.executions) {
+        if (!this.updates.has(summary.execution_id))
+          this.sessions.set(summary.execution_id, summary);
+      }
+      this.after = page.next_after;
+      this.emit(true);
+      return true;
+    } catch (reason) {
+      if (!current()) return false;
+      throw reason;
+    } finally {
+      if (current()) {
+        this.loading = false;
+        this.updates.clear();
+        this.emit();
+      }
+    }
+  }
+
+  async refresh(executionId: string, active: () => boolean): Promise<void> {
+    const generation = this.generation;
+    const previous = this.get(executionId);
+    const summary = await this.api.session(executionId);
+    if (
+      !active() ||
+      generation !== this.generation ||
+      this.get(executionId) !== previous
+    )
+      return;
+    this.sessions.set(executionId, summary);
+    if (this.loading) this.updates.set(executionId, summary);
+    this.emit(true);
   }
 
   get(executionId: string): Session | undefined {
-    return this.sessions.find(
-      (session) => session.execution_id === executionId,
-    );
+    return this.sessions.get(executionId);
   }
 
   apply(event: Params): { summary: Session; previous?: Session } | undefined {
@@ -62,13 +139,14 @@ export class SessionSync {
       return;
     const summary = value as Session;
     const previous = this.get(summary.execution_id);
-    this.updates.set(summary.execution_id, summary);
-    this.sessions = previous
-      ? this.sessions.map((session) =>
-          session.execution_id === summary.execution_id ? summary : session,
-        )
-      : [summary, ...this.sessions];
-    this.publish(this.sessions);
+    if (this.loading) this.updates.set(summary.execution_id, summary);
+    if (previous) this.sessions.set(summary.execution_id, summary);
+    else
+      this.sessions = new Map([
+        [summary.execution_id, summary],
+        ...this.sessions,
+      ]);
+    this.emit(true);
     return { summary, previous };
   }
 }
