@@ -47,7 +47,7 @@ def launch(
                 endpoint = worker.start()
             fragment = urlencode({"endpoint": endpoint, "token": token})
             webview.create_window(
-                "Runner",
+                f"VectorOps - {workspace.resolve()}",
                 f"{assets.origin}/#{fragment}",
                 width=1200,
                 height=820,

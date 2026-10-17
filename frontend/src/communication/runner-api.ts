@@ -6,6 +6,13 @@ import type * as models from "../models/runner";
 export class RunnerApi {
   constructor(readonly connection: RunnerConnection) {}
 
+  async workspace(): Promise<string> {
+    const info = await this.connection.request<{ workspace: string }>(
+      "runner.info",
+    );
+    return info.workspace;
+  }
+
   private async pages<T>(
     method: string,
     field: string,

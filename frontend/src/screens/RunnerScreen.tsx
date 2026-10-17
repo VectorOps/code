@@ -3,6 +3,7 @@ import { PromptHistoryApi } from "../communication/prompt-history";
 import { FileSearchApi } from "../communication/file-search";
 import type { ConnectionSettings } from "../models/runner";
 import { useRunner } from "../hooks/useRunner";
+import { useWorkspaceTitle } from "../hooks/useWorkspaceTitle";
 import { ConnectionForm } from "../components/ConnectionForm";
 import {
   NewSessionForm,
@@ -19,6 +20,7 @@ import { workflowDefaults } from "../models/workflow-input";
 
 export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
   const runner = useRunner(initial);
+  useWorkspaceTitle(runner.api, runner.status === "Connected");
   const promptHistory = useMemo(
     () =>
       runner.api ? new PromptHistoryApi(runner.api.connection) : undefined,
