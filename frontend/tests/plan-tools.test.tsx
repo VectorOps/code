@@ -240,7 +240,9 @@ test("todo approval shows an unconfirmed preview and working approval actions", 
   assert.ok(view.getByRole("list", { name: "Requested updates" }));
   assert.ok(view.getByText("Allow"));
   assert.ok(view.getByRole("button", { name: "Deny" }));
-  fireEvent.click(view.getByRole("button", { name: "Approve once" }));
+  const approveOnce = view.getByRole("button", { name: "Approve once" });
+  assert.equal(approveOnce.textContent, "1");
+  fireEvent.click(approveOnce);
   await waitFor(() => assert.ok(view.getByText("Decision acknowledged")));
   assert.deepEqual(response, {
     decision: "approve",

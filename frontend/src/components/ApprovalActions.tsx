@@ -159,11 +159,10 @@ export function ApprovalActions({
 }
 
 function ApprovalIcon({ scope }: { scope: "call" | "workflow" | "workspace" }) {
+  if (scope === "call") return <span aria-hidden="true">1</span>;
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24">
-      {scope === "call" ? (
-        <path d="M5 12h12M13 7l5 5-5 5" />
-      ) : scope === "workflow" ? (
+      {scope === "workflow" ? (
         <path d="m5 12 4 4L19 6" />
       ) : (
         <>
