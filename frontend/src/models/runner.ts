@@ -91,6 +91,17 @@ export type BranchAccepted = {
   operation_id: string;
   status: "accepted";
 };
+export type ToolRuleScope = {
+  scope: "workspace" | "workflow";
+  execution_id?: string;
+  workflow_id?: string;
+};
+export type ToolRuleInput = {
+  tool_name: string;
+  decision: "approve" | "deny";
+  properties: Record<string, Json>;
+};
+export type ToolRule = ToolRuleInput & { id: string };
 export type ConnectionSettings = { endpoint: string; token: string };
 
 export function isChatRequest(request: InputRequest): boolean {

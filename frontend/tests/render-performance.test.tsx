@@ -447,11 +447,11 @@ vitest.test(
         active
       />,
     );
-    testing.fireEvent.click(view.getByRole("button", { name: "Approve once" }));
+    testing.fireEvent.click(view.getByRole("button", { name: "Approve" }));
     toggle(disclosure(view, "Agent: Child"), false);
     toggle(disclosure(view, "Agent: Child"), true);
     vitest
-      .expect(view.getByRole("button", { name: "Approve once" }))
+      .expect(view.getByRole("button", { name: "Approve" }))
       .toHaveProperty("disabled", true);
     await testing.act(async () => {
       finish(true);

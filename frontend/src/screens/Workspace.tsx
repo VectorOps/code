@@ -33,6 +33,7 @@ type Inspector =
   | { kind: "session" }
   | { kind: "new" }
   | { kind: "settings" }
+  | { kind: "workflow-permissions" }
   | { kind: "connection" };
 
 const noActivity = new Set<string>();
@@ -75,6 +76,7 @@ function WorkspaceContent({
   newSession,
   connection,
   settings,
+  workflowPermissions,
   error,
   dismiss,
   hasOlder,
@@ -119,6 +121,7 @@ function WorkspaceContent({
   newSession: React.ReactNode;
   connection: React.ReactNode;
   settings?: React.ReactNode;
+  workflowPermissions?: React.ReactNode;
   error: string;
   dismiss: () => void;
   hasOlder: boolean;
@@ -189,7 +192,7 @@ function WorkspaceContent({
       ? toolDescription(inspectedStep, approvalFor(inspectedStep, pending))
       : undefined;
   const inspectorWidth =
-    inspector?.kind === "settings"
+    inspector?.kind === "settings" || inspector?.kind === "workflow-permissions"
       ? 850
       : inspectedTool
         ? toolFormatters.resolve(inspectedTool).width
@@ -354,6 +357,13 @@ function WorkspaceContent({
             </span>
           </div>
           <div className="header-actions">
+            <button
+              className="quiet-button"
+              disabled={!selected || !workflowPermissions}
+              onClick={() => open({ kind: "workflow-permissions" })}
+            >
+              Permissions
+            </button>
             <button
               className="quiet-button"
               aria-label="Settings"
@@ -542,6 +552,7 @@ function WorkspaceContent({
                   new: "Advanced new conversation",
                   connection: "Connection",
                   settings: "Settings",
+                  "workflow-permissions": "Workflow permissions",
                 }[inspector.kind]
               }
             </h2>
@@ -560,6 +571,7 @@ function WorkspaceContent({
             {inspector.kind === "new" && newSession}
             {inspector.kind === "connection" && connection}
             {inspector.kind === "settings" && settings}
+            {inspector.kind === "workflow-permissions" && workflowPermissions}
             {inspector.kind === "session" && (
               <>
                 <h3>{currentName}</h3>

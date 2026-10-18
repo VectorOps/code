@@ -201,6 +201,25 @@
   max-height: 3em;
   overflow: auto;
 }
+.permission-fallback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.permission-fallback input {
+  width: auto;
+}
+.permission-rule {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.permission-rule pre {
+  margin: 5px 0;
+}
 .workflow-select {
   position: relative;
 }

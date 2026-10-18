@@ -239,10 +239,14 @@ test("todo approval shows an unconfirmed preview and working approval actions", 
   assert.ok(view.getByText("Requested updates (not confirmed)"));
   assert.ok(view.getByRole("list", { name: "Requested updates" }));
   assert.ok(view.getByText("Approval required"));
-  assert.ok(view.getByRole("button", { name: "Reject" }));
-  fireEvent.click(view.getByRole("button", { name: "Approve once" }));
+  assert.ok(view.getByRole("button", { name: "Deny" }));
+  fireEvent.click(view.getByRole("button", { name: "Approve" }));
   await waitFor(() => assert.ok(view.getByText("Decision acknowledged")));
-  assert.deepEqual(response, { approved: true, scope: "call" });
+  assert.deepEqual(response, {
+    decision: "approve",
+    scope: "call",
+    properties: {},
+  });
 });
 
 test.each(["completed", "streaming", "authorized"])(

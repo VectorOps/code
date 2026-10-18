@@ -204,12 +204,16 @@ function createToolDescription(step: StepView, approval?: InputRequest) {
   );
   const output = presentation.result ?? step.output;
   const result = object(output);
+  const authorizationRuleId = text(
+    object(step.item.step).authorization_rule_id,
+  );
   return {
     name: text(call.name) || text(result.tool_name) || "Tool call",
     arguments: call.arguments,
     processCommand: step.processCommand,
     failed: step.state === "failed" || result.is_error === true,
     output,
+    ...(authorizationRuleId ? { authorizationRuleId } : {}),
     state:
       step.input.gate_only === true &&
       presentation.result === undefined &&

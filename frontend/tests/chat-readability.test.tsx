@@ -200,7 +200,7 @@ test("approvals stay outside groups with prominent actions", () => {
   const html = feed([call(1), call(2, "pending")], pending);
   assert.match(html, /tool-step tool-approval/);
   assert.match(html, />Approve Run Command<\/span>/);
-  assert.match(html, /Approve once|Reject/);
+  assert.match(html, /Approve|Deny/);
   assert.match(html, /Needs your input \(1\)/);
   assert.doesNotMatch(html, /2 calls/);
 });

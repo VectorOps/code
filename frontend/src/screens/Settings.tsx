@@ -5,6 +5,7 @@ import type { ConnectionSettings, Workflow } from "../models/runner";
 import { Authentication } from "./Authentication";
 import { LlmProfiles } from "./LlmProfiles";
 import { WorkflowSettings } from "./WorkflowSettings";
+import { ToolPermissions } from "./ToolPermissions";
 import { resolveDefaultWorkflow } from "../hooks/useDefaultWorkflow";
 import "./settings.css";
 
@@ -13,6 +14,7 @@ const categories = {
   conversations: "Conversations",
   authentication: "LLM authentication",
   profiles: "LLM profiles",
+  permissions: "Tool permissions",
   workflows: "Workflows",
 };
 
@@ -104,6 +106,11 @@ export function Settings({
           <p role="status">Runner disconnected.</p>
         ) : category === "workflows" ? (
           <WorkflowSettings
+            key={`${connection.endpoint}/${connection.token}`}
+            api={api}
+          />
+        ) : category === "permissions" ? (
+          <ToolPermissions
             key={`${connection.endpoint}/${connection.token}`}
             api={api}
           />

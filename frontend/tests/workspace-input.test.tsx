@@ -90,6 +90,20 @@ vitest.test(
   },
 );
 
+vitest.test("workflow permissions open in a contextual slideout", async () => {
+  const view = render(
+    <Workspace
+      {...workspaceProps()}
+      workflowPermissions={<p>Root workflow rule editor</p>}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(view.getByRole("button", { name: "Permissions" }));
+  vitest.expect(view.getByText("Workflow permissions")).toBeTruthy();
+  vitest.expect(view.getByText("Root workflow rule editor")).toBeTruthy();
+  vitest.expect(view.getByLabelText("Work inspector")).toBeTruthy();
+});
+
 const request: InputRequest = {
   request_id: "message-request",
   execution_id: "session-a",
@@ -1128,7 +1142,7 @@ vitest.test(
     vitest.expect(document.activeElement?.id).toBe("decision-session-a-step-1");
     await user.keyboard("ignored");
     vitest.expect(draft).toHaveProperty("value", "");
-    const approve = view.getByRole("button", { name: "Approve once" });
+    const approve = view.getByRole("button", { name: "Approve" });
     act(() => approve.focus());
     await user.keyboard("ignored");
     vitest.expect(document.activeElement).toBe(approve);

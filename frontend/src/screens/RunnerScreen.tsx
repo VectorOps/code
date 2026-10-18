@@ -11,6 +11,7 @@ import {
 } from "../components/NewSessionForm";
 import { Workspace } from "./Workspace";
 import { Settings } from "./Settings";
+import { ToolPermissions } from "./ToolPermissions";
 import {
   resolveDefaultWorkflow,
   useDefaultWorkflow,
@@ -81,6 +82,19 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
           defaultWorkflow={defaultWorkflow.reference}
           onDefaultWorkflowChange={defaultWorkflow.change}
         />
+      }
+      workflowPermissions={
+        runner.api && runner.selected && runner.execution?.root_workflow_id ? (
+          <ToolPermissions
+            key={`${runner.selected}/${runner.execution.root_workflow_id}`}
+            api={runner.api}
+            scope={{
+              scope: "workflow",
+              execution_id: runner.selected,
+              workflow_id: runner.execution.root_workflow_id,
+            }}
+          />
+        ) : undefined
       }
       sessions={runner.sessions}
       hasMoreSessions={runner.hasMoreSessions}

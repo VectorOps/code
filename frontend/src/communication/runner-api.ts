@@ -1,6 +1,5 @@
 import { RunnerConnection } from "./websocket";
 import type { Json, Params } from "../models/json";
-import { object, text } from "../models/json";
 import type * as models from "../models/runner";
 
 export class RunnerApi {
@@ -154,57 +153,48 @@ export class RunnerApi {
       status: "starting";
     }>("executions.resume", { execution_id, idempotency_key });
   }
-  async respond(
+  rules(scope: models.ToolRuleScope, tool_name?: string) {
+    return this.connection
+      .request<{ rules: models.ToolRule[] }>("tools.rules.list", {
+        ...scope,
+        ...(tool_name ? { tool_name } : {}),
+      })
+      .then((result) => result.rules);
+  }
+  rule(scope: models.ToolRuleScope, rule_id: string) {
+    return this.connection.request<models.ToolRule>("tools.rules.get", {
+      ...scope,
+      rule_id,
+    });
+  }
+  createRule(scope: models.ToolRuleScope, rule: models.ToolRuleInput) {
+    return this.connection.request<models.ToolRule>("tools.rules.create", {
+      ...scope,
+      rule,
+    });
+  }
+  updateRule(
+    scope: models.ToolRuleScope,
+    rule_id: string,
+    rule: models.ToolRuleInput,
+  ) {
+    return this.connection.request<models.ToolRule>("tools.rules.update", {
+      ...scope,
+      rule_id,
+      rule,
+    });
+  }
+  deleteRule(scope: models.ToolRuleScope, rule_id: string) {
+    return this.connection.request<null>("tools.rules.delete", {
+      ...scope,
+      rule_id,
+    });
+  }
+  respond(
     request: models.InputRequest,
     response: Json,
     idempotency_key: string,
   ): Promise<unknown> {
-    if (object(response).scope === "workspace") {
-      if (
-        request.request_type !== "tool.approval.v1" ||
-        object(response).approved !== true
-      )
-        throw new Error("Workspace approval requires an approved tool request");
-      const current = await this.connection.request<models.InputRequest>(
-        "mailbox.get",
-        {
-          execution_id: request.execution_id,
-          request_id: request.request_id,
-        },
-      );
-      const payload = object(current.payload);
-      const name = text(object(payload.call).name);
-      if (!name || name !== text(object(payload.tool).name))
-        throw new Error("Cannot identify the tool for workspace approval");
-      const configuration = await this.connection.request<{
-        exists: boolean;
-        value: Json;
-      }>("configuration.get", {
-        name: "tools.approval.whitelist",
-      });
-      const existing = configuration.exists ? configuration.value : [];
-      if (
-        !Array.isArray(existing) ||
-        !existing.every((value) => typeof value === "string")
-      )
-        throw new Error("Workspace tool whitelist must be a list of names");
-      await this.connection.request("configuration.set", {
-        name: "tools.approval.whitelist",
-        value: [...new Set([...existing, name])],
-        permanent: true,
-      });
-      try {
-        return await this.respond(
-          request,
-          { approved: true, scope: "call" },
-          idempotency_key,
-        );
-      } catch (error) {
-        throw new Error(
-          `Workspace permission was saved, but the current call's approval was not confirmed. Retry or inspect pending decisions. ${String(error)}`,
-        );
-      }
-    }
     return this.connection.request("mailbox.respond", {
       execution_id: request.execution_id,
       request_id: request.request_id,
