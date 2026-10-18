@@ -12,6 +12,8 @@ import { ActivityDetails } from "../components/ActivityDetails";
 import { Decision } from "../components/Decision";
 import { SessionSidebar } from "../components/SessionSidebar";
 import { Composer } from "../components/Composer";
+import { StatusIcon } from "../components/StatusIcon";
+import { WorkflowStats } from "../components/WorkflowStats";
 import { useConversationScroll } from "../hooks/useConversationScroll";
 import { useImageAttachments } from "../hooks/useImageAttachments";
 import * as chatInput from "../models/chat-input";
@@ -30,7 +32,7 @@ type Inspector =
   | { kind: "activity"; id: string }
   | { kind: "decisions" }
   | { kind: "steering" }
-  | { kind: "session" }
+  | { kind: "stats" }
   | { kind: "new" }
   | { kind: "settings" }
   | { kind: "workflow-permissions" }
@@ -350,24 +352,69 @@ function WorkspaceContent({
         <header className="session-header">
           <div>
             <h1>{current ? currentName : "Your workspace"}</h1>
-            <span className="session-subtitle">
-              {current
-                ? `${current.status} / ${current.execution_id.slice(0, 8)}`
-                : "Start a conversation to begin"}
-            </span>
+            {!current && (
+              <span className="session-subtitle">
+                Start a conversation to begin
+              </span>
+            )}
           </div>
           <div className="header-actions">
+            {current && (
+              <div className="workflow-status">
+                <StatusIcon status={current.status} label="Workflow status" />
+                <button
+                  className="quiet-button icon-button"
+                  aria-label="Workflow stats"
+                  title="Workflow stats"
+                  onClick={() => open({ kind: "stats" })}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 11v6m0-10v1" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            {selected && decisions.length > 0 && (
+              <button
+                className="steering-queue-button"
+                onClick={() => open({ kind: "decisions" })}
+              >
+                pending {decisions.length}
+              </button>
+            )}
             <button
-              className="quiet-button"
+              className="quiet-button icon-button"
+              aria-label="Permissions"
+              title="Workflow permissions"
               disabled={!selected || !workflowPermissions}
               onClick={() => open({ kind: "workflow-permissions" })}
             >
-              Permissions
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                aria-hidden="true"
+              >
+                <path d="m12 3 8 3v5c0 5-8 10-8 10S4 16 4 11V6Z" />
+                <path d="m8 11 3 3 5-5" />
+              </svg>
             </button>
             <button
-              className="quiet-button"
+              className="quiet-button icon-button"
               aria-label="Settings"
-              title="Settings"
+              title="Workflow and app settings"
               onClick={() => open({ kind: "settings" })}
             >
               <svg
@@ -382,20 +429,6 @@ function WorkspaceContent({
                 <path d="m9 3-.5 2-2 1-2-.5-2 3 1.5 1.5v3L2.5 15l2 3 2-.5 2 1 .5 2h4l.5-2 2-1 2 .5 2-3-1.5-2v-3L20 8.5l-2-3-2 .5-2-1-.5-2Z" />
                 <circle cx="11.5" cy="12" r="3" />
               </svg>
-            </button>
-            <button
-              className="quiet-button"
-              disabled={!selected}
-              onClick={() => open({ kind: "decisions" })}
-            >
-              Pending ({decisions.length})
-            </button>
-            <button
-              className="quiet-button"
-              disabled={!selected}
-              onClick={() => open({ kind: "session" })}
-            >
-              Session
             </button>
           </div>
         </header>
@@ -548,9 +581,9 @@ function WorkspaceContent({
                   debug: "Debug steps",
                   decisions: "Pending decisions",
                   steering: "Queued steering messages",
-                  session: "Session details",
+                  stats: "Workflow stats",
                   new: "Advanced new conversation",
-                  connection: "Connection",
+                  connection: "Connection settings",
                   settings: "Settings",
                   "workflow-permissions": "Workflow permissions",
                 }[inspector.kind]
@@ -569,31 +602,16 @@ function WorkspaceContent({
               <DebugSteps history={history} actions={actions} />
             )}
             {inspector.kind === "new" && newSession}
-            {inspector.kind === "connection" && connection}
+            {inspector.kind === "connection" && (
+              <>
+                <p role="status">{status}</p>
+                {connection}
+              </>
+            )}
             {inspector.kind === "settings" && settings}
             {inspector.kind === "workflow-permissions" && workflowPermissions}
-            {inspector.kind === "session" && (
-              <>
-                <h3>{currentName}</h3>
-                <dl>
-                  <dt>Execution</dt>
-                  <dd>{selected}</dd>
-                  <dt>Backend</dt>
-                  <dd>{endpoint}</dd>
-                  <dt>Execution state</dt>
-                  <dd>{current?.status}</dd>
-                  <dt>Connection</dt>
-                  <dd>{status}</dd>
-                </dl>
-                <p>
-                  Child workflow activities are grouped beneath their spawn.
-                  Expand a workflow to inspect its activity and pending input.
-                </p>
-                <p>
-                  Stopping does not undo completed edits. Closing this panel
-                  does not stop execution.
-                </p>
-              </>
+            {inspector.kind === "stats" && current && (
+              <WorkflowStats session={current} />
             )}
             {inspector.kind === "activity" && (
               <ActivityDetails

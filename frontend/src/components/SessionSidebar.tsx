@@ -1,5 +1,6 @@
 import * as React from "react";
 import * as models from "../models/runner";
+import { StatusIcon } from "./StatusIcon";
 
 const pageSize = 100;
 const noActivity = new Set<string>();
@@ -341,28 +342,25 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         </>
       )}
       <div className="sidebar-footer">
-        {!collapsed && <span role="status">{status}</span>}
+        <StatusIcon status={status} label="Connection status" />
+        {!collapsed && <span className="connection-label">Backend</span>}
         <button
-          className="quiet-button"
+          className="quiet-button icon-button"
           onClick={configure}
           aria-label="Connection settings"
-          title={collapsed ? `Connection settings: ${status}` : undefined}
+          title={`Connection settings: ${status}`}
         >
-          {collapsed ? (
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              aria-hidden="true"
-            >
-              <path d="M8 3v5m8-5v5M6 8h12v3a6 6 0 0 1-12 0Zm6 9v4" />
-            </svg>
-          ) : (
-            "Connection settings"
-          )}
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            aria-hidden="true"
+          >
+            <path d="M8 3v5m8-5v5M6 8h12v3a6 6 0 0 1-12 0Zm6 9v4" />
+          </svg>
         </button>
       </div>
     </aside>

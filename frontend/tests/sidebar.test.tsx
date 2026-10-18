@@ -94,6 +94,30 @@ function sidebarProps(count: number) {
   };
 }
 
+test.each([false, true])(
+  "connection controls stay compact and accessible when collapsed=%s",
+  (collapsed) => {
+    const props = sidebarProps(0);
+    const view = testing.render(
+      <SessionSidebar {...props} collapsed={collapsed} />,
+    );
+    const configure = view.getByRole("button", { name: "Connection settings" });
+    vitest.expect(configure.textContent).toBe("");
+    vitest.expect(configure.querySelector("svg")).not.toBeNull();
+    vitest
+      .expect(view.getByRole("img", { name: "Connection status: Connected" }))
+      .toBeTruthy();
+    testing.fireEvent.click(configure);
+    vitest.expect(props.configure).toHaveBeenCalledOnce();
+    view.rerender(
+      <SessionSidebar {...props} status="Connecting" collapsed={collapsed} />,
+    );
+    vitest
+      .expect(view.getByRole("img", { name: "Connection status: Connecting" }))
+      .toBeTruthy();
+  },
+);
+
 test("large loaded lists render only one page and search all loaded sessions", () => {
   const props = sidebarProps(10000);
   const view = testing.render(<SessionSidebar {...props} />);

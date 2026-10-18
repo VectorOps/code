@@ -98,11 +98,110 @@ vitest.test("workflow permissions open in a contextual slideout", async () => {
     />,
   );
   const user = userEvent.setup();
-  await user.click(view.getByRole("button", { name: "Permissions" }));
+  const permissions = view.getByRole("button", { name: "Permissions" });
+  vitest.expect(permissions.textContent).toBe("");
+  vitest.expect(permissions.querySelector("svg")).not.toBeNull();
+  await user.click(permissions);
   vitest.expect(view.getByText("Workflow permissions")).toBeTruthy();
   vitest.expect(view.getByText("Root workflow rule editor")).toBeTruthy();
   vitest.expect(view.getByLabelText("Work inspector")).toBeTruthy();
 });
+
+vitest.test(
+  "pending pill only counts decisions and opens their inspector",
+  async () => {
+    const props = workspaceProps();
+    const view = render(<Workspace {...props} />);
+    const user = userEvent.setup();
+    vitest.expect(view.queryByRole("button", { name: /^pending/i })).toBeNull();
+    const question: InputRequest = {
+      ...request,
+      request_id: "question",
+      request_type: undefined,
+      channel: "agent.question",
+    };
+    view.rerender(<Workspace {...props} pending={[request, question]} />);
+    const pill = view.getByRole("button", { name: "pending 1" });
+    vitest.expect(pill.className).toBe("steering-queue-button");
+    await user.click(pill);
+    vitest
+      .expect(view.getByRole("heading", { name: "Pending decisions" }))
+      .toBeTruthy();
+    await user.keyboard("{Escape}");
+    view.rerender(<Workspace {...props} pending={[]} />);
+    vitest.expect(view.queryByRole("button", { name: /^pending/i })).toBeNull();
+  },
+);
+
+vitest.test(
+  "workflow status and info icon expose stats, not connection details",
+  async () => {
+    const props = workspaceProps();
+    const session = {
+      execution_id: props.selected,
+      reference: "chat:workflow",
+      status: "paused",
+      active: false,
+      pending_inputs: 1,
+      usage: {
+        totals: {
+          input_tokens: 1234,
+          output_tokens: 56,
+          cost_estimate_usd: "0.0123",
+          estimated_calls: 2,
+          incomplete_calls: 1,
+        },
+        root_context: null,
+      },
+    };
+    const view = render(<Workspace {...props} sessions={[session]} />);
+    const user = userEvent.setup();
+    vitest.expect(view.queryByRole("button", { name: "Session" })).toBeNull();
+    vitest
+      .expect(view.getByRole("img", { name: "Workflow status: paused" }))
+      .toBeTruthy();
+    const info = view.getByRole("button", { name: "Workflow stats" });
+    vitest.expect(info.textContent).toBe("");
+    await user.click(info);
+    vitest
+      .expect(view.getByRole("heading", { name: "Workflow stats" }))
+      .toBeTruthy();
+    vitest.expect(view.getByText("$0.0123")).toBeTruthy();
+    vitest.expect(view.getByText("56")).toBeTruthy();
+    vitest.expect(view.getByText(/cost may be understated/)).toBeTruthy();
+    vitest.expect(view.queryByText(props.endpoint)).toBeNull();
+    view.rerender(
+      <Workspace {...props} sessions={[{ ...session, usage: undefined }]} />,
+    );
+    vitest.expect(view.getByText("No usage reported yet.")).toBeTruthy();
+    await user.keyboard("{Escape}");
+    view.rerender(<Workspace {...props} selected="" />);
+    vitest
+      .expect(view.queryByRole("button", { name: "Workflow stats" }))
+      .toBeNull();
+  },
+);
+
+vitest.test(
+  "connection settings retain configuration and full connection status",
+  async () => {
+    const status = "Disconnected; reconnecting (check endpoint and token)";
+    const view = render(
+      <Workspace
+        {...workspaceProps()}
+        status={status}
+        connection={<input aria-label="WebSocket endpoint" />}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(view.getByRole("button", { name: "Connection settings" }));
+    vitest
+      .expect(view.getByRole("heading", { name: "Connection settings" }))
+      .toBeTruthy();
+    vitest.expect(view.getByRole("status").textContent).toBe(status);
+    vitest.expect(view.getByLabelText("WebSocket endpoint")).toBeTruthy();
+  },
+);
 
 const request: InputRequest = {
   request_id: "message-request",
