@@ -32,7 +32,7 @@ export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
               : factory.activity(tool)}
           </span>
         )}
-        <Summary tool={tool} />
+        {!approval && <Summary tool={tool} />}
         {(!formatter.hideIndicators ||
           approval ||
           tool.failed ||
@@ -59,6 +59,8 @@ export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
           request={approval}
           enabled={actions.enabled}
           reply={actions.reply}
+          tool={tool}
+          tools={factory}
         />
       )}
       {branch.editor}

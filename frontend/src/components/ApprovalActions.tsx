@@ -1,12 +1,17 @@
 import type { Json } from "../models/json";
-import { object, text } from "../models/json";
+import { object } from "../models/json";
 import type { InputRequest } from "../models/runner";
+import { approvalToolDescription } from "../models/steps";
+import { defaultToolFormatters } from "./tools/defaults";
+import type { ToolFormatterFactory, ToolView } from "./tools/factory";
 import { useRetainedState, useRetainedValue } from "./FeedState";
 
 export function ApprovalActions({
   request,
   enabled,
   reply,
+  tool = approvalToolDescription(request),
+  tools = defaultToolFormatters,
 }: {
   request: InputRequest;
   enabled: boolean;
@@ -15,6 +20,8 @@ export function ApprovalActions({
     response: Json,
     key: string,
   ) => Promise<boolean>;
+  tool?: ToolView;
+  tools?: ToolFormatterFactory;
 }) {
   const [submitted, setSubmitted] = useRetainedState(
     request,
@@ -35,17 +42,16 @@ export function ApprovalActions({
   const properties = object(object(request.payload).auth_context).properties;
   const metadata = object(properties);
   const propertyNames = Object.keys(metadata).sort();
-  const [scope, setScope] = useRetainedState<"call" | "workflow" | "workspace">(
-    request,
-    "approval-scope",
-    () => "call",
-  );
   const [selected, setSelected] = useRetainedState<string[]>(
     request,
     "approval-properties",
     () => propertyNames,
   );
-  async function decide(decision: "approve" | "deny") {
+  const Summary = tools.resolve(tool).summary;
+  async function decide(
+    decision: "approve" | "deny",
+    scope: "call" | "workflow" | "workspace" = "call",
+  ) {
     if (!enabled || submitted || inFlight.current) return;
     inFlight.current = true;
     setSending(true);
@@ -73,94 +79,98 @@ export function ApprovalActions({
   }
   return (
     <div className="approval-actions">
-      <p>{submitted ? "Decision acknowledged" : "Approval required"}</p>
-      <dl>
-        <dt>Tool</dt>
-        <dd>{text(object(object(request.payload).call).name) || "Unknown"}</dd>
-        <dt>Arguments</dt>
-        <dd>
-          <pre>
-            {JSON.stringify(
-              object(object(request.payload).call).arguments,
-              null,
-              2,
-            )}
-          </pre>
-        </dd>
-        <dt>Authorization metadata</dt>
-        <dd>
-          <pre>{JSON.stringify(metadata, null, 2)}</pre>
-        </dd>
-      </dl>
-      <fieldset disabled={!enabled || submitted || sending}>
-        <legend>Permission scope</legend>
-        {(["call", "workflow", "workspace"] as const).map((value) => (
-          <label key={value}>
-            <input
-              type="radio"
-              name={`approval-scope-${request.request_id}`}
-              value={value}
-              checked={scope === value}
-              onChange={() => setScope(value)}
-            />
-            {value === "call"
-              ? "This invocation only"
-              : value === "workflow"
-                ? "This workflow"
-                : "This workspace"}
-          </label>
-        ))}
-      </fieldset>
-      {scope !== "call" && (
-        <fieldset disabled={!enabled || submitted || sending}>
-          <legend>Metadata remembered by this rule</legend>
-          {propertyNames.length ? (
-            propertyNames.map((name) => (
-              <label key={name}>
-                <input
-                  type="checkbox"
-                  checked={selected.includes(name)}
-                  onChange={(event) =>
-                    setSelected(
-                      event.target.checked
-                        ? [...new Set([...selected, name])]
-                        : selected.filter((value) => value !== name),
-                    )
-                  }
-                />
-                {name}: {JSON.stringify(metadata[name])}
-              </label>
-            ))
-          ) : (
-            <p>No metadata is available for this call.</p>
-          )}
-          {!selected.length && (
-            <p role="status">
-              No metadata selected. This rule will affect every call to this
-              tool in the selected scope.
-            </p>
-          )}
-        </fieldset>
+      <div className="approval-summary">
+        <span>{tools.name(tool.name)}</span>
+        <Summary tool={tool} />
+      </div>
+      {propertyNames.length > 0 && (
+        <div className="approval-metadata">
+          {propertyNames.map((name) => (
+            <label key={name}>
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label={`Match ${name}`}
+                checked={selected.includes(name)}
+                disabled={!enabled || submitted || sending}
+                onChange={(event) =>
+                  setSelected(
+                    event.target.checked
+                      ? [...new Set([...selected, name])]
+                      : selected.filter((value) => value !== name),
+                  )
+                }
+              />
+              <span className="approval-switch" aria-hidden="true" />
+              <span className="approval-metadata-key">{name}</span>
+              <code className="approval-metadata-value">
+                {JSON.stringify(metadata[name])}
+              </code>
+            </label>
+          ))}
+        </div>
       )}
-      <div onClick={(event) => event.stopPropagation()}>
+      <div
+        className="approval-buttons"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <span>{submitted ? "Decision acknowledged" : "Allow"}</span>
         <button
+          className="approval-icon"
+          aria-label="Approve once"
+          title="Approve this invocation only"
           disabled={!enabled || submitted || sending}
-          onClick={() => void decide("approve")}
+          onClick={() => void decide("approve", "call")}
         >
-          Approve
+          <ApprovalIcon scope="call" />
         </button>
         <button
-          className="quiet-button"
+          className="approval-icon"
+          aria-label="Approve for workflow"
+          title="Approve matching calls in this workflow"
           disabled={!enabled || submitted || sending}
-          onClick={() => void decide("deny")}
+          onClick={() => void decide("approve", "workflow")}
         >
-          Deny
+          <ApprovalIcon scope="workflow" />
+        </button>
+        <button
+          className="approval-icon"
+          aria-label="Approve for workspace"
+          title="Approve matching calls in this workspace"
+          disabled={!enabled || submitted || sending}
+          onClick={() => void decide("approve", "workspace")}
+        >
+          <ApprovalIcon scope="workspace" />
+        </button>
+        <button
+          className="approval-icon approval-deny"
+          aria-label="Deny"
+          title="Deny this invocation"
+          disabled={!enabled || submitted || sending}
+          onClick={() => void decide("deny", "call")}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="m7 7 10 10M17 7 7 17" />
+          </svg>
         </button>
       </div>
-      <small>
-        Workflow and workspace decisions create reusable rules. An empty
-        metadata mask applies to every call to this tool.
-      </small>
     </div>
+  );
+}
+
+function ApprovalIcon({ scope }: { scope: "call" | "workflow" | "workspace" }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      {scope === "call" ? (
+        <path d="M5 12h12M13 7l5 5-5 5" />
+      ) : scope === "workflow" ? (
+        <path d="m5 12 4 4L19 6" />
+      ) : (
+        <>
+          <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+          <path d="m9 13 2 2 4-5" />
+        </>
+      )}
+    </svg>
   );
 }

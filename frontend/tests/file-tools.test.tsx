@@ -3,7 +3,7 @@ import { test } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
 import type { Json } from "../src/models/json";
 import type { ToolView } from "../src/components/tools/factory";
-import { FileDetails } from "../src/components/tools/views";
+import { DirectorySummary, FileDetails } from "../src/components/tools/views";
 
 function output(blocks: Json[]) {
   const tool: ToolView = {
@@ -22,6 +22,24 @@ function output(blocks: Json[]) {
   fireEvent(disclosure, new Event("toggle"));
   return view;
 }
+
+test("directory summaries show the effective default path", () => {
+  const tool: ToolView = {
+    name: "list_files",
+    arguments: {},
+    output: undefined,
+    state: "pending",
+    failed: false,
+    error: "",
+    processCommand: undefined,
+  };
+  const view = render(<DirectorySummary tool={tool} />);
+  assert.equal(view.getByText(".").textContent, ".");
+  view.rerender(
+    <DirectorySummary tool={{ ...tool, arguments: { path: "frontend" } }} />,
+  );
+  assert.equal(view.getByText("frontend").textContent, "frontend");
+});
 
 test("file output preserves trailing images and text without repeating structured content", () => {
   const view = output([

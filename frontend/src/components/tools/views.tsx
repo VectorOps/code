@@ -190,6 +190,13 @@ export const FileSummary = memo(function FileSummary({ tool }: ToolProps) {
   );
 });
 
+export const DirectorySummary = memo(function DirectorySummary({
+  tool,
+}: ToolProps) {
+  const args = object(tool.arguments);
+  return <Summary items={[text(args.path) || "."]} fallback="." />;
+});
+
 export function FileDetails({ tool }: ToolProps) {
   return (
     <RequestResult tool={tool}>

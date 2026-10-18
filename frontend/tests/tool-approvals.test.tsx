@@ -27,12 +27,15 @@ vitest.test(
     const view = testing.render(
       <ApprovalActions request={request} enabled reply={reply} />,
     );
-    vitest.expect(view.getByText("read_file")).toBeTruthy();
-    vitest.expect(view.getByText(/README.md/)).toBeTruthy();
-    vitest.expect(view.getByText(/repository/)).toBeTruthy();
-    await user.click(view.getByRole("radio", { name: "This workflow" }));
-    await user.click(view.getByRole("checkbox", { name: /access/ }));
-    await user.click(view.getByRole("button", { name: "Approve" }));
+    vitest.expect(view.getByText("Read File")).toBeTruthy();
+    vitest.expect(view.getByText("README.md")).toBeTruthy();
+    vitest
+      .expect(view.getByRole("switch", { name: "Match repository" }))
+      .toHaveProperty("checked", true);
+    await user.click(view.getByRole("switch", { name: "Match access" }));
+    await user.click(
+      view.getByRole("button", { name: "Approve for workflow" }),
+    );
     vitest.expect(reply).toHaveBeenCalledExactlyOnceWith(
       request,
       {
@@ -46,17 +49,47 @@ vitest.test(
 );
 
 vitest.test(
-  "approval explains that an empty mask affects every tool call",
+  "workspace approval can create a broad rule with every metadata key disabled",
   async () => {
+    const reply = vitest.vi.fn(async () => true);
     const user = userEvent.setup();
     const view = testing.render(
-      <ApprovalActions request={request} enabled reply={vitest.vi.fn()} />,
+      <ApprovalActions request={request} enabled reply={reply} />,
     );
-    await user.click(view.getByRole("radio", { name: "This workspace" }));
-    await user.click(view.getByRole("checkbox", { name: /access/ }));
-    await user.click(view.getByRole("checkbox", { name: /repository/ }));
+    await user.click(view.getByRole("switch", { name: "Match access" }));
+    await user.click(view.getByRole("switch", { name: "Match repository" }));
+    await user.click(
+      view.getByRole("button", { name: "Approve for workspace" }),
+    );
     vitest
-      .expect(view.getByRole("status").textContent)
-      .toContain("every call to this tool");
+      .expect(reply)
+      .toHaveBeenCalledWith(
+        request,
+        { decision: "approve", scope: "workspace", properties: {} },
+        vitest.expect.any(String),
+      );
+  },
+);
+
+vitest.test(
+  "approval omits metadata controls when no metadata is provided",
+  () => {
+    const withoutMetadata = {
+      ...request,
+      payload: {
+        call: { name: "read_file", arguments: { path: "README.md" } },
+        tool: { name: "read_file" },
+        tool_version: 1,
+      },
+    };
+    const view = testing.render(
+      <ApprovalActions
+        request={withoutMetadata}
+        enabled
+        reply={vitest.vi.fn()}
+      />,
+    );
+    vitest.expect(view.queryByRole("switch")).toBeNull();
+    vitest.expect(view.queryByText(/metadata/i)).toBeNull();
   },
 );

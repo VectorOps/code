@@ -1142,7 +1142,7 @@ vitest.test(
     vitest.expect(document.activeElement?.id).toBe("decision-session-a-step-1");
     await user.keyboard("ignored");
     vitest.expect(draft).toHaveProperty("value", "");
-    const approve = view.getByRole("button", { name: "Approve" });
+    const approve = view.getByRole("button", { name: "Approve once" });
     act(() => approve.focus());
     await user.keyboard("ignored");
     vitest.expect(document.activeElement).toBe(approve);

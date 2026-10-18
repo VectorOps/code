@@ -44,7 +44,7 @@ export const defaultToolFormatters = new ToolFormatterFactory(
       width: 760,
     },
     list_files: {
-      summary: views.FileSummary,
+      summary: views.DirectorySummary,
       activity: { completed: "Listed", running: "Listing" },
       details: views.FilesDetails,
       width: 600,

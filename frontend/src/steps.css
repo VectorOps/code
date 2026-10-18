@@ -77,19 +77,77 @@
     @apply m-0 border-0 pl-0;
   }
   .tool-approval {
-    @apply my-3 rounded-lg border border-neutral-300 bg-neutral-100 p-4 text-neutral-900;
+    @apply my-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-neutral-900;
   }
   .tool-approval .tool-activity-label {
     @apply font-semibold;
   }
   .approval-actions {
-    @apply mt-3 border-t border-neutral-200 pt-2;
+    @apply mt-1;
   }
-  .approval-actions > div {
-    @apply flex flex-wrap gap-2;
+  .approval-summary {
+    @apply flex min-w-0 items-center gap-2;
   }
-  .approval-actions small {
-    @apply mt-2 text-neutral-500;
+  .approval-summary > span {
+    @apply shrink-0 text-xs font-medium text-neutral-700;
+  }
+  .approval-metadata {
+    @apply mt-2 inline-grid max-w-full grid-cols-[auto_minmax(5rem,auto)_minmax(0,auto)] items-center gap-x-2 gap-y-1 border-t border-neutral-200 pt-2;
+  }
+  .approval-metadata label {
+    display: contents;
+  }
+  .approval-metadata-key {
+    @apply min-w-0 py-0.5 text-xs font-medium text-neutral-600;
+  }
+  .approval-metadata-value {
+    @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-800;
+  }
+  .approval-metadata input {
+    @apply sr-only;
+  }
+  .approval-switch {
+    @apply relative h-4 w-7 shrink-0 rounded-full bg-neutral-300 transition-colors;
+  }
+  .approval-switch::after {
+    @apply absolute left-0.5 top-0.5 size-3 rounded-full bg-white transition-transform;
+    content: "";
+  }
+  .approval-metadata input:checked + .approval-switch {
+    @apply bg-neutral-700;
+  }
+  .approval-metadata input:checked + .approval-switch::after {
+    transform: translateX(0.75rem);
+  }
+  .approval-metadata input:focus-visible + .approval-switch {
+    @apply outline outline-2 outline-offset-2 outline-neutral-500;
+  }
+  .approval-metadata label:has(input:disabled) > * {
+    @apply opacity-50;
+  }
+  .approval-buttons {
+    @apply mt-2 flex items-center gap-1;
+  }
+  .approval-buttons > span {
+    @apply mr-1 text-xs text-neutral-500;
+  }
+  .approval-icon {
+    @apply flex size-7 items-center justify-center rounded border border-neutral-200 bg-white p-1.5 text-neutral-600;
+  }
+  .approval-icon:hover:not(:disabled),
+  .approval-icon:focus-visible {
+    @apply border-neutral-400 bg-neutral-100 text-neutral-900;
+  }
+  .approval-icon svg {
+    @apply size-4;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .approval-deny {
+    @apply ml-auto;
   }
   .user-step .message-text,
   .markdown-content {

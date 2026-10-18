@@ -194,6 +194,19 @@ export function toolDescription(step: StepView, approval?: InputRequest) {
   return description;
 }
 
+export function approvalToolDescription(request: InputRequest) {
+  const call = object(object(request.payload).call);
+  return {
+    name: text(call.name) || "Tool call",
+    arguments: call.arguments,
+    processCommand: undefined,
+    failed: false,
+    output: undefined,
+    state: "pending",
+    error: "",
+  };
+}
+
 function createToolDescription(step: StepView, approval?: InputRequest) {
   const presentation = object(object(step.item.step).presentation);
   const call = object(
