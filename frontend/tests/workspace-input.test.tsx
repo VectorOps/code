@@ -134,7 +134,7 @@ vitest.test(
 );
 
 vitest.test(
-  "workflow status and info icon expose stats, not connection details",
+  "info icon exposes stats without a redundant workflow status indicator",
   async () => {
     const props = workspaceProps();
     const session = {
@@ -158,8 +158,8 @@ vitest.test(
     const user = userEvent.setup();
     vitest.expect(view.queryByRole("button", { name: "Session" })).toBeNull();
     vitest
-      .expect(view.getByRole("img", { name: "Workflow status: paused" }))
-      .toBeTruthy();
+      .expect(view.queryByRole("img", { name: /Workflow status:/ }))
+      .toBeNull();
     const info = view.getByRole("button", { name: "Workflow stats" });
     vitest.expect(info.textContent).toBe("");
     await user.click(info);

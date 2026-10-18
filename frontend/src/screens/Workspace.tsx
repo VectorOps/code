@@ -12,7 +12,6 @@ import { ActivityDetails } from "../components/ActivityDetails";
 import { Decision } from "../components/Decision";
 import { SessionSidebar } from "../components/SessionSidebar";
 import { Composer } from "../components/Composer";
-import { StatusIcon } from "../components/StatusIcon";
 import { WorkflowStats } from "../components/WorkflowStats";
 import { useConversationScroll } from "../hooks/useConversationScroll";
 import { useImageAttachments } from "../hooks/useImageAttachments";
@@ -360,28 +359,25 @@ function WorkspaceContent({
           </div>
           <div className="header-actions">
             {current && (
-              <div className="workflow-status">
-                <StatusIcon status={current.status} label="Workflow status" />
-                <button
-                  className="quiet-button icon-button"
-                  aria-label="Workflow stats"
-                  title="Workflow stats"
-                  onClick={() => open({ kind: "stats" })}
+              <button
+                className="quiet-button icon-button"
+                aria-label="Workflow stats"
+                title="Workflow stats"
+                onClick={() => open({ kind: "stats" })}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  aria-hidden="true"
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 11v6m0-10v1" />
-                  </svg>
-                </button>
-              </div>
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 11v6m0-10v1" />
+                </svg>
+              </button>
             )}
             {selected && decisions.length > 0 && (
               <button
