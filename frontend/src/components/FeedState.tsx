@@ -1,5 +1,6 @@
 import * as React from "react";
-import type { InputRequest } from "../models/runner";
+import type { HistoryItem, InputRequest } from "../models/runner";
+import { object, text } from "../models/json";
 
 type RequestScope = Pick<InputRequest, "execution_id" | "request_id">;
 type Retained = Map<string, Map<string, object>>;
@@ -19,12 +20,28 @@ const State = React.createContext<FeedState | null>(null);
 export function FeedStateProvider({
   children,
   requests,
+  history,
 }: {
   children: React.ReactNode;
   requests: RequestScope[];
+  history?: HistoryItem[];
 }) {
   const [expanded, setExpanded] = React.useState(new Map<string, boolean>());
   const retained = React.useRef<Retained>(new Map());
+  React.useEffect(() => {
+    if (!history) return;
+    const ids = new Set<string>();
+    for (const item of history) {
+      const step = object(item.step);
+      ids.add(text(step.workflow_id));
+      ids.add(text(object(step.operation).child_workflow_id));
+      ids.add(`tool-group-${text(step.id)}`);
+    }
+    setExpanded((previous) => {
+      const entries = [...previous].filter(([id]) => ids.has(id));
+      return entries.length === previous.size ? previous : new Map(entries);
+    });
+  }, [history]);
   React.useEffect(() => {
     const active = new Set(requests.map(requestKey));
     for (const key of retained.current.keys())

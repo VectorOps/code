@@ -7,8 +7,19 @@ import { text } from "../models/json";
 import type { Json, Params } from "../models/json";
 import type * as models from "../models/runner";
 import * as chatInput from "../models/chat-input";
+import {
+  emptyHistory,
+  type HistoryWindow,
+} from "../communication/history-sync";
+import {
+  defaultHistoryLimits,
+  type HistoryLimits,
+} from "../models/history-limits";
 
-export function useRunner(initial: models.ConnectionSettings) {
+export function useRunner(
+  initial: models.ConnectionSettings,
+  historyLimits: HistoryLimits = defaultHistoryLimits,
+) {
   const [settings, setSettings] = React.useState(initial);
   const [api, setApi] = React.useState<RunnerApi>();
   const [status, setStatus] = React.useState("Disconnected");
@@ -29,10 +40,7 @@ export function useRunner(initial: models.ConnectionSettings) {
   const [selected, setSelected] = React.useState("");
   const [execution, setExecution] = React.useState<models.Execution>();
   const [branching, setBranching] = React.useState<models.BranchAccepted>();
-  const [history, setHistory] = React.useState<models.HistoryPage>({
-    items: [],
-    next_cursor: null,
-  });
+  const [history, setHistory] = React.useState<HistoryWindow>(emptyHistory);
   const [pending, setPending] = React.useState<models.InputRequest[]>([]);
   const [steering, setSteering] = React.useState<{
     address: models.InboxAddress;
@@ -162,18 +170,23 @@ export function useRunner(initial: models.ConnectionSettings) {
   }, [selected]);
 
   React.useEffect(() => {
-    setHistory({ items: [], next_cursor: null });
+    setHistory(emptyHistory());
     setPending([]);
     setSteering(undefined);
     setExecution(undefined);
     if (!api || !sessionSync || !selected) return;
-    const sync = new ExecutionSync(api, selected, (view) => {
-      if (!active()) return;
-      setExecution(view.execution);
-      setHistory(view.history);
-      setPending(view.pending);
-      setSteering(view.steering);
-    });
+    const sync = new ExecutionSync(
+      api,
+      selected,
+      (view) => {
+        if (!active()) return;
+        setExecution(view.execution);
+        setHistory(view.history);
+        setPending(view.pending);
+        setSteering(view.steering);
+      },
+      historyLimits,
+    );
     executionSync.current = sync;
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -204,6 +217,29 @@ export function useRunner(initial: models.ConnectionSettings) {
         refreshSelected.current = () => {};
     };
   }, [api, sessionSync, selected]);
+
+  React.useEffect(() => {
+    executionSync.current?.configureHistory(historyLimits);
+  }, [historyLimits]);
+
+  const followHistory = React.useCallback((following: boolean) => {
+    executionSync.current?.followHistory(following);
+  }, []);
+
+  const trimHistory = React.useCallback((beforePosition: number) => {
+    executionSync.current?.trimHistory(beforePosition);
+  }, []);
+
+  const loadOlderHistory = React.useCallback(async () => {
+    const sync = executionSync.current;
+    if (!sync || !ready.current) return;
+    const current = () => ready.current && executionSync.current === sync;
+    try {
+      await sync.loadOlder(current);
+    } catch (reason) {
+      if (current()) setError(String(reason));
+    }
+  }, []);
 
   const loadMoreSessions = React.useCallback(async () => {
     if (!sessionSync || !ready.current) return false;
@@ -320,6 +356,9 @@ export function useRunner(initial: models.ConnectionSettings) {
     selected,
     select: setSelected,
     history,
+    followHistory,
+    trimHistory,
+    loadOlderHistory,
     execution,
     branching,
     pending,

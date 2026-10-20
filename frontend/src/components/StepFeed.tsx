@@ -76,6 +76,8 @@ function WorkflowBranch({
   return (
     <details
       className="workflow-branch feed-item"
+      data-history-position={node.spawn?.item.position}
+      data-history-key={`workflow:${node.id}`}
       open={expanded}
       onToggle={(event) => {
         setExpanded(event.currentTarget.open);
@@ -208,6 +210,8 @@ function WorkflowContents({
             <FocusRegion
               mode={request ? "protected" : undefined}
               className="feed-item"
+              data-history-position={entry.item.position}
+              data-history-key={entry.id}
               key={entry.id}
               id={request ? requestId(request) : undefined}
               tabIndex={request ? -1 : undefined}
@@ -247,7 +251,10 @@ type FeedProps = {
 
 export const StepFeed = React.memo(function StepFeed(props: FeedProps) {
   return (
-    <feedState.FeedStateProvider requests={props.actions.pending}>
+    <feedState.FeedStateProvider
+      requests={props.actions.pending}
+      history={props.history}
+    >
       <FeedContents {...props} />
     </feedState.FeedStateProvider>
   );

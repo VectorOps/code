@@ -19,27 +19,29 @@ export const DebugSteps = memo(function DebugSteps({
         Raw steps in the loaded history window, including those hidden from
         chat.
       </p>
-      {history.map((item) => {
-        const step = activity(item);
-        return (
-          <LazyDetails
-            key={step.id}
-            summary={`${item.position}. ${step.kind} / ${step.state}`}
-          >
-            {() => (
-              <>
-                {actions && (
-                  <StepBranchControls
-                    step={stepView(item, history)}
-                    actions={actions}
-                  />
-                )}
-                <pre>{JSON.stringify(item.step, null, 2)}</pre>
-              </>
-            )}
-          </LazyDetails>
-        );
-      })}
+      {[...history]
+        .sort((a, b) => b.position - a.position)
+        .map((item) => {
+          const step = activity(item);
+          return (
+            <LazyDetails
+              key={step.id}
+              summary={`${item.position}. ${step.kind} / ${step.state}`}
+            >
+              {() => (
+                <>
+                  {actions && (
+                    <StepBranchControls
+                      step={stepView(item, history)}
+                      actions={actions}
+                    />
+                  )}
+                  <pre>{JSON.stringify(item.step, null, 2)}</pre>
+                </>
+              )}
+            </LazyDetails>
+          );
+        })}
     </>
   );
 });

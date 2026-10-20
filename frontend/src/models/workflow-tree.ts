@@ -126,9 +126,18 @@ export function workflowInputs(
 export function workflowProjection(
   history: HistoryItem[],
   pending: InputRequest[],
+  rootWorkflowId?: string,
 ) {
-  const roots = workflowTree(history, pending);
-  const chat = roots.flatMap((root) => root.requests.filter(isChatRequest));
+  const tree = workflowTree(history, pending);
+  const roots = rootWorkflowId
+    ? tree.filter((root) => root.id === rootWorkflowId)
+    : tree;
+  const chat = rootWorkflowId
+    ? pending.filter(
+        (request) =>
+          request.workflow_id === rootWorkflowId && isChatRequest(request),
+      )
+    : roots.flatMap((root) => root.requests.filter(isChatRequest));
   const composerRequests = new Set(chat);
   for (const root of roots)
     root.requests = root.requests.filter(

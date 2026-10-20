@@ -1,8 +1,19 @@
 import * as React from "react";
 
 type Position = { top: number; following: boolean };
+type HistoryScroll = {
+  following?: (following: boolean) => void;
+  trim?: (beforePosition: number) => void;
+  protected?: boolean;
+};
 
-export function useConversationScroll(scope: string, revision: unknown) {
+export function useConversationScroll(
+  scope: string,
+  revision: unknown,
+  history: HistoryScroll = {},
+) {
+  const historyRef = React.useRef(history);
+  historyRef.current = history;
   const viewport = React.useRef<HTMLDivElement>(null);
   const content = React.useRef<HTMLDivElement>(null);
   const previousRevision = React.useRef(revision);
@@ -17,6 +28,7 @@ export function useConversationScroll(scope: string, revision: unknown) {
     const body = content.current;
     if (!element || !body) return;
     const area = element;
+    const contents = body;
     const position: Position = {
       top: 0,
       following: true,
@@ -27,6 +39,42 @@ export function useConversationScroll(scope: string, revision: unknown) {
     let restoreTop: number | undefined;
     let active = true;
     let touchY = 0;
+    let reportedFollowing: boolean | undefined;
+    let anchor:
+      { element: HTMLElement; key?: string; offset: number } | undefined;
+
+    function reportFollowing() {
+      const following = position.following && !historyRef.current.protected;
+      if (following !== reportedFollowing) {
+        reportedFollowing = following;
+        historyRef.current.following?.(following);
+      }
+      return following;
+    }
+
+    function rememberAnchor() {
+      const bounds = area.getBoundingClientRect();
+      let beforePosition = Infinity;
+      anchor = undefined;
+      for (const element of contents.querySelectorAll<HTMLElement>(
+        "[data-history-position]",
+      )) {
+        const rect = element.getBoundingClientRect();
+        const visible = rect.bottom > bounds.top && rect.top < bounds.bottom;
+        if (visible || element.contains(document.activeElement))
+          beforePosition = Math.min(
+            beforePosition,
+            Number(element.dataset.historyPosition),
+          );
+        if (visible)
+          anchor = {
+            element,
+            key: element.dataset.historyKey,
+            offset: rect.top - bounds.top,
+          };
+      }
+      if (reportFollowing()) historyRef.current.trim?.(beforePosition);
+    }
 
     function restoreIfClamped() {
       const maximum = Math.max(0, area.scrollHeight - area.clientHeight);
@@ -47,6 +95,20 @@ export function useConversationScroll(scope: string, revision: unknown) {
 
     function update(changed: boolean) {
       if (!active) return;
+      if (changed && !position.following && anchor && area.scrollTop === top) {
+        const target = anchor.element.isConnected
+          ? anchor.element
+          : [
+              ...contents.querySelectorAll<HTMLElement>("[data-history-key]"),
+            ].find((element) => element.dataset.historyKey === anchor?.key);
+        if (target) {
+          const offset =
+            target.getBoundingClientRect().top -
+            area.getBoundingClientRect().top;
+          area.scrollTop += offset - anchor.offset;
+          position.top = area.scrollTop;
+        }
+      }
       restoreIfClamped();
       const restoring = restoreTop !== undefined;
       if (restoreTop !== undefined) {
@@ -62,6 +124,7 @@ export function useConversationScroll(scope: string, revision: unknown) {
       }
       top = area.scrollTop;
       if (restoreTop === undefined) position.top = top;
+      rememberAnchor();
     }
 
     area.scrollTop = position.top;
@@ -78,6 +141,7 @@ export function useConversationScroll(scope: string, revision: unknown) {
       position.following = false;
       top = area.scrollTop;
       position.top = top;
+      rememberAnchor();
     }
     pause.current = pauseFollowing;
 
@@ -141,7 +205,7 @@ export function useConversationScroll(scope: string, revision: unknown) {
       update(false);
     }
 
-    const observer = new ResizeObserver(scrolled);
+    const observer = new ResizeObserver(() => update(false));
     observer.observe(area);
     observer.observe(body);
     area.addEventListener("scroll", scrolled);
@@ -170,6 +234,10 @@ export function useConversationScroll(scope: string, revision: unknown) {
     previousRevision.current = revision;
     synchronize.current(true);
   }, [scope, revision]);
+
+  React.useLayoutEffect(() => {
+    synchronize.current(false);
+  }, [history.protected]);
 
   return {
     viewport,

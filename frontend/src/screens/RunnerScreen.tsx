@@ -19,9 +19,11 @@ import {
 import type { Params } from "../models/json";
 import { workflowDefaults } from "../models/workflow-input";
 import { WorktreesProvider } from "../components/Worktrees";
+import { useHistoryLimits } from "../hooks/useHistoryLimits";
 
 export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
-  const runner = useRunner(initial);
+  const historySettings = useHistoryLimits();
+  const runner = useRunner(initial, historySettings.limits);
   useWorkspaceTitle(runner.api, runner.status === "Connected");
   const promptHistory = useMemo(
     () =>
@@ -87,6 +89,8 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
             workflows={runner.workflows}
             defaultWorkflow={defaultWorkflow.reference}
             onDefaultWorkflowChange={defaultWorkflow.change}
+            historyLimits={historySettings.limits}
+            onHistoryLimitsChange={historySettings.change}
           />
         }
         workflowPermissions={
@@ -115,7 +119,12 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
         history={runner.history.items}
         execution={runner.execution}
         branching={runner.branching?.execution_id === runner.selected}
-        hasOlder={Boolean(runner.history.next_cursor)}
+        hasOlder={runner.history.hasOlder}
+        historyLimits={historySettings.limits}
+        historyLoading={runner.history.loadingOlder}
+        onLoadOlder={runner.loadOlderHistory}
+        onHistoryFollowing={runner.followHistory}
+        onHistoryTrim={runner.trimHistory}
         pending={runner.pending}
         steering={runner.steering}
         status={runner.status}

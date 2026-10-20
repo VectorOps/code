@@ -106,6 +106,125 @@ function workspaceProps(): ComponentProps<typeof Workspace> {
 }
 
 vitest.test(
+  "older loading pauses trimming and preserves a visible entry when prepending",
+  async () => {
+    let origin = 10;
+    let area: HTMLElement;
+    vitest.vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const position = this.dataset.historyPosition;
+        const top = position
+          ? (Number(position) - origin) * 100 - (area?.scrollTop ?? 0)
+          : 0;
+        const height = position ? 100 : 400;
+        return {
+          top,
+          bottom: top + height,
+          height,
+          left: 0,
+          right: 400,
+          width: 400,
+          x: 0,
+          y: top,
+          toJSON() {},
+        };
+      });
+    const following = vitest.vi.fn();
+    const trim = vitest.vi.fn();
+    const load = vitest.vi.fn(async () => {});
+    const props = {
+      ...workspaceProps(),
+      hasOlder: true,
+      onLoadOlder: load,
+      onHistoryFollowing: following,
+      onHistoryTrim: trim,
+      history: Array.from({ length: 10 }, (_, index) => message(index + 10)),
+    };
+    const view = render(<Workspace {...props} />);
+    area = view.getByRole("region", { name: "Conversation history" });
+    scrollUp(area, 200);
+    trim.mockClear();
+    fireEvent.click(
+      view.getByRole("button", { name: "Load 200 earlier steps" }),
+    );
+    vitest.expect(following).toHaveBeenLastCalledWith(false);
+    vitest.expect(load).toHaveBeenCalledTimes(1);
+    origin = 6;
+    height = 1400;
+    view.rerender(
+      <Workspace
+        {...props}
+        history={[
+          ...Array.from({ length: 4 }, (_, index) => message(index + 6)),
+          ...props.history,
+        ]}
+      />,
+    );
+    vitest.expect(area.scrollTop).toBe(600);
+    vitest.expect(trim).not.toHaveBeenCalled();
+    fireEvent.click(view.getByRole("button", { name: /Jump to latest/ }));
+    vitest.expect(following).toHaveBeenLastCalledWith(true);
+    vitest.expect(trim).toHaveBeenLastCalledWith(16);
+  },
+);
+
+vitest.test(
+  "visible workflow subtrees protect their older spawn from trimming",
+  () => {
+    vitest.vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const branch = this.classList.contains("workflow-branch");
+        const top = branch ? -200 : 0;
+        return {
+          top,
+          bottom: 400,
+          height: 400 - top,
+          left: 0,
+          right: 400,
+          width: 400,
+          x: 0,
+          y: top,
+          toJSON() {},
+        };
+      });
+    const trim = vitest.vi.fn();
+    const view = render(
+      <Workspace
+        {...workspaceProps()}
+        onHistoryTrim={trim}
+        history={[
+          {
+            position: 1,
+            step: {
+              id: "spawn",
+              workflow_id: "root",
+              operation: { kind: "workflow.spawn", child_workflow_id: "child" },
+            },
+          },
+          {
+            position: 2,
+            step: {
+              id: "child",
+              workflow_id: "child",
+              operation: { kind: "llm.generate" },
+              outcome: { kind: "completed", result: "Child" },
+            },
+          },
+          message(100),
+        ]}
+      />,
+    );
+    vitest.expect(trim).toHaveBeenLastCalledWith(1);
+    fireEvent.click(view.getByRole("button", { name: "Debug steps" }));
+    trim.mockClear();
+    resize();
+    vitest.expect(trim).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
   "rapid appends and delayed content growth keep the feed following",
   () => {
     const props = workspaceProps();

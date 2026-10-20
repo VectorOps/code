@@ -9,6 +9,11 @@ import { ToolPermissions } from "./ToolPermissions";
 import { WorktreeManager } from "./WorktreeManager";
 import { resolveDefaultWorkflow } from "../hooks/useDefaultWorkflow";
 import "./settings.css";
+import { HistorySettings } from "../components/HistorySettings";
+import {
+  defaultHistoryLimits,
+  type HistoryLimits,
+} from "../models/history-limits";
 
 const categories = {
   appearance: "Visual layout",
@@ -29,6 +34,8 @@ export function Settings({
   workflows = [],
   defaultWorkflow = "agent",
   onDefaultWorkflowChange,
+  historyLimits = defaultHistoryLimits,
+  onHistoryLimitsChange,
 }: {
   api?: RunnerApi;
   connected: boolean;
@@ -36,6 +43,8 @@ export function Settings({
   workflows?: Workflow[];
   defaultWorkflow?: string;
   onDefaultWorkflowChange?: (reference: string) => void;
+  historyLimits?: HistoryLimits;
+  onHistoryLimitsChange?: (limits: HistoryLimits) => void;
 }) {
   const [category, setCategory] = React.useState<Category>("appearance");
   const title = categories[category];
@@ -102,6 +111,12 @@ export function Settings({
                   runner.
                 </p>
               )
+            )}
+            {onHistoryLimitsChange && (
+              <HistorySettings
+                limits={historyLimits}
+                change={onHistoryLimitsChange}
+              />
             )}
           </>
         ) : !connected || !api ? (

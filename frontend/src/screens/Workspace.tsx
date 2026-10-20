@@ -3,6 +3,10 @@ import type { Json } from "../models/json";
 import * as models from "../models/runner";
 import { workflowProjection } from "../models/workflow-tree";
 import { selectedHistory } from "../models/selected-history";
+import {
+  defaultHistoryLimits,
+  type HistoryLimits,
+} from "../models/history-limits";
 import { activity, messageText } from "../models/activity";
 import { StepFeed } from "../components/StepFeed";
 import { DebugSteps } from "../components/DebugSteps";
@@ -82,6 +86,11 @@ function WorkspaceContent({
   error,
   dismiss,
   hasOlder,
+  historyLimits = defaultHistoryLimits,
+  historyLoading = false,
+  onLoadOlder,
+  onHistoryFollowing,
+  onHistoryTrim,
   stepRegistry = defaultStepRegistry,
   toolFormatters = defaultToolFormatters,
   promptHistory,
@@ -127,6 +136,11 @@ function WorkspaceContent({
   error: string;
   dismiss: () => void;
   hasOlder: boolean;
+  historyLimits?: HistoryLimits;
+  historyLoading?: boolean;
+  onLoadOlder?: () => Promise<void>;
+  onHistoryFollowing?: (following: boolean) => void;
+  onHistoryTrim?: (beforePosition: number) => void;
   promptHistory?: PromptHistoryApi;
   fileSearch?: FileSearchApi;
 }) {
@@ -155,15 +169,29 @@ function WorkspaceContent({
     [history, execution],
   );
   const projection = React.useMemo(
-    () => workflowProjection(conversationHistory, pending),
-    [conversationHistory, pending],
+    () =>
+      workflowProjection(
+        conversationHistory,
+        pending,
+        execution?.root_workflow_id ?? current?.root_workflow_id ?? undefined,
+      ),
+    [
+      conversationHistory,
+      pending,
+      execution?.root_workflow_id,
+      current?.root_workflow_id,
+    ],
   );
   const { chat: chatRequests, decisions } = projection;
   const feedRevision = React.useMemo(
-    () => ({ history: conversationHistory, pending }),
-    [conversationHistory, pending],
+    () => ({ history, conversationHistory, pending, historyLimits, hasOlder }),
+    [history, conversationHistory, pending, historyLimits, hasOlder],
   );
-  const feed = useConversationScroll(scope, feedRevision);
+  const feed = useConversationScroll(scope, feedRevision, {
+    following: onHistoryFollowing,
+    trim: onHistoryTrim,
+    protected: inspector !== null,
+  });
   const chat = chatRequests.length === 1 ? chatRequests[0] : undefined;
   const canSteer = chatRequests.length === 0 && Boolean(steering);
   const messageError = chatInput.messageError(
@@ -452,7 +480,7 @@ function WorkspaceContent({
               className="quiet-button"
               onClick={() => open({ kind: "debug" })}
             >
-              Debug steps ({history.length})
+              Debug steps
             </button>
           )}
         </div>
@@ -482,10 +510,26 @@ function WorkspaceContent({
           ) : (
             <div className="feed-content" ref={feed.content}>
               {hasOlder && (
-                <p className="history-boundary">
-                  Showing the latest 100 persisted steps. Earlier history is not
-                  shown in this view.
-                </p>
+                <div className="history-boundary">
+                  <p>
+                    Earlier steps are not loaded. Some loaded steps may be
+                    hidden from chat.
+                  </p>
+                  {onLoadOlder && (
+                    <button
+                      className="quiet-button"
+                      disabled={historyLoading || status !== "Connected"}
+                      onClick={() => {
+                        feed.pauseFollowing();
+                        void onLoadOlder();
+                      }}
+                    >
+                      {historyLoading
+                        ? "Loading earlier steps…"
+                        : `Load ${historyLimits.older} earlier steps`}
+                    </button>
+                  )}
+                </div>
               )}
               <StepFeed
                 key={scope}

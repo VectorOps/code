@@ -29,7 +29,13 @@ export function ToolGroup({
   const latest = running.at(-1) ?? tools.at(-1);
   const Summary = latest ? factory.resolve(latest).summary : undefined;
   return (
-    <div className="tool-group feed-item">
+    <div
+      className="tool-group feed-item"
+      data-history-position={
+        (expanded ? group.steps[0] : group.steps.at(-1))?.item.position
+      }
+      data-history-key={`group:${group.steps.at(-1)?.id}`}
+    >
       <details
         open={expanded}
         onToggle={(event) => setExpanded(event.currentTarget.open)}
@@ -65,7 +71,12 @@ export function ToolGroup({
             {group.steps.map((step) => {
               const Component = registry.resolve(step);
               return Component ? (
-                <div className="tool-group-call" key={step.id}>
+                <div
+                  className="tool-group-call"
+                  key={step.id}
+                  data-history-position={step.item.position}
+                  data-history-key={step.id}
+                >
                   <Component
                     step={step}
                     actions={actions}

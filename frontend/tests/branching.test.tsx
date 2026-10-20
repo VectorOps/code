@@ -3,6 +3,7 @@ import * as vitest from "vitest";
 import type { Json, Params } from "../src/models/json";
 import type * as models from "../src/models/runner";
 import { selectedHistory } from "../src/models/selected-history";
+import { workflowProjection } from "../src/models/workflow-tree";
 import * as steps from "../src/models/steps";
 import { RunnerApi } from "../src/communication/runner-api";
 import { RunnerConnection } from "../src/communication/websocket";
@@ -79,6 +80,24 @@ function toggle(element: HTMLDetailsElement) {
     testing.fireEvent(element, new Event("toggle"));
   });
 }
+
+vitest.test(
+  "debug steps show newest first without reordering shared history",
+  () => {
+    const history = [2, 1, 3].map((position) =>
+      item(`step-${position}`, null, "root", undefined, null, position),
+    );
+    const view = testing.render(<DebugSteps history={history} />);
+    vitest
+      .expect(
+        [...view.container.querySelectorAll("summary")].map(
+          (summary) => summary.textContent?.split(".")[0],
+        ),
+      )
+      .toEqual(["3", "2", "1"]);
+    vitest.expect(history.map((entry) => entry.position)).toEqual([2, 1, 3]);
+  },
+);
 
 vitest.test(
   "branch RPC sends both actions and keeps the existing execution",
@@ -252,6 +271,92 @@ vitest.test(
         }),
       )
       .toEqual([]);
+  },
+);
+
+vitest.test(
+  "partial history hides child activity until its selected spawn is loaded",
+  () => {
+    const spawn = item(
+      "spawn",
+      null,
+      "root",
+      { kind: "workflow.spawn", child_workflow_id: "child" },
+      null,
+      1,
+    );
+    const child = item(
+      "child-answer",
+      null,
+      "child",
+      undefined,
+      "Child answer",
+      2,
+    );
+    const latest = item(
+      "latest",
+      "spawn",
+      "root",
+      undefined,
+      "Latest answer",
+      3,
+    );
+    const record = {
+      ...execution,
+      checkpoint: { heads: { root: "latest", child: "child-answer" } },
+    };
+    const partial = selectedHistory([child, latest], record);
+    vitest.expect(partial).toEqual([latest]);
+    const callbacks = actions();
+    const view = testing.render(
+      <StepFeed
+        history={partial}
+        registry={defaultStepRegistry}
+        actions={callbacks}
+        active
+      />,
+    );
+    vitest.expect(view.queryByText(/Agent:/)).toBeNull();
+    const loaded = selectedHistory([spawn, child, latest], record);
+    view.rerender(
+      <StepFeed
+        history={loaded}
+        registry={defaultStepRegistry}
+        actions={callbacks}
+        active
+      />,
+    );
+    toggle(view.getByText(/Agent:/).closest("details")!);
+    vitest.expect(view.getByText("Child answer")).toBeTruthy();
+    view.rerender(
+      <StepFeed
+        history={partial}
+        registry={defaultStepRegistry}
+        actions={callbacks}
+        active
+      />,
+    );
+    vitest.expect(view.queryByText("Child answer")).toBeNull();
+  },
+);
+
+vitest.test(
+  "orphan child input remains a decision, never a main composer request",
+  () => {
+    const root: models.InputRequest = {
+      execution_id: "existing",
+      request_id: "root-input",
+      workflow_id: "root",
+      request_type: "chat.message.v1",
+      channel: "user.message",
+      payload: null,
+      response_type: "text",
+    };
+    const child = { ...root, request_id: "child-input", workflow_id: "child" };
+    const projection = workflowProjection([], [root, child], "root");
+    vitest.expect(projection.chat).toEqual([root]);
+    vitest.expect(projection.decisions).toEqual([child]);
+    vitest.expect(projection.roots.map((node) => node.id)).toEqual(["root"]);
   },
 );
 
@@ -881,9 +986,7 @@ vitest.test(
     vitest
       .expect(view.queryByRole("button", { name: "Restart this step" }))
       .toBeNull();
-    testing.fireEvent.click(
-      view.getByRole("button", { name: "Debug steps (3)" }),
-    );
+    testing.fireEvent.click(view.getByRole("button", { name: "Debug steps" }));
     const details = view
       .getByText("2. llm.generate / completed")
       .closest("details")!;

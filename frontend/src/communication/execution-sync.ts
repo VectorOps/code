@@ -1,11 +1,15 @@
-import { HistorySync } from "./history-sync";
+import { HistorySync, emptyHistory, type HistoryWindow } from "./history-sync";
+import {
+  defaultHistoryLimits,
+  type HistoryLimits,
+} from "../models/history-limits";
 import type { RunnerApi } from "./runner-api";
 import { object, text, type Params } from "../models/json";
 import type * as models from "../models/runner";
 
 export type ExecutionView = {
   execution?: models.Execution;
-  history: models.HistoryPage;
+  history: HistoryWindow;
   pending: models.InputRequest[];
   steering?: {
     address: models.InboxAddress;
@@ -19,7 +23,7 @@ type Inbox = models.InboxStatus & { messages: models.InboxMessage[] };
 export class ExecutionSync {
   private history: HistorySync;
   private state: ExecutionView = {
-    history: { items: [], next_cursor: null },
+    history: emptyHistory(),
     pending: [],
   };
   private inboxes = new Map<string, Inbox>();
@@ -31,14 +35,49 @@ export class ExecutionSync {
     private api: RunnerApi,
     private executionId: string,
     private publish: (view: ExecutionView) => void,
+    limits = defaultHistoryLimits,
   ) {
-    this.history = new HistorySync(api, executionId);
+    this.history = new HistorySync(api, executionId, limits);
   }
 
   invalidate() {
     this.generation++;
     this.loading = true;
     this.buffered = [];
+    this.history.invalidate();
+  }
+
+  configureHistory(limits: HistoryLimits) {
+    this.history.configure(limits);
+  }
+
+  followHistory(following: boolean) {
+    this.history.follow(following);
+  }
+
+  trimHistory(beforePosition: number) {
+    if (this.loading || this.state.pending.length) return;
+    this.publishHistory(this.history.trim(beforePosition));
+  }
+
+  async loadOlder(active: () => boolean) {
+    if (this.loading) return;
+    const generation = this.generation;
+    const current = () => active() && generation === this.generation;
+    const loading = this.history.loadOlder(current);
+    this.publishHistory(this.history.snapshot);
+    try {
+      await loading;
+    } finally {
+      if (current()) this.publishHistory(this.history.snapshot);
+    }
+  }
+
+  private publishHistory(history: HistoryWindow) {
+    if (history !== this.state.history) {
+      this.state = { ...this.state, history };
+      this.emit();
+    }
   }
 
   async synchronize(active: () => boolean) {
@@ -79,10 +118,7 @@ export class ExecutionSync {
     if (event.execution_id !== this.executionId) return;
     const history = this.history.apply(event);
     if (history) {
-      if (history !== this.state.history) {
-        this.state = { ...this.state, history };
-        this.emit();
-      }
+      this.publishHistory(history);
     } else if (this.update(event)) {
       if (this.loading) this.buffered.push(event);
       this.emit();

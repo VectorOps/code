@@ -47,7 +47,7 @@ function setup() {
     messages: vi.spyOn(api, "inboxMessages").mockResolvedValue([]),
   };
   let view: ExecutionView = {
-    history: { items: [], next_cursor: null },
+    history: { items: [], hasOlder: false, loadingOlder: false },
     pending: [],
   };
   const sync = new ExecutionSync(api, "execution", (value) => (view = value));
@@ -201,6 +201,11 @@ test("pushes during bootstrap win over older execution, input, history and inbox
     workflow_id: "root",
     operation: { kind: "llm.generate" },
   };
+  apply({
+    kind: "step.created",
+    position: 1,
+    step: { ...step, revision: 1, outcome: { kind: "pending" } },
+  });
   apply({
     kind: "step.updated",
     position: 1,
