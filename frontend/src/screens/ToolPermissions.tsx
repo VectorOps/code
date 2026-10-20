@@ -2,7 +2,15 @@ import * as React from "react";
 import { ConfigurationApi } from "../communication/configuration-api";
 import type { RunnerApi } from "../communication/runner-api";
 import { SettingsIcon } from "../components/SettingsIcon";
+import type { Json } from "../models/json";
 import type { ToolRule, ToolRuleInput, ToolRuleScope } from "../models/runner";
+
+type PropertyDraft = {
+  id: string;
+  key: string;
+  value: string;
+  enabled: boolean;
+};
 
 function message(reason: unknown) {
   return reason instanceof Error ? reason.message : "Request failed.";
@@ -23,7 +31,7 @@ export function ToolPermissions({
   const [selected, setSelected] = React.useState("");
   const [toolName, setToolName] = React.useState("");
   const [decision, setDecision] = React.useState<"approve" | "deny">("approve");
-  const [properties, setProperties] = React.useState("{}");
+  const [properties, setProperties] = React.useState<PropertyDraft[]>([]);
   const [editorOpen, setEditorOpen] = React.useState(false);
   const [approveAll, setApproveAll] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -57,13 +65,23 @@ export function ToolPermissions({
   }, [api, configuration, JSON.stringify(scope)]);
 
   function input(): ToolRuleInput {
-    const parsed: unknown = JSON.parse(properties);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
-      throw new Error("Properties must be a JSON object.");
+    const mask: Record<string, Json> = {};
+    for (const property of properties) {
+      if (!property.enabled) continue;
+      const key = property.key.trim();
+      if (!key) throw new Error("Property names cannot be empty.");
+      if (Object.hasOwn(mask, key))
+        throw new Error(`Property name '${key}' is duplicated.`);
+      try {
+        mask[key] = JSON.parse(property.value) as Json;
+      } catch {
+        throw new Error(`Property '${key}' must have a valid JSON value.`);
+      }
+    }
     return {
       tool_name: toolName.trim(),
       decision,
-      properties: parsed as ToolRuleInput["properties"],
+      properties: mask,
     };
   }
 
@@ -92,7 +110,14 @@ export function ToolPermissions({
       setSelected(rule.id);
       setToolName(rule.tool_name);
       setDecision(rule.decision);
-      setProperties(JSON.stringify(rule.properties, null, 2));
+      setProperties(
+        Object.entries(rule.properties).map(([key, value]) => ({
+          id: crypto.randomUUID(),
+          key,
+          value: JSON.stringify(value),
+          enabled: true,
+        })),
+      );
       setEditorOpen(true);
     } catch (reason) {
       setError(message(reason));
@@ -105,11 +130,11 @@ export function ToolPermissions({
     setSelected("");
     setToolName("");
     setDecision("approve");
-    setProperties("{}");
+    setProperties([]);
   }
 
   return (
-    <>
+    <div className="tool-permissions settings-content">
       <p>
         {scope.scope === "workspace"
           ? "Workspace rules apply across workflows and runner restarts."
@@ -172,12 +197,12 @@ export function ToolPermissions({
         {!rules.length && <p>No authorization rules in this scope.</p>}
         {rules.map((rule) => (
           <article className="permission-rule" key={rule.id}>
-            <div>
-              <strong>{rule.tool_name}</strong> - {rule.decision}
-              <pre>{JSON.stringify(rule.properties, null, 2)}</pre>
-              {!Object.keys(rule.properties).length && (
-                <small>All calls to this tool</small>
-              )}
+            <div className="permission-rule-content">
+              <div className="permission-rule-heading">
+                <strong>{rule.tool_name}</strong>
+                <span>{rule.decision}</span>
+              </div>
+              <PropertyMaskPreview value={rule.properties} />
             </div>
             <div className="settings-actions">
               <button onClick={() => void edit(rule.id)}>Edit</button>
@@ -245,16 +270,13 @@ export function ToolPermissions({
               <option value="deny">Deny</option>
             </select>
           </label>
-          <label>
-            Property mask (JSON object)
-            <textarea
-              rows={5}
-              value={properties}
-              onChange={(event) => setProperties(event.target.value)}
-            />
-          </label>
+          <PropertyMaskEditor value={properties} change={setProperties} />
           <p>
-            <small>An empty object affects every call to this tool.</small>
+            <small>
+              Values use JSON syntax, such as "internal", true, or 3. Only
+              enabled properties are matched. None enabled means every call to
+              this tool.
+            </small>
           </p>
           <div className="settings-actions">
             <button disabled={busy || !toolName.trim()}>Save rule</button>
@@ -272,6 +294,103 @@ export function ToolPermissions({
           </div>
         </form>
       </details>
-    </>
+    </div>
+  );
+}
+
+function PropertyMaskPreview({ value }: { value: Record<string, Json> }) {
+  const properties = Object.entries(value);
+  if (!properties.length) return <small>All calls to this tool</small>;
+  return (
+    <dl className="permission-property-preview">
+      {properties.map(([key, property]) => (
+        <React.Fragment key={key}>
+          <dt>
+            <span className="permission-preview-match" aria-hidden="true">
+              <span className="approval-switch" />
+            </span>
+            <span>{key}</span>
+          </dt>
+          <dd>
+            <code>{JSON.stringify(property)}</code>
+          </dd>
+        </React.Fragment>
+      ))}
+    </dl>
+  );
+}
+
+function PropertyMaskEditor({
+  value,
+  change,
+}: {
+  value: PropertyDraft[];
+  change: React.Dispatch<React.SetStateAction<PropertyDraft[]>>;
+}) {
+  return (
+    <fieldset className="permission-properties">
+      <legend>Property mask</legend>
+      <div className="permission-mask-grid">
+        {value.map((property, index) => (
+          <div className="permission-property" key={property.id}>
+            <label className="permission-match">
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label={`Match property ${index + 1}`}
+                checked={property.enabled}
+                onChange={(event) =>
+                  change((current) =>
+                    current.map((item) =>
+                      item.id === property.id
+                        ? { ...item, enabled: event.target.checked }
+                        : item,
+                    ),
+                  )
+                }
+              />
+              <span className="approval-switch" aria-hidden="true" />
+            </label>
+            <input
+              aria-label={`Property ${index + 1} name`}
+              value={property.key}
+              onChange={(event) =>
+                change((current) =>
+                  current.map((item) =>
+                    item.id === property.id
+                      ? { ...item, key: event.target.value }
+                      : item,
+                  ),
+                )
+              }
+            />
+            <input
+              aria-label={`Property ${index + 1} value`}
+              value={property.value}
+              onChange={(event) =>
+                change((current) =>
+                  current.map((item) =>
+                    item.id === property.id
+                      ? { ...item, value: event.target.value }
+                      : item,
+                  ),
+                )
+              }
+            />
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() =>
+          change((current) => [
+            ...current,
+            { id: crypto.randomUUID(), key: "", value: '""', enabled: true },
+          ])
+        }
+      >
+        Add property
+      </button>
+    </fieldset>
   );
 }

@@ -8,6 +8,12 @@
   min-width: 0;
   container-type: inline-size;
 }
+.tool-permissions {
+  font-size: 13px;
+}
+.settings-content.tool-permissions form {
+  background: transparent;
+}
 .settings-content h3 {
   margin: 0 0 16px;
   letter-spacing: -0.02em;
@@ -21,7 +27,7 @@
   line-height: 18px;
 }
 .settings-content button:hover:not(:disabled) {
-  background: var(--color-neutral-100);
+  background: transparent;
   color: var(--color-neutral-950);
 }
 .settings-content .settings-icon-button {
@@ -210,15 +216,111 @@
   width: auto;
 }
 .permission-rule {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  justify-content: space-between;
   gap: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--color-neutral-200);
 }
-.permission-rule pre {
-  margin: 5px 0;
+.permission-rule-content {
+  min-width: 0;
+}
+.permission-rule-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.permission-rule-heading span {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-500);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.permission-property-preview {
+  display: grid;
+  grid-template-columns: auto minmax(0, 8rem) minmax(0, 16rem);
+  gap: 4px 8px;
+  max-width: 520px;
+  margin: 8px 0 0;
+  font-size: 11px;
+}
+.permission-property-preview dt {
+  display: contents;
+  color: var(--color-neutral-500);
+}
+.permission-preview-match {
+  display: inline-flex;
+  align-items: center;
+}
+.permission-preview-match .approval-switch {
+  background: var(--color-neutral-700);
+}
+.permission-preview-match .approval-switch::after {
+  transform: translateX(0.75rem);
+}
+.permission-property-preview dd {
+  min-width: 0;
+  margin: 0;
+}
+.permission-property-preview code {
+  display: block;
+  overflow: hidden;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-800);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-content .permission-properties {
+  margin-top: 14px;
+}
+.permission-mask-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 8rem) minmax(0, 16rem);
+  align-items: center;
+  gap: 4px 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px 0;
+}
+.permission-property {
+  display: contents;
+}
+.permission-property > input {
+  min-width: 0;
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  font-family: monospace;
+}
+.settings-content .permission-property > input {
+  border-color: transparent;
+  padding: 3px 5px;
+}
+.permission-match {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+}
+.permission-match input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.permission-match input:checked + .approval-switch {
+  background: var(--color-neutral-700);
+}
+.permission-match input:checked + .approval-switch::after {
+  transform: translateX(0.75rem);
+}
+.permission-match input:focus-visible + .approval-switch {
+  outline: 2px solid var(--color-neutral-500);
+  outline-offset: 2px;
 }
 .workflow-select {
   position: relative;
