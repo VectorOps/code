@@ -18,6 +18,7 @@ import {
 } from "../hooks/useDefaultWorkflow";
 import type { Params } from "../models/json";
 import { workflowDefaults } from "../models/workflow-input";
+import { WorktreesProvider } from "../components/Worktrees";
 
 export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
   const runner = useRunner(initial);
@@ -42,12 +43,14 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
     reference: "",
     input: "{}",
   });
-  async function start(reference: string, input: Params) {
+  async function start(reference: string, input: Params, worktreeId?: string) {
     if (!runner.enabled || starting.current) return false;
     starting.current = true;
     setLaunchError("");
     try {
-      return await runner.start(reference, input);
+      return worktreeId
+        ? await runner.start(reference, input, worktreeId)
+        : await runner.start(reference, input);
     } finally {
       starting.current = false;
     }
@@ -69,81 +72,87 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
     );
   }
   return (
-    <Workspace
-      onCreate={create}
-      promptHistory={promptHistory}
-      fileSearch={fileSearch}
-      settings={
-        <Settings
-          api={runner.api}
-          connected={runner.status === "Connected"}
-          connection={runner.settings}
-          workflows={runner.workflows}
-          defaultWorkflow={defaultWorkflow.reference}
-          onDefaultWorkflowChange={defaultWorkflow.change}
-        />
-      }
-      workflowPermissions={
-        runner.api && runner.selected && runner.execution?.root_workflow_id ? (
-          <ToolPermissions
-            key={`${runner.selected}/${runner.execution.root_workflow_id}`}
+    <WorktreesProvider
+      runner={runner.status === "Connected" ? runner.api : undefined}
+    >
+      <Workspace
+        onCreate={create}
+        promptHistory={promptHistory}
+        fileSearch={fileSearch}
+        settings={
+          <Settings
             api={runner.api}
-            scope={{
-              scope: "workflow",
-              execution_id: runner.selected,
-              workflow_id: runner.execution.root_workflow_id,
-            }}
+            connected={runner.status === "Connected"}
+            connection={runner.settings}
+            workflows={runner.workflows}
+            defaultWorkflow={defaultWorkflow.reference}
+            onDefaultWorkflowChange={defaultWorkflow.change}
           />
-        ) : undefined
-      }
-      sessions={runner.sessions}
-      hasMoreSessions={runner.hasMoreSessions}
-      sessionsLoading={runner.sessionsLoading}
-      onLoadMoreSessions={runner.loadMoreSessions}
-      activitySessions={runner.activitySessions}
-      workflows={runner.workflows}
-      selected={runner.selected}
-      onSelect={runner.select}
-      history={runner.history.items}
-      execution={runner.execution}
-      branching={runner.branching?.execution_id === runner.selected}
-      hasOlder={Boolean(runner.history.next_cursor)}
-      pending={runner.pending}
-      steering={runner.steering}
-      status={runner.status}
-      endpoint={runner.settings.endpoint}
-      enabled={runner.enabled}
-      busy={runner.busy}
-      error={launchError || runner.error}
-      dismiss={() => {
-        setLaunchError("");
-        runner.dismiss();
-      }}
-      onStop={async () => {
-        await runner.stop();
-      }}
-      onResume={async () => {
-        await runner.resume();
-      }}
-      onReply={runner.reply}
-      onSteer={runner.steer}
-      onBranch={runner.branch}
-      connection={
-        <ConnectionForm
-          value={connection}
-          change={setConnection}
-          connect={() => runner.connect(connection)}
-        />
-      }
-      newSession={
-        <NewSessionForm
-          workflows={runner.workflows}
-          enabled={runner.enabled}
-          value={draft}
-          change={setDraft}
-          start={start}
-        />
-      }
-    />
+        }
+        workflowPermissions={
+          runner.api &&
+          runner.selected &&
+          runner.execution?.root_workflow_id ? (
+            <ToolPermissions
+              key={`${runner.selected}/${runner.execution.root_workflow_id}`}
+              api={runner.api}
+              scope={{
+                scope: "workflow",
+                execution_id: runner.selected,
+                workflow_id: runner.execution.root_workflow_id,
+              }}
+            />
+          ) : undefined
+        }
+        sessions={runner.sessions}
+        hasMoreSessions={runner.hasMoreSessions}
+        sessionsLoading={runner.sessionsLoading}
+        onLoadMoreSessions={runner.loadMoreSessions}
+        activitySessions={runner.activitySessions}
+        workflows={runner.workflows}
+        selected={runner.selected}
+        onSelect={runner.select}
+        history={runner.history.items}
+        execution={runner.execution}
+        branching={runner.branching?.execution_id === runner.selected}
+        hasOlder={Boolean(runner.history.next_cursor)}
+        pending={runner.pending}
+        steering={runner.steering}
+        status={runner.status}
+        endpoint={runner.settings.endpoint}
+        enabled={runner.enabled}
+        busy={runner.busy}
+        error={launchError || runner.error}
+        dismiss={() => {
+          setLaunchError("");
+          runner.dismiss();
+        }}
+        onStop={async () => {
+          await runner.stop();
+        }}
+        onResume={async () => {
+          await runner.resume();
+        }}
+        onReply={runner.reply}
+        onSteer={runner.steer}
+        onBranch={runner.branch}
+        connection={
+          <ConnectionForm
+            value={connection}
+            change={setConnection}
+            connect={() => runner.connect(connection)}
+          />
+        }
+        newSession={
+          <NewSessionForm
+            workflows={runner.workflows}
+            enabled={runner.enabled}
+            value={draft}
+            change={setDraft}
+            start={start}
+          />
+        }
+      />
+    </WorktreesProvider>
   );
 }

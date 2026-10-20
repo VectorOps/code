@@ -273,12 +273,17 @@ export function useRunner(initial: models.ConnectionSettings) {
     [action, selected],
   );
 
-  function start(reference: string, input: Params) {
+  function start(reference: string, input: Params, worktreeId?: string) {
     return action(async (api) => {
-      const signature = JSON.stringify([reference, input]);
+      const signature = JSON.stringify([reference, input, worktreeId]);
       if (startKey.current.signature !== signature)
         startKey.current = { signature, key: crypto.randomUUID() };
-      const result = await api.start(reference, input, startKey.current.key);
+      const result = await api.start(
+        reference,
+        input,
+        startKey.current.key,
+        worktreeId,
+      );
       setSelected(result.execution_id);
       startKey.current = { signature: "", key: "" };
     });

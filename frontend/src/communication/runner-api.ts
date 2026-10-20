@@ -120,10 +120,20 @@ export class RunnerApi {
       next_cursor: null,
     };
   }
-  start(reference: string, input: Params, idempotency_key: string) {
+  start(
+    reference: string,
+    input: Params,
+    idempotency_key: string,
+    worktree_id?: string,
+  ) {
     return this.connection.request<{ execution_id: string }>(
       "executions.start",
-      { reference, input, idempotency_key },
+      {
+        reference,
+        input,
+        idempotency_key,
+        ...(worktree_id ? { worktree_id } : {}),
+      },
     );
   }
   stop(execution_id: string) {

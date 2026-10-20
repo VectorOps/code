@@ -6,6 +6,7 @@ import { Authentication } from "./Authentication";
 import { LlmProfiles } from "./LlmProfiles";
 import { WorkflowSettings } from "./WorkflowSettings";
 import { ToolPermissions } from "./ToolPermissions";
+import { WorktreeManager } from "./WorktreeManager";
 import { resolveDefaultWorkflow } from "../hooks/useDefaultWorkflow";
 import "./settings.css";
 
@@ -16,6 +17,7 @@ const categories = {
   profiles: "LLM profiles",
   permissions: "Tool permissions",
   workflows: "Workflows",
+  worktrees: "Worktrees",
 };
 
 type Category = keyof typeof categories;
@@ -104,6 +106,8 @@ export function Settings({
           </>
         ) : !connected || !api ? (
           <p role="status">Runner disconnected.</p>
+        ) : category === "worktrees" ? (
+          <WorktreeManager key={`${connection.endpoint}/${connection.token}`} />
         ) : category === "workflows" ? (
           <WorkflowSettings
             key={`${connection.endpoint}/${connection.token}`}

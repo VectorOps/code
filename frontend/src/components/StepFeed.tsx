@@ -14,6 +14,7 @@ import "./workflow.css";
 import * as feedState from "./FeedState";
 import { FocusRegion } from "../focus/FocusProvider";
 import { StepBranchControls } from "./StepBranchControls";
+import { WorktreeLabel } from "./Worktrees";
 
 function requestId(request: InputRequest) {
   return `decision-${request.execution_id}-${request.request_id}`;
@@ -71,6 +72,7 @@ function WorkflowBranch({
     if (signature) setExpanded(true);
   }, [signature, setExpanded]);
   const running = active && node.status === "Unfinished";
+  const worktreeId = workflows.workflowWorktree(node, actions.worktreeId);
   return (
     <details
       className="workflow-branch feed-item"
@@ -80,7 +82,10 @@ function WorkflowBranch({
       }}
     >
       <summary>
-        <span>{node.label}</span>
+        <span>
+          {node.label}
+          {worktreeId && <WorktreeLabel id={worktreeId} />}
+        </span>
         <span className="workflow-status">
           {requests.length ? (
             `Input required (${requests.length})`

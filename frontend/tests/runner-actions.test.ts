@@ -9,6 +9,38 @@ import type { Session } from "../src/models/runner";
 vitest.afterEach(() => vitest.vi.restoreAllMocks());
 
 vitest.test(
+  "launch retry identity includes the worktree selection",
+  async () => {
+    vitest.vi
+      .spyOn(RunnerConnection.prototype, "connect")
+      .mockImplementation(() => {});
+    const start = vitest.vi
+      .spyOn(RunnerApi.prototype, "start")
+      .mockRejectedValue(new Error("Connection lost"));
+    const view = testing.renderHook(() =>
+      useRunner({ endpoint: "ws://localhost", token: "test" }),
+    );
+    await testing.act(async () => {
+      await view.result.current.start("agent", {}, "tree-a");
+    });
+    await testing.act(async () => {
+      await view.result.current.start("agent", {}, "tree-a");
+    });
+    vitest.expect(start.mock.calls[1]).toEqual(start.mock.calls[0]);
+    await testing.act(async () => {
+      await view.result.current.start("agent", {}, "tree-b");
+    });
+    vitest.expect(start.mock.calls[2][3]).toBe("tree-b");
+    vitest.expect(start.mock.calls[2][2]).not.toBe(start.mock.calls[0][2]);
+    await testing.act(async () => {
+      await view.result.current.start("agent", {});
+    });
+    vitest.expect(start.mock.calls[3][3]).toBeUndefined();
+    vitest.expect(start.mock.calls[3][2]).not.toBe(start.mock.calls[2][2]);
+  },
+);
+
+vitest.test(
   "loads older sessions on demand and refreshes an older selection after reconnect",
   async () => {
     const first: Session = {

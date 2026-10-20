@@ -13,6 +13,7 @@ import { Decision } from "../components/Decision";
 import { SessionSidebar } from "../components/SessionSidebar";
 import { Composer } from "../components/Composer";
 import { WorkflowStats } from "../components/WorkflowStats";
+import { WorktreeLabel } from "../components/Worktrees";
 import { useConversationScroll } from "../hooks/useConversationScroll";
 import { useImageAttachments } from "../hooks/useImageAttachments";
 import * as chatInput from "../models/chat-input";
@@ -224,6 +225,7 @@ function WorkspaceContent({
       inspect,
       rootWorkflowId:
         execution?.root_workflow_id ?? current?.root_workflow_id ?? undefined,
+      worktreeId: execution?.target?.worktree_id ?? undefined,
       branch: onBranch,
     }),
     [
@@ -234,6 +236,7 @@ function WorkspaceContent({
       inspect,
       onBranch,
       execution?.root_workflow_id,
+      execution?.target?.worktree_id,
       current?.root_workflow_id,
     ],
   );
@@ -351,6 +354,12 @@ function WorkspaceContent({
         <header className="session-header">
           <div>
             <h1>{current ? currentName : "Your workspace"}</h1>
+            {execution?.target?.worktree_id && (
+              <WorktreeLabel
+                id={execution.target.worktree_id}
+                path={execution.target.root}
+              />
+            )}
             {!current && (
               <span className="session-subtitle">
                 Start a conversation to begin

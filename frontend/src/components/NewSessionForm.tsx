@@ -2,12 +2,15 @@ import { useState } from "react";
 import type { Params } from "../models/json";
 import type { Workflow } from "../models/runner";
 import * as inputs from "../models/workflow-input";
+import { WorktreeSelect } from "./WorktreeSelect";
+import { useWorktrees } from "./Worktrees";
 
 export type NewSessionDraft = {
   reference: string;
   input: string;
   fields?: Record<string, string>;
   raw?: boolean;
+  worktreeId?: string;
 };
 export function NewSessionForm({
   workflows,
@@ -20,9 +23,23 @@ export function NewSessionForm({
   enabled: boolean;
   value: NewSessionDraft;
   change: (value: NewSessionDraft) => void;
-  start: (reference: string, input: Params) => Promise<boolean>;
+  start: (
+    reference: string,
+    input: Params,
+    worktreeId?: string,
+  ) => Promise<boolean>;
 }) {
   const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const { records, loading, error: worktreeError, api } = useWorktrees();
+  const invalidWorktree =
+    Boolean(value.worktreeId) &&
+    (!api ||
+      loading ||
+      Boolean(worktreeError) ||
+      !records.some(
+        (item) => item.id === value.worktreeId && item.status === "ready",
+      ));
   const workflow = workflows.find(
     (item) => item.descriptor.reference === value.reference,
   );
@@ -57,9 +74,12 @@ export function NewSessionForm({
     }
   }
   async function submit() {
+    if (!enabled || creating || invalidWorktree) return;
     try {
       setError("");
-      await start(value.reference, input());
+      if (value.worktreeId)
+        await start(value.reference, input(), value.worktreeId);
+      else await start(value.reference, input());
     } catch (reason) {
       setError(String(reason));
     }
@@ -80,6 +100,7 @@ export function NewSessionForm({
               (item) => item.descriptor.reference === event.target.value,
             );
             change({
+              worktreeId: value.worktreeId,
               reference: event.target.value,
               input: JSON.stringify(
                 inputs.workflowDefaults(
@@ -106,6 +127,13 @@ export function NewSessionForm({
       {workflow?.descriptor.description && (
         <p>{workflow.descriptor.description}</p>
       )}
+      <WorktreeSelect
+        value={value.worktreeId || ""}
+        change={(worktreeId) => change({ ...value, worktreeId })}
+        enabled={enabled}
+        creating={creating}
+        setCreating={setCreating}
+      />
       {fields !== null && (
         <button type="button" className="quiet-button" onClick={toggle}>
           {raw ? "Use form fields" : "Edit as JSON"}
@@ -202,7 +230,9 @@ export function NewSessionForm({
         <pre>{JSON.stringify(workflow?.descriptor.input_schema, null, 2)}</pre>
       </details>
       {error && <p role="alert">{error}</p>}
-      <button disabled={!enabled || !value.reference}>
+      <button
+        disabled={!enabled || !value.reference || creating || invalidWorktree}
+      >
         Start conversation
       </button>
       <p>

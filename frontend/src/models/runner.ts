@@ -80,6 +80,7 @@ export type HistoryItem = { position: number; step: Json };
 export type HistoryPage = { items: HistoryItem[]; next_cursor: string | null };
 export type Execution = {
   id: string;
+  target?: { kind: "local"; root: string; worktree_id?: string | null } | null;
   root_workflow_id: string;
   status: string;
   checkpoint: { heads: Record<string, string> };
