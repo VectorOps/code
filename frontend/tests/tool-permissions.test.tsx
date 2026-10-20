@@ -4,6 +4,7 @@ import * as vitest from "vitest";
 import { RunnerApi } from "../src/communication/runner-api";
 import { RunnerConnection } from "../src/communication/websocket";
 import type { Params } from "../src/models/json";
+import type { ToolRuleScope } from "../src/models/runner";
 import { ToolPermissions } from "../src/screens/ToolPermissions";
 
 class Connection extends RunnerConnection {
@@ -20,6 +21,57 @@ class Connection extends RunnerConnection {
     return null as T;
   }
 }
+
+vitest.test.each<ToolRuleScope>([
+  { scope: "workspace" },
+  { scope: "workflow", execution_id: "execution-1", workflow_id: "workflow-1" },
+])("$scope permissions sort rules by tool name", async (scope) => {
+  const connection = new Connection("ws://localhost", "test");
+  const user = userEvent.setup();
+  connection.rules = ["write_file", "read_file", "exec", "read_file"].map(
+    (tool_name, index) => ({
+      id: `rule-${index}`,
+      tool_name,
+      decision: "approve",
+      properties: { index },
+    }),
+  );
+  const originalRules = [...connection.rules];
+  const view = testing.render(
+    <ToolPermissions api={new RunnerApi(connection)} scope={scope} />,
+  );
+  await view.findByText("write_file");
+  const displayedNames = () =>
+    view
+      .getAllByRole("article")
+      .map((rule) => rule.querySelector("strong")?.textContent);
+  vitest
+    .expect(displayedNames())
+    .toEqual(["exec", "read_file", "read_file", "write_file"]);
+  vitest.expect(connection.rules).toEqual(originalRules);
+  vitest
+    .expect(
+      view
+        .getAllByRole("article")
+        .map((rule) => rule.querySelector("code")?.textContent),
+    )
+    .toEqual(["2", "1", "3", "0"]);
+
+  connection.rules = [
+    ...connection.rules,
+    {
+      id: "rule-new",
+      tool_name: "apply_patch",
+      decision: "deny",
+      properties: {},
+    },
+  ];
+  await user.click(view.getByRole("button", { name: "Refresh permissions" }));
+  await view.findByText("apply_patch");
+  vitest
+    .expect(displayedNames())
+    .toEqual(["apply_patch", "exec", "read_file", "read_file", "write_file"]);
+});
 
 vitest.test(
   "workspace permissions manage global rules and approve all",

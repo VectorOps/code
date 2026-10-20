@@ -28,6 +28,13 @@ export function ToolPermissions({
     [api],
   );
   const [rules, setRules] = React.useState<ToolRule[]>([]);
+  const sortedRules = React.useMemo(
+    () =>
+      [...rules].sort((left, right) =>
+        left.tool_name.localeCompare(right.tool_name),
+      ),
+    [rules],
+  );
   const [selected, setSelected] = React.useState("");
   const [toolName, setToolName] = React.useState("");
   const [decision, setDecision] = React.useState<"approve" | "deny">("approve");
@@ -195,7 +202,7 @@ export function ToolPermissions({
           {scope.scope === "workspace" ? "Workspace" : "Workflow"} rules
         </legend>
         {!rules.length && <p>No authorization rules in this scope.</p>}
-        {rules.map((rule) => (
+        {sortedRules.map((rule) => (
           <article className="permission-rule" key={rule.id}>
             <div className="permission-rule-content">
               <div className="permission-rule-heading">
