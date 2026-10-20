@@ -118,6 +118,11 @@ export function useRunner(initial: models.ConnectionSettings) {
         sessionSync.apply(event);
       }
       if (
+        event.kind === "execution.failed" &&
+        event.execution_id === selectedRef.current
+      )
+        setError(text(event.error) || "Execution failed.");
+      if (
         event.kind === "execution.branch_applied" ||
         event.kind === "execution.branch_failed"
       ) {

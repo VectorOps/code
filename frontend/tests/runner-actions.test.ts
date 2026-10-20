@@ -431,6 +431,88 @@ vitest.test(
   },
 );
 
+vitest.test.each([
+  ["worktree is not ready: deleted", "worktree is not ready: deleted"],
+  [null, "Execution failed."],
+])(
+  "accepted resume surfaces background failure %s despite a cancelled snapshot",
+  async (error, expected) => {
+    const session: Session = {
+      execution_id: "existing",
+      reference: "builtin:agent",
+      status: "cancelled",
+      active: false,
+      pending_inputs: 0,
+    };
+    let connection: RunnerConnection;
+    vitest.vi
+      .spyOn(RunnerConnection.prototype, "connect")
+      .mockImplementation(function (this: RunnerConnection) {
+        connection = this;
+        this.onStatus("Connected");
+        this.onReady();
+      });
+    vitest.vi.spyOn(RunnerApi.prototype, "subscribe").mockResolvedValue({});
+    vitest.vi.spyOn(RunnerApi.prototype, "sessions").mockResolvedValue({
+      executions: [session],
+      next_after: null,
+    });
+    vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "execution").mockResolvedValue({
+      id: "existing",
+      root_workflow_id: "root",
+      status: "cancelled",
+      checkpoint: { heads: {} },
+    });
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "history")
+      .mockResolvedValue({ items: [], next_cursor: null });
+    vitest.vi.spyOn(RunnerApi.prototype, "resume").mockResolvedValue({
+      execution_id: "existing",
+      status: "starting",
+    });
+    const view = testing.renderHook(() =>
+      useRunner({ endpoint: "ws://localhost", token: "test" }),
+    );
+    await testing.waitFor(() =>
+      vitest.expect(view.result.current.sessions).toHaveLength(1),
+    );
+    testing.act(() => view.result.current.select("existing"));
+    await testing.act(async () => {
+      vitest.expect(await view.result.current.resume()).toBe(true);
+    });
+    testing.act(() => {
+      connection.onEvent({
+        kind: "execution.failed",
+        execution_id: "other",
+        error: "Unrelated failure",
+      });
+    });
+    vitest.expect(view.result.current.error).toBe("");
+    testing.act(() => {
+      connection.onEvent({
+        kind: "execution.failed",
+        execution_id: "existing",
+        error,
+      });
+      connection.onEvent({
+        kind: "execution.updated",
+        execution_id: "existing",
+        summary: session,
+      });
+    });
+    vitest.expect(view.result.current.error).toBe(expected);
+    vitest.expect(view.result.current.sessions[0]).toMatchObject({
+      status: "cancelled",
+      active: false,
+    });
+    testing.act(() => view.result.current.dismiss());
+    vitest.expect(view.result.current.error).toBe("");
+    view.unmount();
+  },
+);
+
 vitest.test(
   "resume retains retry keys, uses pushed state and stays in the selected conversation",
   async () => {
