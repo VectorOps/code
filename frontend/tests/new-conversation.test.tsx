@@ -78,6 +78,7 @@ function mockRunner() {
     stop: vitest.vi.fn(async () => true),
     reply: vitest.vi.fn(async () => true),
     steer: vitest.vi.fn(async () => true),
+    removeSteering: vitest.vi.fn(async () => true),
     branch: vitest.vi.fn(async () => true),
   };
   vitest.vi.spyOn(runnerHook, "useRunner").mockImplementation(() => runner);

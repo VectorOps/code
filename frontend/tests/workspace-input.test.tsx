@@ -90,6 +90,71 @@ vitest.test(
   },
 );
 
+vitest.test(
+  "queued steering messages can be removed individually",
+  async () => {
+    const onRemoveSteering = vitest.vi.fn(async () => false);
+    const messages = [
+      { id: "first", created_at: "2026-01-01", payload: "First instruction" },
+      { id: "second", created_at: "2026-01-01", payload: "Second instruction" },
+    ];
+    const props = {
+      ...workspaceProps(),
+      onRemoveSteering,
+      steering: {
+        address: {
+          execution_id: "session-a",
+          workflow_id: "root",
+          conversation_id: "steer",
+        },
+        messages,
+        count: 2,
+      },
+    };
+    const view = render(<Workspace {...props} />);
+    const user = userEvent.setup();
+    await user.click(
+      view.getByRole("button", { name: "2 queued steering messages" }),
+    );
+    for (const disabled of [
+      { enabled: false, busy: false },
+      { enabled: true, busy: true },
+    ]) {
+      view.rerender(<Workspace {...props} {...disabled} />);
+      const remove = view.getAllByRole("button", { name: "Remove" })[1];
+      vitest.expect(remove).toHaveProperty("disabled", true);
+      await user.click(remove);
+      vitest.expect(onRemoveSteering).not.toHaveBeenCalled();
+    }
+    view.rerender(<Workspace {...props} />);
+    await user.click(view.getAllByRole("button", { name: "Remove" })[1]);
+    vitest.expect(onRemoveSteering).toHaveBeenCalledExactlyOnceWith("second");
+    vitest.expect(view.getByText("Second instruction")).toBeTruthy();
+    view.rerender(
+      <Workspace
+        {...props}
+        steering={{ ...props.steering, messages: [messages[0]], count: 1 }}
+      />,
+    );
+    vitest.expect(view.queryByText("Second instruction")).toBeNull();
+    vitest.expect(view.getByText("First instruction")).toBeTruthy();
+    vitest
+      .expect(view.getByRole("button", { name: "1 queued steering messages" }))
+      .toBeTruthy();
+    view.rerender(
+      <Workspace
+        {...props}
+        steering={{ ...props.steering, messages: [], count: 0 }}
+      />,
+    );
+    vitest.expect(view.getByText("No queued steering messages.")).toBeTruthy();
+    vitest.expect(view.queryByRole("button", { name: "Remove" })).toBeNull();
+    vitest
+      .expect(view.queryByRole("button", { name: /queued steering messages/ }))
+      .toBeNull();
+  },
+);
+
 vitest.test("workflow permissions open in a contextual slideout", async () => {
   const view = render(
     <Workspace

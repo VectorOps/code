@@ -290,6 +290,16 @@ export function useRunner(
     [action, api, steering],
   );
 
+  const removeSteering = React.useCallback(
+    (messageId: string) => {
+      if (!steering) return Promise.resolve(false);
+      return action(async (client) => {
+        await client.removeSteering(steering.address, messageId);
+      });
+    },
+    [action, steering],
+  );
+
   const branch = React.useCallback(
     (stepId: string, branchAction: models.BranchAction) => {
       if (!selected) return Promise.resolve(false);
@@ -373,6 +383,7 @@ export function useRunner(
       }),
     reply,
     steer,
+    removeSteering,
     branch,
   };
 }

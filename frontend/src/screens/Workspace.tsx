@@ -78,6 +78,7 @@ function WorkspaceContent({
   onResume,
   onReply,
   onSteer,
+  onRemoveSteering,
   onBranch,
   newSession,
   connection,
@@ -128,6 +129,7 @@ function WorkspaceContent({
     key: string,
   ) => Promise<boolean>;
   onSteer?: (value: string) => Promise<boolean>;
+  onRemoveSteering?: (messageId: string) => Promise<boolean>;
   onBranch?: (id: string, action: models.BranchAction) => Promise<boolean>;
   newSession: React.ReactNode;
   connection: React.ReactNode;
@@ -698,6 +700,16 @@ function WorkspaceContent({
                   <article className="steering-message" key={message.id}>
                     <p>{messageText(message.payload)}</p>
                     <small>{message.created_at}</small>
+                    {onRemoveSteering && (
+                      <button
+                        type="button"
+                        className="quiet-button"
+                        disabled={!enabled || busy}
+                        onClick={() => void onRemoveSteering(message.id)}
+                      >
+                        Remove
+                      </button>
+                    )}
                   </article>
                 ))
               ) : (

@@ -9,6 +9,108 @@ import type { Session } from "../src/models/runner";
 vitest.afterEach(() => vitest.vi.restoreAllMocks());
 
 vitest.test(
+  "steering removal uses the inbox RPC and live queue updates",
+  async () => {
+    vitest.vi
+      .spyOn(RunnerConnection.prototype, "connect")
+      .mockImplementation(function (this: RunnerConnection) {
+        this.onStatus("Connected");
+        this.onReady();
+      });
+    vitest.vi.spyOn(RunnerApi.prototype, "subscribe").mockResolvedValue({});
+    vitest.vi.spyOn(RunnerApi.prototype, "sessions").mockResolvedValue({
+      executions: [],
+      next_after: null,
+    });
+    vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "history").mockResolvedValue({
+      items: [],
+      next_cursor: null,
+    });
+    vitest.vi.spyOn(RunnerApi.prototype, "execution").mockResolvedValue({
+      id: "existing",
+      root_workflow_id: "root",
+      status: "running",
+      checkpoint: { heads: {} },
+    });
+    const address = {
+      execution_id: "existing",
+      workflow_id: "root",
+      conversation_id: "steer",
+    };
+    const message = {
+      id: "queued",
+      created_at: "2026-01-01",
+      payload: "Use PostgreSQL",
+    };
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "inboxes")
+      .mockResolvedValue([{ address, status: "open", queued_messages: 1 }]);
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "inboxMessages")
+      .mockResolvedValue([message]);
+    const request = vitest.vi.spyOn(RunnerConnection.prototype, "request");
+    const view = testing.renderHook(() =>
+      useRunner({ endpoint: "ws://localhost", token: "test" }),
+    );
+    await testing.act(async () => {
+      vitest
+        .expect(await view.result.current.removeSteering(message.id))
+        .toBe(false);
+    });
+    vitest.expect(request).not.toHaveBeenCalled();
+    testing.act(() => view.result.current.select("existing"));
+    await testing.waitFor(() =>
+      vitest.expect(view.result.current.steering?.messages).toEqual([message]),
+    );
+    request.mockRejectedValueOnce(new Error("Removal failed"));
+    await testing.act(async () => {
+      vitest
+        .expect(await view.result.current.removeSteering(message.id))
+        .toBe(false);
+    });
+    vitest.expect(view.result.current.error).toContain("Removal failed");
+    vitest.expect(view.result.current.steering?.messages).toEqual([message]);
+    vitest.expect(view.result.current.busy).toBe(false);
+    request.mockImplementationOnce(async () => {
+      view.result.current.api!.connection.onEvent({
+        kind: "mailbox.removed",
+        execution_id: address.execution_id,
+        address,
+        status: "open",
+        queued_messages: 0,
+        message_id: message.id,
+        reason: "host_remove",
+      });
+      return message;
+    });
+    await testing.act(async () => {
+      vitest
+        .expect(await view.result.current.removeSteering(message.id))
+        .toBe(true);
+    });
+    vitest.expect(request).toHaveBeenLastCalledWith("mailbox.inboxes.remove", {
+      ...address,
+      message_id: message.id,
+    });
+    vitest
+      .expect(view.result.current.steering)
+      .toEqual({ address, messages: [], count: 0 });
+    vitest.expect(view.result.current.error).toBe("");
+    request.mockResolvedValueOnce(null);
+    await testing.act(async () => {
+      vitest
+        .expect(await view.result.current.removeSteering(message.id))
+        .toBe(true);
+    });
+    vitest.expect(view.result.current.steering?.count).toBe(0);
+    vitest.expect(view.result.current.error).toBe("");
+    view.unmount();
+  },
+);
+
+vitest.test(
   "launch retry identity includes the worktree selection",
   async () => {
     vitest.vi

@@ -93,6 +93,12 @@ export class RunnerApi {
       },
     );
   }
+  removeSteering(address: models.InboxAddress, message_id: string) {
+    return this.connection.request<models.InboxMessage | null>(
+      "mailbox.inboxes.remove",
+      { ...address, message_id },
+    );
+  }
   history(
     execution_id: string,
     query: {
