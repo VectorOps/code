@@ -10,6 +10,41 @@ import { useComposerTarget } from "../focus/FocusProvider";
 import { isHistoryShortcut } from "../focus/shortcuts";
 import * as chatInput from "../models/chat-input";
 
+function moveByWord(
+  element: HTMLTextAreaElement,
+  backward: boolean,
+  extend: boolean,
+) {
+  const {
+    selectionStart: start,
+    selectionEnd: end,
+    selectionDirection,
+  } = element;
+  const focus = selectionDirection === "backward" ? start : end;
+  const anchor = selectionDirection === "backward" ? end : start;
+  const position = extend ? focus : backward ? start : end;
+  let destination = backward ? 0 : element.value.length;
+  for (const word of element.value.matchAll(/[\p{L}\p{N}\p{M}_]+/gu)) {
+    const boundary = backward ? word.index : word.index + word[0].length;
+    if (backward) {
+      if (boundary >= position) break;
+      destination = boundary;
+    } else if (boundary > position) {
+      destination = boundary;
+      break;
+    }
+  }
+  if (extend) {
+    element.setSelectionRange(
+      Math.min(anchor, destination),
+      Math.max(anchor, destination),
+      destination < anchor ? "backward" : "forward",
+    );
+  } else {
+    element.setSelectionRange(destination, destination);
+  }
+}
+
 function atBoundary(
   element: HTMLTextAreaElement,
   edge: "start" | "end",
@@ -251,6 +286,21 @@ export function PromptTextarea({
               event.nativeEvent.keyCode === 229
             )
               return;
+            if (
+              event.altKey &&
+              !event.ctrlKey &&
+              !event.metaKey &&
+              (event.key === "ArrowLeft" || event.key === "ArrowRight")
+            ) {
+              event.preventDefault();
+              moveByWord(
+                event.currentTarget,
+                event.key === "ArrowLeft",
+                event.shiftKey,
+              );
+              files.track(event.currentTarget);
+              return;
+            }
             if (files.keyDown(event)) return;
             if (isHistoryShortcut(event.nativeEvent) && historyApi) {
               event.preventDefault();

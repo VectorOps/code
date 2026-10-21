@@ -111,6 +111,83 @@ vitest.test(
   },
 );
 
+vitest.test.each([
+  ["one two three", 13, "ArrowLeft", 8],
+  ["one two three", 8, "ArrowLeft", 4],
+  ["one two three", 6, "ArrowLeft", 4],
+  ["one two three", 0, "ArrowRight", 3],
+  ["one two three", 3, "ArrowRight", 7],
+  ["one two three", 5, "ArrowRight", 7],
+  ["one,  \ntwo", 10, "ArrowLeft", 7],
+  ["one,  \ntwo", 3, "ArrowRight", 10],
+  ["café привет", 11, "ArrowLeft", 5],
+  ["café привет", 0, "ArrowRight", 4],
+  ["one", 0, "ArrowLeft", 0],
+  ["one", 3, "ArrowRight", 3],
+  ["", 0, "ArrowLeft", 0],
+  ["", 0, "ArrowRight", 0],
+] as const)(
+  "moves by word in %j from %i with Alt+%s to %i without navigating history",
+  (text, position, key, destination) => {
+    const view = setup(text);
+    view.input.setSelectionRange(position, position);
+    const event = testing.createEvent.keyDown(view.input, {
+      key,
+      altKey: true,
+    });
+    testing.fireEvent(view.input, event);
+    vitest.expect(event.defaultPrevented).toBe(true);
+    vitest.expect(view.input.selectionStart).toBe(destination);
+    vitest.expect(view.input.selectionEnd).toBe(destination);
+    vitest.expect(view.input.value).toBe(text);
+    vitest.expect(view.list).not.toHaveBeenCalled();
+    vitest.expect(view.submit).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test("Shift+Alt+arrows extend and reverse word selections", () => {
+  const view = setup("one two three");
+  view.input.setSelectionRange(7, 7);
+  const move = (key: string) =>
+    testing.fireEvent.keyDown(view.input, {
+      key,
+      altKey: true,
+      shiftKey: true,
+    });
+  move("ArrowLeft");
+  vitest
+    .expect([view.input.selectionStart, view.input.selectionEnd])
+    .toEqual([4, 7]);
+  vitest.expect(view.input.selectionDirection).toBe("backward");
+  move("ArrowLeft");
+  vitest
+    .expect([view.input.selectionStart, view.input.selectionEnd])
+    .toEqual([0, 7]);
+  move("ArrowRight");
+  move("ArrowRight");
+  move("ArrowRight");
+  vitest
+    .expect([view.input.selectionStart, view.input.selectionEnd])
+    .toEqual([7, 13]);
+  vitest.expect(view.input.selectionDirection).toBe("forward");
+});
+
+vitest.test.each([
+  { key: "ArrowLeft" },
+  { key: "ArrowRight", ctrlKey: true },
+  { key: "ArrowLeft", altKey: true, metaKey: true },
+  { key: "ArrowRight", altKey: true, ctrlKey: true },
+  { key: "ArrowLeft", altKey: true, isComposing: true },
+  { key: "ArrowRight", altKey: true, keyCode: 229 },
+])("leaves other arrow shortcuts and IME input untouched: %j", (keys) => {
+  const view = setup("one two");
+  view.input.setSelectionRange(4, 4);
+  const event = testing.createEvent.keyDown(view.input, keys);
+  testing.fireEvent(view.input, event);
+  vitest.expect(event.defaultPrevented).toBe(false);
+  vitest.expect(view.input.selectionStart).toBe(4);
+});
+
 vitest.test.each(["edit", "switch chat"])(
   "ignores an in-flight recall after %s",
   async (action) => {
