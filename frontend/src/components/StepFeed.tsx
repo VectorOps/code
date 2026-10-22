@@ -195,6 +195,7 @@ function WorkflowContents({
                 entry.workflow,
                 entry.label,
                 display,
+                entry.label,
               )}
             />
           );
@@ -367,7 +368,12 @@ function FeedContents({
           actions={actions}
           active={active}
           grouping={grouping}
-          display={presentation.resolveDisplay(node.workflow, node.label)}
+          display={presentation.resolveDisplay(
+            node.workflow,
+            node.label,
+            undefined,
+            node.label,
+          )}
         />
       ))}
       {!roots.length && (

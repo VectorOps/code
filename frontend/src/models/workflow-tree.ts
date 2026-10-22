@@ -121,7 +121,12 @@ export function workflowTree(
     node(request.workflow_id || "").requests.push(request);
   for (const value of nodes.values())
     if (value.workflow)
-      value.label = resolveDisplay(value.workflow, value.label).label;
+      value.label = resolveDisplay(
+        value.workflow,
+        value.label,
+        undefined,
+        text(value.spawn?.operation.description),
+      ).label;
   return [...nodes.values()].filter((value) => !value.parent);
 }
 

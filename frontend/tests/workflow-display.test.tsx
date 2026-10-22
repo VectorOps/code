@@ -16,6 +16,7 @@ function item(
   kind: string,
   workflow = "root",
   message = "Hello",
+  description?: string,
 ): HistoryItem {
   return {
     position,
@@ -24,7 +25,9 @@ function item(
       workflow_id: workflow,
       operation: {
         kind,
-        ...(kind === "workflow.spawn" ? { child_workflow_id: "child" } : {}),
+        ...(kind === "workflow.spawn"
+          ? { child_workflow_id: "child", description }
+          : {}),
         input: { call: { name: "exec", arguments: { command: "ls" } } },
       },
       outcome: {
@@ -132,6 +135,57 @@ function feed(
     />,
   );
 }
+
+test.each([
+  { description: undefined, workflow: child, expected: "Helper" },
+  { description: "", workflow: child, expected: "Helper" },
+  { description: " \t ", workflow: child, expected: "Helper" },
+  {
+    description: undefined,
+    workflow: { ...child, presentation: {} },
+    expected: "Child name",
+  },
+  {
+    description: " Review display commits ",
+    workflow: child,
+    expected: "Review display commits",
+  },
+  {
+    description:
+      "Review display commits and verify the subworkflow description override",
+    workflow: { ...child, presentation: {} },
+    expected:
+      "Review display commits and verify the subworkflow description override",
+  },
+  {
+    description: "Legacy task",
+    workflow: undefined,
+    expected: "Agent: Legacy task",
+  },
+])(
+  "spawn description $description resolves to $expected",
+  ({ description, workflow, expected }) => {
+    const history = [
+      item(1, "workflow.spawn", "root", "Hello", description),
+      item(2, "llm.generate", "child"),
+    ];
+    const states: Record<string, WorkflowState> = workflow
+      ? { root, child: workflow }
+      : { root };
+    const original = JSON.stringify({ history, states });
+    const view = feed(history, states);
+    const branch = view.container.querySelector(
+      "details.workflow-branch",
+    ) as HTMLDetailsElement;
+    expect(branch.querySelector("summary > span")?.textContent).toBe(expected);
+    branch.open = true;
+    fireEvent(branch, new Event("toggle"));
+    expect(
+      view.container.querySelector(".workflow-message-prefix")?.textContent,
+    ).toBe(expected);
+    expect(JSON.stringify({ history, states })).toBe(original);
+  },
+);
 
 test("feed prefixes and tints messages while enforcing runner visibility without a local override", () => {
   const history = [item(1, "llm.generate"), item(2, "llm.tool")];

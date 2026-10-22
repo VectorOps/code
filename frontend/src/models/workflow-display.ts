@@ -22,6 +22,7 @@ export function resolveDisplay(
   workflow: WorkflowState | undefined,
   fallback: string,
   parent?: WorkflowDisplay,
+  labelOverride?: string,
 ): WorkflowDisplay {
   const own = workflow?.presentation;
   const options = new Set([
@@ -31,16 +32,17 @@ export function resolveDisplay(
   const hidden = Boolean(
     parent?.hidden || parent?.options.has("hide_subworkflows"),
   );
+  const defaultLabel = (
+    own?.short_name ||
+    workflow?.name ||
+    workflow?.definition_ref ||
+    fallback
+  )
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
   return {
-    label: (
-      own?.short_name ||
-      workflow?.name ||
-      workflow?.definition_ref ||
-      fallback
-    )
-      .trim()
-      .replace(/\s+/g, " ")
-      .slice(0, 40),
+    label: labelOverride?.trim() || defaultLabel,
     bgcolor:
       own?.bgcolor && /^#[0-9a-f]{6}$/i.test(own.bgcolor)
         ? own.bgcolor.toLowerCase()
