@@ -22,20 +22,15 @@ export function resolveDisplay(
   workflow: WorkflowState | undefined,
   fallback: string,
   parent?: WorkflowDisplay,
-  showAll = false,
 ): WorkflowDisplay {
   const own = workflow?.presentation;
   const options = new Set([
     ...(parent?.options ?? []),
     ...(own?.options ?? []),
   ]);
-  const hidden =
-    !showAll &&
-    Boolean(parent?.hidden || parent?.options.has("hide_subworkflows"));
-  if (showAll) {
-    options.delete("llm_only");
-    options.delete("hide_subworkflows");
-  }
+  const hidden = Boolean(
+    parent?.hidden || parent?.options.has("hide_subworkflows"),
+  );
   return {
     label: (
       own?.short_name ||

@@ -52,7 +52,7 @@ const child: WorkflowState = {
   presentation: { short_name: "Helper", bgcolor: "#abcdef", options: [] },
 };
 
-test("display policy matches runner inheritance, label fallback and show-all semantics", () => {
+test("display policy matches runner inheritance and label fallback", () => {
   const parent = presentation.resolveDisplay(root, "Fallback");
   const display = presentation.resolveDisplay(child, "Fallback", parent);
   expect(display.label).toBe("Helper");
@@ -110,12 +110,6 @@ test("display policy matches runner inheritance, label fallback and show-all sem
   expect(
     presentation.resolveDisplay(undefined, "Grandchild", hiddenChild).hidden,
   ).toBe(true);
-  const all = presentation.resolveDisplay(child, "Fallback", parent, true);
-  expect(all.options).toEqual(new Set(["prefix_messages"]));
-  expect(presentation.showsStep(all, stepView(item(1, "llm.tool")))).toBe(true);
-  expect(
-    presentation.resolveDisplay(child, "Fallback", hiddenParent, true).hidden,
-  ).toBe(false);
 });
 
 function feed(
@@ -139,7 +133,7 @@ function feed(
   );
 }
 
-test("feed prefixes messages without mutating content, tints entries and restores tools with show all", () => {
+test("feed prefixes and tints messages while enforcing runner visibility without a local override", () => {
   const history = [item(1, "llm.generate"), item(2, "llm.tool")];
   const original = JSON.stringify(history);
   const view = feed(history, { root });
@@ -151,11 +145,9 @@ test("feed prefixes messages without mutating content, tints entries and restore
       .querySelector('[data-history-key="step-1"]')
       ?.getAttribute("style"),
   ).toContain("#123abc");
-  fireEvent.click(
-    view.getByRole("checkbox", { name: "Show all workflow activity" }),
-  );
-  expect(view.getByText("ls")).toBeTruthy();
-  expect(view.getByText("Parent")).toBeTruthy();
+  expect(
+    view.queryByRole("checkbox", { name: "Show all workflow activity" }),
+  ).toBeNull();
   expect(JSON.stringify(history)).toBe(original);
 });
 
@@ -203,10 +195,6 @@ test("hidden descendants keep approvals and workflow failures accessible while s
   expect(
     view.container.querySelector('[id="decision-execution-step-3"]'),
   ).toBeTruthy();
-  fireEvent.click(
-    view.getByRole("checkbox", { name: "Show all workflow activity" }),
-  );
-  expect(view.getByText("Hidden reply")).toBeTruthy();
 });
 
 test("child message prefixes use the child's name and color under inherited options", () => {

@@ -64,7 +64,6 @@ function WorkflowBranch({
   active,
   grouping,
   display,
-  showAll,
 }: {
   node: WorkflowNode;
   registry: StepRegistry;
@@ -72,7 +71,6 @@ function WorkflowBranch({
   active: boolean;
   grouping: ToolGrouping;
   display: presentation.WorkflowDisplay;
-  showAll: boolean;
 }) {
   const requests = React.useMemo(
     () => workflows.workflowRequests(node),
@@ -128,7 +126,6 @@ function WorkflowBranch({
             active={active}
             grouping={grouping}
             display={display}
-            showAll={showAll}
           />
         </>
       )}
@@ -143,7 +140,6 @@ function WorkflowContents({
   active,
   grouping,
   display,
-  showAll,
 }: {
   node: WorkflowNode;
   registry: StepRegistry;
@@ -151,7 +147,6 @@ function WorkflowContents({
   active: boolean;
   grouping: ToolGrouping;
   display: presentation.WorkflowDisplay;
-  showAll: boolean;
 }) {
   const inline = new Set<string>();
   const entries = React.useMemo(
@@ -200,9 +195,7 @@ function WorkflowContents({
                 entry.workflow,
                 entry.label,
                 display,
-                showAll,
               )}
-              showAll={showAll}
             />
           );
         const request = node.requests.find(
@@ -303,24 +296,10 @@ function FeedContents({
   projection,
   onReview,
 }: FeedProps) {
-  const [showAll, setShowAll] = React.useState(false);
   const roots = React.useMemo(
     () => projection?.roots ?? workflows.workflowTree(history, actions.pending),
     [history, actions.pending, projection],
   );
-  const hasRestrictions = React.useMemo(() => {
-    function restricted(node: WorkflowNode): boolean {
-      return (
-        Boolean(
-          node.workflow?.presentation?.options?.some(
-            (option) => option === "llm_only" || option === "hide_subworkflows",
-          ),
-        ) ||
-        node.entries.some((entry) => "entries" in entry && restricted(entry))
-      );
-    }
-    return roots.some(restricted);
-  }, [roots]);
   const requests = React.useMemo(() => {
     const requests: {
       request: InputRequest;
@@ -363,18 +342,6 @@ function FeedContents({
   }
   return (
     <>
-      {hasRestrictions && (
-        <div className="feed-controls">
-          <label>
-            <input
-              type="checkbox"
-              checked={showAll}
-              onChange={(event) => setShowAll(event.target.checked)}
-            />
-            Show all workflow activity
-          </label>
-        </div>
-      )}
       {requests.length > 0 && (
         <aside
           className="workflow-attention"
@@ -400,13 +367,7 @@ function FeedContents({
           actions={actions}
           active={active}
           grouping={grouping}
-          display={presentation.resolveDisplay(
-            node.workflow,
-            node.label,
-            undefined,
-            showAll,
-          )}
-          showAll={showAll}
+          display={presentation.resolveDisplay(node.workflow, node.label)}
         />
       ))}
       {!roots.length && (
