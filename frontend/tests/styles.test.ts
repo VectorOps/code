@@ -35,6 +35,9 @@ test("frontend CSS preserves global layer order and appearance overrides", async
   const styles: unknown = JSON.parse(stdout);
   assert.ok(Array.isArray(styles) && styles.length > 0);
   const css = styles.join("\n");
+  const feedItem = lastRule(css, ".feed-item");
+  assert.match(feedItem, /content-visibility:\s*visible/);
+  assert.doesNotMatch(feedItem, /contain-intrinsic-size:/);
   const historyDialog = lastRule(css, ".prompt-history-dialog");
   assert.match(
     historyDialog,
