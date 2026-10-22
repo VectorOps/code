@@ -1,12 +1,14 @@
 import { object, text, type Json } from "./json";
 import { messageText } from "./activity";
-import type { HistoryItem, InputRequest } from "./runner";
+import type { HistoryItem, InputRequest, WorkflowState } from "./runner";
+import { resolveDisplay } from "./workflow-display";
 import { isChatRequest } from "./runner";
 import { stepView, toolDescription, type StepView } from "./steps";
 
 export type WorkflowNode = {
   id: string;
   label: string;
+  workflow?: WorkflowState;
   parent?: WorkflowNode;
   spawn?: StepView;
   entries: (StepView | WorkflowNode)[];
@@ -17,7 +19,11 @@ export type WorkflowNode = {
 type WorkflowInputs = { chat: InputRequest[]; decisions: InputRequest[] };
 const inputViews = new WeakMap<InputRequest[], WorkflowInputs>();
 
-export function workflowTree(history: HistoryItem[], pending: InputRequest[]) {
+export function workflowTree(
+  history: HistoryItem[],
+  pending: InputRequest[],
+  states: Record<string, WorkflowState> = {},
+) {
   const nodes = new Map<string, WorkflowNode>();
   const calls = new Map<string, { name: string; description: string }[]>();
   function node(id: string): WorkflowNode {
@@ -25,6 +31,7 @@ export function workflowTree(history: HistoryItem[], pending: InputRequest[]) {
     if (!value) {
       value = {
         id,
+        workflow: states[id],
         label: "Workflow",
         entries: [],
         requests: [],
@@ -112,6 +119,9 @@ export function workflowTree(history: HistoryItem[], pending: InputRequest[]) {
   }
   for (const request of pending)
     node(request.workflow_id || "").requests.push(request);
+  for (const value of nodes.values())
+    if (value.workflow)
+      value.label = resolveDisplay(value.workflow, value.label).label;
   return [...nodes.values()].filter((value) => !value.parent);
 }
 
@@ -127,8 +137,9 @@ export function workflowProjection(
   history: HistoryItem[],
   pending: InputRequest[],
   rootWorkflowId?: string,
+  states?: Record<string, WorkflowState>,
 ) {
-  const tree = workflowTree(history, pending);
+  const tree = workflowTree(history, pending, states);
   const roots = rootWorkflowId
     ? tree.filter((root) => root.id === rootWorkflowId)
     : tree;

@@ -1,3 +1,14 @@
+.workflow-message-prefix {
+  padding-top: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-neutral-600);
+}
+
+.workflow-colored > .user-step {
+  background-color: transparent;
+}
+
 .workflow-branch {
   border-left: 2px solid var(--color-neutral-200);
   padding-left: 12px;

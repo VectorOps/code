@@ -9,6 +9,7 @@ import type * as models from "../models/runner";
 
 export type ExecutionView = {
   execution?: models.Execution;
+  workflowStates?: Record<string, models.WorkflowState>;
   history: HistoryWindow;
   pending: models.InputRequest[];
   steering?: {
@@ -68,6 +69,20 @@ export class ExecutionSync {
     this.publishHistory(this.history.snapshot);
     try {
       await loading;
+      if (current() && this.state.execution) {
+        const workflowStates = await this.readWorkflowStates(
+          this.state.execution,
+          this.state.pending,
+          this.state.workflowStates,
+        );
+        if (current()) {
+          this.state = {
+            ...this.state,
+            workflowStates: { ...workflowStates, ...this.state.workflowStates },
+          };
+          this.emit();
+        }
+      }
     } finally {
       if (current()) this.publishHistory(this.history.snapshot);
     }
@@ -94,6 +109,8 @@ export class ExecutionSync {
         : Promise.resolve([]),
     ]);
     if (!current()) return;
+    const workflowStates = await this.readWorkflowStates(execution, pending);
+    if (!current()) return;
     const mailbox = inboxes.find(
       (inbox) =>
         inbox.address.workflow_id === execution.root_workflow_id &&
@@ -104,7 +121,12 @@ export class ExecutionSync {
       ? await this.api.inboxMessages(mailbox.address)
       : [];
     if (!current()) return;
-    this.state = { execution, history: this.history.snapshot, pending };
+    this.state = {
+      execution,
+      workflowStates,
+      history: this.history.snapshot,
+      pending,
+    };
     this.inboxes.clear();
     if (mailbox)
       this.inboxes.set(mailbox.address.workflow_id, { ...mailbox, messages });
@@ -125,11 +147,48 @@ export class ExecutionSync {
     }
   }
 
+  private async readWorkflowStates(
+    execution: models.Execution,
+    pending: models.InputRequest[],
+    known: Record<string, models.WorkflowState> = {},
+  ): Promise<Record<string, models.WorkflowState>> {
+    const ids = new Set([
+      execution.root_workflow_id,
+      ...Object.keys(execution.checkpoint.heads),
+      ...this.history.snapshot.items.flatMap((item) => {
+        const step = object(item.step);
+        return [
+          text(step.workflow_id),
+          text(object(step.operation).child_workflow_id),
+        ];
+      }),
+      ...pending.map((request) => request.workflow_id ?? ""),
+    ]);
+    const loaded = await Promise.all(
+      [...ids]
+        .filter((id) => id && !known[id])
+        .map(
+          async (id) =>
+            [id, await this.api.workflowState(this.executionId, id)] as const,
+        ),
+    );
+    return { ...known, ...Object.fromEntries(loaded) };
+  }
+
   private update(event: Params): boolean {
     const execution = object(event.execution);
+    const workflow = object(event.workflow);
     const request = object(event.request);
     const address = object(event.address);
-    if (
+    if (event.kind === "workflow.updated" && typeof workflow.id === "string") {
+      this.state = {
+        ...this.state,
+        workflowStates: {
+          ...this.state.workflowStates,
+          [workflow.id]: workflow as models.WorkflowState,
+        },
+      };
+    } else if (
       event.kind === "execution.state_updated" &&
       execution.id === this.executionId
     ) {

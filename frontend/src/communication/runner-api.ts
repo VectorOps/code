@@ -143,6 +143,12 @@ export class RunnerApi {
       execution_id,
     });
   }
+  workflowState(execution_id: string, workflow_id: string) {
+    return this.connection.request<models.WorkflowState>("workflows.state", {
+      execution_id,
+      workflow_id,
+    });
+  }
   branch(
     execution_id: string,
     step_id: string,

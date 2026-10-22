@@ -39,6 +39,13 @@ function setup() {
   const api = new RunnerApi(new RunnerConnection("ws://localhost", "test"));
   const reads = {
     execution: vi.spyOn(api, "execution").mockResolvedValue(execution),
+    workflow: vi
+      .spyOn(api, "workflowState")
+      .mockImplementation(async (_execution, id) => ({
+        id,
+        definition_ref: `test:${id}`,
+        presentation: { short_name: "Agent", options: ["llm_only"] },
+      })),
     history: vi
       .spyOn(api, "history")
       .mockResolvedValue({ items: [], next_cursor: null }),
@@ -59,7 +66,19 @@ function setup() {
 test("live tool, checkpoint, approval and steering pushes update the view without reads", async () => {
   const { sync, reads, apply, view } = setup();
   await sync.synchronize(() => true);
+  expect(view().workflowStates?.root.presentation?.options).toEqual([
+    "llm_only",
+  ]);
   for (const read of Object.values(reads)) read.mockClear();
+  apply({
+    kind: "workflow.updated",
+    workflow: {
+      id: "root",
+      definition_ref: "test:root",
+      presentation: { short_name: "Updated", bgcolor: "#123456", options: [] },
+    },
+  });
+  expect(view().workflowStates?.root.presentation?.short_name).toBe("Updated");
 
   apply({ kind: "mailbox.requested", request });
   expect(view().pending).toEqual([request]);
@@ -174,6 +193,14 @@ test("pushes during bootstrap win over older execution, input, history and inbox
   reads.messages.mockReturnValue(new Promise((resolve) => (finish = resolve)));
   const loading = sync.synchronize(() => true);
   await vi.waitFor(() => expect(reads.messages).toHaveBeenCalledTimes(1));
+  apply({
+    kind: "workflow.updated",
+    workflow: {
+      id: "root",
+      definition_ref: "test:root",
+      presentation: { options: ["prefix_messages"] },
+    },
+  });
   const updated = {
     ...execution,
     status: "paused",
@@ -226,6 +253,9 @@ test("pushes during bootstrap win over older execution, input, history and inbox
   });
   finish([{ ...message, id: "stale" }]);
   await loading;
+  expect(view().workflowStates?.root.presentation?.options).toEqual([
+    "prefix_messages",
+  ]);
   expect(view().execution).toEqual(updated);
   expect(view().pending).toEqual([]);
   expect(view().steering).toEqual({ address, messages: [message], count: 1 });
@@ -264,4 +294,93 @@ test("disconnect discards in-flight bootstrap responses and reconnect reloads th
   for (const read of [reads.history, reads.pending])
     expect(read).toHaveBeenCalledTimes(1);
   expect(reads.inboxes).not.toHaveBeenCalled();
+});
+
+test("saved presentation is loaded for checkpoint, history, spawn and pending workflows", async () => {
+  const { sync, reads, view } = setup();
+  reads.execution.mockResolvedValue({
+    ...execution,
+    checkpoint: { heads: { checkpoint: "head" } },
+  });
+  reads.history.mockResolvedValue({
+    items: [
+      {
+        position: 1,
+        step: {
+          id: "spawn",
+          workflow_id: "history",
+          operation: { kind: "workflow.spawn", child_workflow_id: "spawned" },
+        },
+      },
+    ],
+    next_cursor: null,
+  });
+  reads.pending.mockResolvedValue([{ ...request, workflow_id: "pending" }]);
+  await sync.synchronize(() => true);
+  expect(Object.keys(view().workflowStates ?? {}).sort()).toEqual([
+    "checkpoint",
+    "history",
+    "pending",
+    "root",
+    "spawned",
+  ]);
+  expect(reads.workflow).toHaveBeenCalledTimes(5);
+  expect(reads.workflow).toHaveBeenCalledWith("execution", "root");
+});
+
+test("loading older history fetches only missing workflow metadata", async () => {
+  const { sync, reads, view } = setup();
+  sync.configureHistory({ initial: 1, older: 1, target: 1, maximum: 2 });
+  reads.history.mockResolvedValueOnce({
+    items: [
+      {
+        position: 2,
+        step: {
+          id: "latest",
+          workflow_id: "root",
+          operation: { kind: "llm.generate" },
+        },
+      },
+    ],
+    next_cursor: "older",
+  });
+  await sync.synchronize(() => true);
+  reads.workflow.mockClear();
+  reads.history.mockResolvedValueOnce({
+    items: [
+      {
+        position: 1,
+        step: {
+          id: "old",
+          workflow_id: "old-child",
+          operation: { kind: "llm.generate" },
+        },
+      },
+    ],
+    next_cursor: null,
+  });
+  await sync.loadOlder(() => true);
+  expect(view().workflowStates?.["old-child"].presentation?.options).toEqual([
+    "llm_only",
+  ]);
+  expect(reads.workflow).toHaveBeenCalledExactlyOnceWith(
+    "execution",
+    "old-child",
+  );
+});
+
+test("workflow state uses the persisted workflow RPC", async () => {
+  const connection = new RunnerConnection("ws://localhost", "test");
+  const request = vi
+    .spyOn(connection, "request")
+    .mockResolvedValue({ id: "child", definition_ref: "test:child" });
+  const api = new RunnerApi(connection);
+  expect(await api.workflowState("execution", "child")).toEqual({
+    id: "child",
+    definition_ref: "test:child",
+  });
+  expect(request).toHaveBeenCalledWith("workflows.state", {
+    execution_id: "execution",
+    workflow_id: "child",
+  });
 });

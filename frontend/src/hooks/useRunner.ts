@@ -39,6 +39,9 @@ export function useRunner(
   );
   const [selected, setSelected] = React.useState("");
   const [execution, setExecution] = React.useState<models.Execution>();
+  const [workflowStates, setWorkflowStates] = React.useState<
+    Record<string, models.WorkflowState>
+  >({});
   const [branching, setBranching] = React.useState<models.BranchAccepted>();
   const [history, setHistory] = React.useState<HistoryWindow>(emptyHistory);
   const [pending, setPending] = React.useState<models.InputRequest[]>([]);
@@ -75,6 +78,7 @@ export function useRunner(
         executionSync.current?.invalidate();
         setSelected("");
         setExecution(undefined);
+        setWorkflowStates({});
         setHistory(emptyHistory());
         setPending([]);
         setSteering(undefined);
@@ -138,7 +142,11 @@ export function useRunner(
       });
     };
     connection.onEvent = (event) => {
-      if (!alive || event.kind === "workflow.updated") return;
+      if (!alive) return;
+      if (event.kind === "workflow.updated") {
+        executionSync.current?.apply(event);
+        return;
+      }
       const eventExecution = text(event.execution_id);
       if (event.kind === "execution.deleted" && eventExecution) {
         removeExecution(eventExecution);
@@ -203,6 +211,7 @@ export function useRunner(
     setPending([]);
     setSteering(undefined);
     setExecution(undefined);
+    setWorkflowStates({});
     if (!api || !sessionSync || !selected) return;
     const sync = new ExecutionSync(
       api,
@@ -210,6 +219,7 @@ export function useRunner(
       (view) => {
         if (!active()) return;
         setExecution(view.execution);
+        setWorkflowStates(view.workflowStates ?? {});
         setHistory(view.history);
         setPending(view.pending);
         setSteering(view.steering);
@@ -410,6 +420,7 @@ export function useRunner(
     trimHistory,
     loadOlderHistory,
     execution,
+    workflowStates,
     branching,
     pending,
     steering,

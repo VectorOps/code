@@ -118,6 +118,7 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
         onSelect={runner.select}
         history={runner.history.items}
         execution={runner.execution}
+        workflowStates={runner.workflowStates}
         branching={runner.branching?.execution_id === runner.selected}
         hasOlder={runner.history.hasOlder}
         historyLimits={historySettings.limits}

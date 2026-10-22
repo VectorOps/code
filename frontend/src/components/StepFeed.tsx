@@ -15,6 +15,17 @@ import * as feedState from "./FeedState";
 import { FocusRegion } from "../focus/FocusProvider";
 import { StepBranchControls } from "./StepBranchControls";
 import { WorktreeLabel } from "./Worktrees";
+import * as presentation from "../models/workflow-display";
+
+function displayStyle(
+  display: presentation.WorkflowDisplay,
+): React.CSSProperties | undefined {
+  return display.bgcolor
+    ? {
+        backgroundColor: `color-mix(in srgb, ${display.bgcolor} 15%, var(--color-white))`,
+      }
+    : undefined;
+}
 
 function requestId(request: InputRequest) {
   return `decision-${request.execution_id}-${request.request_id}`;
@@ -52,12 +63,16 @@ function WorkflowBranch({
   actions,
   active,
   grouping,
+  display,
+  showAll,
 }: {
   node: WorkflowNode;
   registry: StepRegistry;
   actions: StepActions;
   active: boolean;
   grouping: ToolGrouping;
+  display: presentation.WorkflowDisplay;
+  showAll: boolean;
 }) {
   const requests = React.useMemo(
     () => workflows.workflowRequests(node),
@@ -83,7 +98,7 @@ function WorkflowBranch({
         setExpanded(event.currentTarget.open);
       }}
     >
-      <summary>
+      <summary style={displayStyle(display)}>
         <span>
           {node.label}
           {worktreeId && <WorktreeLabel id={worktreeId} />}
@@ -112,6 +127,8 @@ function WorkflowBranch({
             actions={actions}
             active={active}
             grouping={grouping}
+            display={display}
+            showAll={showAll}
           />
         </>
       )}
@@ -125,12 +142,16 @@ function WorkflowContents({
   actions,
   active,
   grouping,
+  display,
+  showAll,
 }: {
   node: WorkflowNode;
   registry: StepRegistry;
   actions: StepActions;
   active: boolean;
   grouping: ToolGrouping;
+  display: presentation.WorkflowDisplay;
+  showAll: boolean;
 }) {
   const inline = new Set<string>();
   const entries = React.useMemo(
@@ -138,11 +159,11 @@ function WorkflowContents({
       node.entries.filter(
         (entry) =>
           "entries" in entry ||
-          entry.kind === "llm.tool" ||
-          registry.resolve(entry) ||
+          (presentation.showsStep(display, entry) &&
+            (entry.kind === "llm.tool" || registry.resolve(entry))) ||
           node.requests.some((request) => request.request_id === entry.id),
       ),
-    [node, registry],
+    [node, registry, display],
   );
   const grouped = React.useMemo(
     () => groupTools(entries, actions.pending, grouping),
@@ -157,13 +178,14 @@ function WorkflowContents({
       {grouped.map((entry) => {
         if ("steps" in entry)
           return (
-            <ToolGroup
-              key={entry.id}
-              group={entry}
-              registry={registry}
-              actions={actions}
-              failuresRecovered={failuresRecovered}
-            />
+            <div key={entry.id} style={displayStyle(display)}>
+              <ToolGroup
+                group={entry}
+                registry={registry}
+                actions={actions}
+                failuresRecovered={failuresRecovered}
+              />
+            </div>
           );
         if ("entries" in entry)
           return (
@@ -174,6 +196,13 @@ function WorkflowContents({
               actions={actions}
               active={active}
               grouping={grouping}
+              display={presentation.resolveDisplay(
+                entry.workflow,
+                entry.label,
+                display,
+                showAll,
+              )}
+              showAll={showAll}
             />
           );
         const request = node.requests.find(
@@ -209,13 +238,18 @@ function WorkflowContents({
           return (
             <FocusRegion
               mode={request ? "protected" : undefined}
-              className="feed-item"
+              className={`feed-item${display.bgcolor ? " workflow-colored" : ""}`}
+              style={displayStyle(display)}
               data-history-position={entry.item.position}
               data-history-key={entry.id}
               key={entry.id}
               id={request ? requestId(request) : undefined}
               tabIndex={request ? -1 : undefined}
             >
+              {presentation.displayKind(entry) === "message" &&
+                display.options.has("prefix_messages") && (
+                  <div className="workflow-message-prefix">{display.label}</div>
+                )}
               <Component
                 step={entry}
                 actions={entryActions}
@@ -269,10 +303,24 @@ function FeedContents({
   projection,
   onReview,
 }: FeedProps) {
+  const [showAll, setShowAll] = React.useState(false);
   const roots = React.useMemo(
     () => projection?.roots ?? workflows.workflowTree(history, actions.pending),
     [history, actions.pending, projection],
   );
+  const hasRestrictions = React.useMemo(() => {
+    function restricted(node: WorkflowNode): boolean {
+      return (
+        Boolean(
+          node.workflow?.presentation?.options?.some(
+            (option) => option === "llm_only" || option === "hide_subworkflows",
+          ),
+        ) ||
+        node.entries.some((entry) => "entries" in entry && restricted(entry))
+      );
+    }
+    return roots.some(restricted);
+  }, [roots]);
   const requests = React.useMemo(() => {
     const requests: {
       request: InputRequest;
@@ -315,6 +363,18 @@ function FeedContents({
   }
   return (
     <>
+      {hasRestrictions && (
+        <div className="feed-controls">
+          <label>
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(event) => setShowAll(event.target.checked)}
+            />
+            Show all workflow activity
+          </label>
+        </div>
+      )}
       {requests.length > 0 && (
         <aside
           className="workflow-attention"
@@ -340,6 +400,13 @@ function FeedContents({
           actions={actions}
           active={active}
           grouping={grouping}
+          display={presentation.resolveDisplay(
+            node.workflow,
+            node.label,
+            undefined,
+            showAll,
+          )}
+          showAll={showAll}
         />
       ))}
       {!roots.length && (

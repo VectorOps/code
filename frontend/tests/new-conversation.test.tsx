@@ -68,6 +68,7 @@ function mockRunner() {
     trimHistory: vitest.vi.fn(),
     loadOlderHistory: vitest.vi.fn(async () => {}),
     execution: undefined,
+    workflowStates: {},
     branching: undefined,
     pending: [],
     steering: undefined,

@@ -747,6 +747,12 @@ vitest.test(
 
 function mockRunner() {
   vitest.vi
+    .spyOn(RunnerApi.prototype, "workflowState")
+    .mockImplementation(async (_execution, id) => ({
+      id,
+      definition_ref: `test:${id}`,
+    }));
+  vitest.vi
     .spyOn(RunnerConnection.prototype, "connect")
     .mockImplementation(function (this: RunnerConnection) {
       this.onStatus("Connected");

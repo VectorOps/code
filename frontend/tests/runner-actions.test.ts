@@ -7,6 +7,14 @@ import type { Params } from "../src/models/json";
 import type { Session } from "../src/models/runner";
 
 vitest.afterEach(() => vitest.vi.restoreAllMocks());
+vitest.beforeEach(() => {
+  vitest.vi
+    .spyOn(RunnerApi.prototype, "workflowState")
+    .mockImplementation(async (_execution, id) => ({
+      id,
+      definition_ref: `test:${id}`,
+    }));
+});
 
 vitest.test(
   "deletion uses the execution RPC, retains failures, and clears only the deleted selection",
@@ -25,12 +33,10 @@ vitest.test(
         this.onReady();
       });
     vitest.vi.spyOn(RunnerApi.prototype, "subscribe").mockResolvedValue({});
-    vitest.vi
-      .spyOn(RunnerApi.prototype, "sessions")
-      .mockResolvedValue({
-        executions: [session, { ...session, execution_id: "other" }],
-        next_after: null,
-      });
+    vitest.vi.spyOn(RunnerApi.prototype, "sessions").mockResolvedValue({
+      executions: [session, { ...session, execution_id: "other" }],
+      next_after: null,
+    });
     vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
     vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
     vitest.vi.spyOn(RunnerApi.prototype, "inboxes").mockResolvedValue([]);
@@ -74,11 +80,9 @@ vitest.test(
       finish({ execution_id: "existing", deleted: true });
       await deleting;
     });
-    vitest
-      .expect(request)
-      .toHaveBeenLastCalledWith("executions.delete", {
-        execution_id: "existing",
-      });
+    vitest.expect(request).toHaveBeenLastCalledWith("executions.delete", {
+      execution_id: "existing",
+    });
     vitest.expect(view.result.current.selected).toBe("other");
     vitest
       .expect(view.result.current.sessions.map((item) => item.execution_id))
@@ -419,6 +423,11 @@ vitest.test(
             id: "root",
             definition_ref: "chat:workflow",
             name: "Generated title",
+            presentation: {
+              short_name: "Chat",
+              bgcolor: "#123456",
+              options: ["prefix_messages"],
+            },
           },
         });
         view.result.current.api!.connection.onEvent({
@@ -428,6 +437,13 @@ vitest.test(
         });
       });
       vitest.expect(view.result.current.sessions[0]).toEqual(session);
+      vitest
+        .expect(view.result.current.workflowStates.root.presentation)
+        .toEqual({
+          short_name: "Chat",
+          bgcolor: "#123456",
+          options: ["prefix_messages"],
+        });
       await testing.act(() => vitest.vi.advanceTimersByTimeAsync(200));
       for (const read of [
         sessions,

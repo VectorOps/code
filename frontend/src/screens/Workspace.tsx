@@ -69,6 +69,7 @@ function WorkspaceContent({
   onCreate,
   history,
   execution,
+  workflowStates,
   branching = false,
   pending,
   steering,
@@ -113,6 +114,7 @@ function WorkspaceContent({
   onCreate?: () => Promise<boolean>;
   history: models.HistoryItem[];
   execution?: models.Execution;
+  workflowStates?: Record<string, models.WorkflowState>;
   branching?: boolean;
   pending: models.InputRequest[];
   steering?: {
@@ -180,12 +182,14 @@ function WorkspaceContent({
         conversationHistory,
         pending,
         execution?.root_workflow_id ?? current?.root_workflow_id ?? undefined,
+        workflowStates,
       ),
     [
       conversationHistory,
       pending,
       execution?.root_workflow_id,
       current?.root_workflow_id,
+      workflowStates,
     ],
   );
   const { chat: chatRequests, decisions } = projection;

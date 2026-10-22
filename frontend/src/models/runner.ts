@@ -1,5 +1,6 @@
 import type { Json } from "./json";
 import { chatMessage, type ImageInput } from "./chat-input";
+import type { WorkflowPresentation } from "./workflow-display";
 
 export type ExecutionUsage = {
   totals: {
@@ -36,7 +37,14 @@ export type Workflow = {
     name: string;
     description: string | null;
     input_schema: Json;
+    presentation?: WorkflowPresentation;
   };
+};
+export type WorkflowState = {
+  id: string;
+  definition_ref: string;
+  name?: string | null;
+  presentation?: WorkflowPresentation;
 };
 
 export function workflowDisplayName(
