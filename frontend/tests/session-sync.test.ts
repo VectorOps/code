@@ -43,6 +43,25 @@ function setup() {
 
 vitest.afterEach(() => vitest.vi.restoreAllMocks());
 
+vitest.test.each(["synchronize", "loadMore"] as const)(
+  "deletion survives stale %s responses and later updates",
+  async (method) => {
+    const { sync, sessions, publish, push } = setup();
+    sessions.mockResolvedValueOnce(page([original], "existing"));
+    await sync.synchronize(() => true);
+    let finish = (_value: SessionPage) => {};
+    sessions.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    const loading = sync[method](() => true);
+    await Promise.resolve();
+    sync.remove("existing");
+    vitest.expect(sync.get("existing")).toBeUndefined();
+    finish(page([original]));
+    await loading;
+    push(original);
+    vitest.expect(publish.mock.lastCall![0].sessions).toEqual([]);
+  },
+);
+
 vitest.test(
   "subscribes before fetching and overlays pushes received during either request",
   async () => {

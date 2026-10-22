@@ -17,6 +17,7 @@ import { Decision } from "../components/Decision";
 import { SessionSidebar } from "../components/SessionSidebar";
 import { Composer } from "../components/Composer";
 import { WorkflowStats } from "../components/WorkflowStats";
+import { DeleteWorkflow } from "../components/DeleteWorkflow";
 import { WorktreeLabel } from "../components/Worktrees";
 import { useConversationScroll } from "../hooks/useConversationScroll";
 import { useImageAttachments } from "../hooks/useImageAttachments";
@@ -37,6 +38,7 @@ type Inspector =
   | { kind: "decisions" }
   | { kind: "steering" }
   | { kind: "stats" }
+  | { kind: "delete" }
   | { kind: "new" }
   | { kind: "settings" }
   | { kind: "workflow-permissions" }
@@ -76,6 +78,7 @@ function WorkspaceContent({
   busy,
   onStop,
   onResume,
+  onDelete,
   onReply,
   onSteer,
   onRemoveSteering,
@@ -123,6 +126,7 @@ function WorkspaceContent({
   busy: boolean;
   onStop: () => void | Promise<void>;
   onResume?: () => Promise<void>;
+  onDelete?: (executionId: string) => Promise<boolean>;
   onReply: (
     request: models.InputRequest,
     response: Json,
@@ -397,6 +401,28 @@ function WorkspaceContent({
             )}
           </div>
           <div className="header-actions">
+            {current && onDelete && (
+              <button
+                type="button"
+                className="quiet-button icon-button"
+                aria-label="Delete workflow"
+                title="Delete workflow"
+                disabled={!enabled || busy}
+                onClick={() => open({ kind: "delete" })}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  aria-hidden="true"
+                >
+                  <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7" />
+                </svg>
+              </button>
+            )}
             {current && (
               <button
                 className="quiet-button icon-button"
@@ -633,6 +659,7 @@ function WorkspaceContent({
                   decisions: "Pending decisions",
                   steering: "Queued steering messages",
                   stats: "Workflow stats",
+                  delete: "Delete workflow",
                   new: "Advanced new conversation",
                   connection: "Connection settings",
                   settings: "Settings",
@@ -663,6 +690,20 @@ function WorkspaceContent({
             {inspector.kind === "workflow-permissions" && workflowPermissions}
             {inspector.kind === "stats" && current && (
               <WorkflowStats session={current} />
+            )}
+            {inspector.kind === "delete" && current && onDelete && (
+              <DeleteWorkflow
+                key={scope}
+                executionId={current.execution_id}
+                name={currentName}
+                enabled={enabled && !busy}
+                blocked={
+                  branching ||
+                  ["running", "starting", "stopping"].includes(current.status)
+                }
+                remove={onDelete}
+                cancel={close}
+              />
             )}
             {inspector.kind === "activity" && (
               <ActivityDetails

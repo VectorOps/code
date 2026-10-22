@@ -9,6 +9,102 @@ import type { Session } from "../src/models/runner";
 vitest.afterEach(() => vitest.vi.restoreAllMocks());
 
 vitest.test(
+  "deletion uses the execution RPC, retains failures, and clears only the deleted selection",
+  async () => {
+    const session: Session = {
+      execution_id: "existing",
+      reference: null,
+      status: "completed",
+      active: false,
+      pending_inputs: 0,
+    };
+    vitest.vi
+      .spyOn(RunnerConnection.prototype, "connect")
+      .mockImplementation(function (this: RunnerConnection) {
+        this.onStatus("Connected");
+        this.onReady();
+      });
+    vitest.vi.spyOn(RunnerApi.prototype, "subscribe").mockResolvedValue({});
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "sessions")
+      .mockResolvedValue({
+        executions: [session, { ...session, execution_id: "other" }],
+        next_after: null,
+      });
+    vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "inboxes").mockResolvedValue([]);
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "history")
+      .mockResolvedValue({ items: [], next_cursor: null });
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "execution")
+      .mockImplementation(async (id) => ({
+        id,
+        root_workflow_id: "root",
+        status: "completed",
+        checkpoint: { heads: {} },
+      }));
+    const request = vitest.vi.spyOn(RunnerConnection.prototype, "request");
+    const view = testing.renderHook(() =>
+      useRunner({ endpoint: "ws://localhost", token: "test" }),
+    );
+    await testing.waitFor(() =>
+      vitest.expect(view.result.current.sessions).toHaveLength(2),
+    );
+    testing.act(() => view.result.current.select("existing"));
+    request.mockRejectedValueOnce(new Error("Deletion failed"));
+    await testing.act(async () => {
+      vitest
+        .expect(await view.result.current.deleteExecution("existing"))
+        .toBe(false);
+    });
+    vitest.expect(view.result.current.selected).toBe("existing");
+    vitest.expect(view.result.current.sessions).toHaveLength(2);
+    vitest.expect(view.result.current.error).toContain("Deletion failed");
+    let finish = (_value: unknown) => {};
+    request.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    let deleting: Promise<boolean>;
+    testing.act(() => {
+      deleting = view.result.current.deleteExecution("existing");
+    });
+    vitest.expect(view.result.current.busy).toBe(true);
+    testing.act(() => view.result.current.select("other"));
+    await testing.act(async () => {
+      finish({ execution_id: "existing", deleted: true });
+      await deleting;
+    });
+    vitest
+      .expect(request)
+      .toHaveBeenLastCalledWith("executions.delete", {
+        execution_id: "existing",
+      });
+    vitest.expect(view.result.current.selected).toBe("other");
+    vitest
+      .expect(view.result.current.sessions.map((item) => item.execution_id))
+      .toEqual(["other"]);
+    await testing.waitFor(() =>
+      vitest.expect(view.result.current.execution?.id).toBe("other"),
+    );
+    testing.act(() =>
+      view.result.current.api!.connection.onEvent({
+        kind: "execution.deleted",
+        execution_id: "other",
+        deleted: true,
+      }),
+    );
+    vitest.expect(view.result.current.selected).toBe("");
+    vitest.expect(view.result.current.sessions).toEqual([]);
+    vitest.expect(view.result.current.execution).toBeUndefined();
+    vitest.expect(view.result.current.history.items).toEqual([]);
+    vitest.expect(view.result.current.pending).toEqual([]);
+    vitest.expect(view.result.current.steering).toBeUndefined();
+    vitest.expect(view.result.current.busy).toBe(false);
+    view.unmount();
+  },
+);
+
+vitest.test(
   "steering removal uses the inbox RPC and live queue updates",
   async () => {
     vitest.vi

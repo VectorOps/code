@@ -58,6 +58,31 @@ export function useRunner(
   const executionSync = React.useRef<ExecutionSync>(undefined);
   const refreshSelected = React.useRef(() => {});
 
+  const removeExecution = React.useCallback(
+    (executionId: string) => {
+      sessionSync?.remove(executionId);
+      setActivitySessions((previous) => {
+        if (!previous.has(executionId)) return previous;
+        const next = new Set(previous);
+        next.delete(executionId);
+        return next;
+      });
+      setBranching((previous) =>
+        previous?.execution_id === executionId ? undefined : previous,
+      );
+      if (selectedRef.current === executionId) {
+        selectedRef.current = "";
+        executionSync.current?.invalidate();
+        setSelected("");
+        setExecution(undefined);
+        setHistory(emptyHistory());
+        setPending([]);
+        setSteering(undefined);
+      }
+    },
+    [sessionSync],
+  );
+
   function connect(next: models.ConnectionSettings) {
     try {
       const nextApi = new RunnerApi(
@@ -115,6 +140,10 @@ export function useRunner(
     connection.onEvent = (event) => {
       if (!alive || event.kind === "workflow.updated") return;
       const eventExecution = text(event.execution_id);
+      if (event.kind === "execution.deleted" && eventExecution) {
+        removeExecution(eventExecution);
+        return;
+      }
       if (eventExecution && eventExecution !== selectedRef.current) {
         setActivitySessions((previous) =>
           previous.has(eventExecution)
@@ -157,7 +186,7 @@ export function useRunner(
       ready.current = false;
       connection.close();
     };
-  }, [api, sessionSync]);
+  }, [api, sessionSync, removeExecution]);
 
   React.useEffect(() => {
     if (selected)
@@ -350,6 +379,17 @@ export function useRunner(
     });
   }
 
+  const deleteExecution = React.useCallback(
+    (executionId: string) => {
+      if (!executionId || !ready.current || busy) return Promise.resolve(false);
+      return action(async (api) => {
+        await api.deleteExecution(executionId);
+        removeExecution(executionId);
+      });
+    },
+    [action, busy, removeExecution],
+  );
+
   return {
     api,
     settings,
@@ -377,6 +417,7 @@ export function useRunner(
     enabled: status === "Connected" && !busy,
     start,
     resume,
+    deleteExecution,
     stop: () =>
       action(async (api) => {
         await api.stop(selected);

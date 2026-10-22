@@ -142,6 +142,7 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
         onResume={async () => {
           await runner.resume();
         }}
+        onDelete={runner.deleteExecution}
         onReply={runner.reply}
         onSteer={runner.steer}
         onRemoveSteering={runner.removeSteering}

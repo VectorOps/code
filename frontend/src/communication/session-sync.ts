@@ -12,6 +12,7 @@ export class SessionSync {
   private sessions = new Map<string, Session>();
   private values: Session[] = [];
   private updates = new Map<string, Session>();
+  private deleted = new Set<string>();
   private generation = 0;
   private after: string | null = null;
   private loading = false;
@@ -56,6 +57,7 @@ export class SessionSync {
       if (retained && !refreshed.has(selected))
         refreshed.set(selected, retained);
       for (const [id, summary] of this.updates) refreshed.set(id, summary);
+      for (const id of this.deleted) refreshed.delete(id);
       this.sessions = new Map([
         ...[...this.sessions.keys()]
           .filter((id) => refreshed.has(id))
@@ -89,7 +91,10 @@ export class SessionSync {
       const page = await this.api.sessions(after);
       if (!current()) return false;
       for (const summary of page.executions) {
-        if (!this.updates.has(summary.execution_id))
+        if (
+          !this.updates.has(summary.execution_id) &&
+          !this.deleted.has(summary.execution_id)
+        )
           this.sessions.set(summary.execution_id, summary);
       }
       this.after = page.next_after;
@@ -113,6 +118,7 @@ export class SessionSync {
     const summary = await this.api.session(executionId);
     if (
       !active() ||
+      this.deleted.has(executionId) ||
       generation !== this.generation ||
       this.get(executionId) !== previous
     )
@@ -126,11 +132,18 @@ export class SessionSync {
     return this.sessions.get(executionId);
   }
 
+  remove(executionId: string) {
+    this.deleted.add(executionId);
+    this.updates.delete(executionId);
+    if (this.sessions.delete(executionId)) this.emit(true);
+  }
+
   apply(event: Params): { summary: Session; previous?: Session } | undefined {
     if (event.kind !== "execution.updated") return;
     const value = object(event.summary);
     if (
       typeof event.execution_id !== "string" ||
+      this.deleted.has(event.execution_id) ||
       value.execution_id !== event.execution_id ||
       typeof value.status !== "string" ||
       typeof value.active !== "boolean" ||

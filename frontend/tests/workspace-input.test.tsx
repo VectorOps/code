@@ -278,6 +278,119 @@ const request: InputRequest = {
   payload: {},
 };
 
+vitest.test(
+  "workflow deletion is a header action requiring explicit confirmation",
+  async () => {
+    const onDelete = vitest.vi.fn(async () => false);
+    const session = {
+      execution_id: "session-a",
+      reference: "chat:workflow",
+      name: "My conversation",
+      status: "completed",
+      active: false,
+      pending_inputs: 0,
+    };
+    const props = {
+      ...workspaceProps(),
+      sessions: [session],
+      pending: [],
+      onDelete,
+    };
+    const view = render(<Workspace {...props} />);
+    const user = userEvent.setup();
+    const icon = view.getByRole("button", { name: "Delete workflow" });
+    vitest.expect(icon.closest(".session-header")).not.toBeNull();
+    await user.click(icon);
+    vitest.expect(onDelete).not.toHaveBeenCalled();
+    vitest.expect(view.getByText("Delete “My conversation”?")).toBeTruthy();
+    vitest.expect(view.getByText(/This cannot be undone/)).toBeTruthy();
+    await user.click(view.getByRole("button", { name: "Cancel" }));
+    vitest.expect(onDelete).not.toHaveBeenCalled();
+    vitest
+      .expect(view.queryByRole("group", { name: "Confirm workflow deletion" }))
+      .toBeNull();
+    await user.click(icon);
+    await user.keyboard("{Escape}");
+    vitest.expect(onDelete).not.toHaveBeenCalled();
+    await user.click(icon);
+    await user.click(
+      view.getByRole("button", { name: "Permanently delete workflow" }),
+    );
+    vitest.expect(onDelete).toHaveBeenCalledExactlyOnceWith("session-a");
+    vitest
+      .expect(view.getByRole("alert").textContent)
+      .toContain("Workflow was not deleted");
+    onDelete.mockResolvedValue(true);
+    await user.click(
+      view.getByRole("button", { name: "Permanently delete workflow" }),
+    );
+    vitest
+      .expect(view.queryByRole("group", { name: "Confirm workflow deletion" }))
+      .toBeNull();
+    await user.click(icon);
+    view.rerender(
+      <Workspace
+        {...props}
+        selected="session-b"
+        sessions={[session, { ...session, execution_id: "session-b" }]}
+      />,
+    );
+    vitest
+      .expect(view.queryByRole("group", { name: "Confirm workflow deletion" }))
+      .toBeNull();
+    vitest.expect(onDelete).toHaveBeenCalledTimes(2);
+  },
+);
+
+vitest.test(
+  "workflow deletion is unavailable without a selection or connection and blocks active runs",
+  async () => {
+    const props = {
+      ...workspaceProps(),
+      pending: [],
+      onDelete: vitest.vi.fn(async () => true),
+    };
+    const view = render(<Workspace {...props} selected="" />);
+    const user = userEvent.setup();
+    vitest
+      .expect(view.queryByRole("button", { name: "Delete workflow" }))
+      .toBeNull();
+    const session = {
+      execution_id: "session-a",
+      reference: null,
+      status: "running",
+      active: true,
+      pending_inputs: 0,
+    };
+    view.rerender(
+      <Workspace {...props} sessions={[session]} enabled={false} />,
+    );
+    vitest
+      .expect(view.getByRole("button", { name: "Delete workflow" }))
+      .toHaveProperty("disabled", true);
+    view.rerender(<Workspace {...props} sessions={[session]} />);
+    await user.click(view.getByRole("button", { name: "Delete workflow" }));
+    for (const status of ["running", "starting", "stopping"]) {
+      view.rerender(
+        <Workspace {...props} sessions={[{ ...session, status }]} />,
+      );
+      vitest
+        .expect(
+          view.getByRole("button", { name: "Permanently delete workflow" }),
+        )
+        .toHaveProperty("disabled", true);
+    }
+    vitest.expect(view.getByText(/Stop the workflow and wait/)).toBeTruthy();
+    view.rerender(
+      <Workspace {...props} sessions={[{ ...session, status: "paused" }]} />,
+    );
+    vitest
+      .expect(view.getByRole("button", { name: "Permanently delete workflow" }))
+      .toHaveProperty("disabled", false);
+    vitest.expect(props.onDelete).not.toHaveBeenCalled();
+  },
+);
+
 function workspaceProps(): ComponentProps<typeof Workspace> {
   return {
     sessions: [],

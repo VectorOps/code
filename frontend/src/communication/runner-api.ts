@@ -132,6 +132,12 @@ export class RunnerApi {
   stop(execution_id: string) {
     return this.connection.request("executions.stop", { execution_id });
   }
+  deleteExecution(execution_id: string) {
+    return this.connection.request<{
+      execution_id: string;
+      deleted: boolean;
+    }>("executions.delete", { execution_id });
+  }
   execution(execution_id: string) {
     return this.connection.request<models.Execution>("executions.get", {
       execution_id,
