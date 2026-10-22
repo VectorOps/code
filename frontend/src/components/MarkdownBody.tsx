@@ -2,9 +2,11 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { memo } from "react";
 import { HighlightedCode } from "./HighlightedCode";
+import { CodeBlock } from "./CodeBlock";
 
 const plugins = [remarkGfm];
 const components: Components = {
+  pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
   code: ({ children, className }) => (
     <HighlightedCode
       language={/\blanguage-([^\s]+)/.exec(className ?? "")?.[1]}

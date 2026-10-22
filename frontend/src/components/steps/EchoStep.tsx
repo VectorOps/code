@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { object, text } from "../../models/json";
 import { MarkdownBody } from "../MarkdownBody";
+import { CodeBlock } from "../CodeBlock";
 import { useStepBranchControls } from "../StepBranchControls";
 import { StepCard } from "./StepCard";
 import { StepIndicators } from "./StepIndicators";
@@ -22,7 +23,7 @@ export const EchoStep = memo(function EchoStep({ step, actions }: StepProps) {
       {typeof value === "string" ? (
         <MarkdownBody message={value} />
       ) : value !== undefined ? (
-        <pre>{JSON.stringify(value, null, 2)}</pre>
+        <CodeBlock>{JSON.stringify(value, null, 2)}</CodeBlock>
       ) : null}
       {step.state === "failed" && (
         <p className="failure-text">

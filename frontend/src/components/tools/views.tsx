@@ -3,6 +3,7 @@ import { toolFailureMessage, toolPayload } from "../../models/steps";
 import type { ToolProps, ToolView } from "./factory";
 import { memo, type ReactNode } from "react";
 import { HighlightedCode } from "../HighlightedCode";
+import { CodeBlock } from "../CodeBlock";
 import { LazyDetails } from "../LazyDetails";
 
 function Summary({ items, fallback }: { items: string[]; fallback: string }) {
@@ -84,13 +85,13 @@ function Code({
   language?: string;
 }) {
   return (
-    <pre className="tool-code">
+    <CodeBlock className="tool-code">
       <HighlightedCode
         language={language ?? (typeof value === "string" ? undefined : "json")}
       >
         {display(value)}
       </HighlightedCode>
-    </pre>
+    </CodeBlock>
   );
 }
 
@@ -509,9 +510,9 @@ function PlanList({
 
 function Diff({ lines }: { lines: string[] }) {
   return (
-    <pre className="tool-diff">
+    <CodeBlock className="tool-diff">
       <HighlightedCode language="diff">{lines.join("\n")}</HighlightedCode>
-    </pre>
+    </CodeBlock>
   );
 }
 
