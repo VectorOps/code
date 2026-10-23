@@ -21,6 +21,8 @@ export type ExecutionView = {
 
 type Inbox = models.InboxStatus & { messages: models.InboxMessage[] };
 
+const workflowStateBatchSize = 32;
+
 export class ExecutionSync {
   private history: HistorySync;
   private state: ExecutionView = {
@@ -73,6 +75,7 @@ export class ExecutionSync {
         const workflowStates = await this.readWorkflowStates(
           this.state.execution,
           this.state.pending,
+          current,
           this.state.workflowStates,
         );
         if (current()) {
@@ -109,7 +112,11 @@ export class ExecutionSync {
         : Promise.resolve([]),
     ]);
     if (!current()) return;
-    const workflowStates = await this.readWorkflowStates(execution, pending);
+    const workflowStates = await this.readWorkflowStates(
+      execution,
+      pending,
+      current,
+    );
     if (!current()) return;
     const mailbox = inboxes.find(
       (inbox) =>
@@ -150,29 +157,40 @@ export class ExecutionSync {
   private async readWorkflowStates(
     execution: models.Execution,
     pending: models.InputRequest[],
+    current: () => boolean,
     known: Record<string, models.WorkflowState> = {},
   ): Promise<Record<string, models.WorkflowState>> {
     const ids = new Set([
-      execution.root_workflow_id,
-      ...Object.keys(execution.checkpoint.heads),
-      ...this.history.snapshot.items.flatMap((item) => {
+      ...[...this.history.snapshot.items].reverse().flatMap((item) => {
         const step = object(item.step);
         return [
-          text(step.workflow_id),
           text(object(step.operation).child_workflow_id),
+          text(step.workflow_id),
         ];
       }),
-      ...pending.map((request) => request.workflow_id ?? ""),
+      ...[...pending].reverse().map((request) => request.workflow_id ?? ""),
+      ...Object.keys(execution.checkpoint.heads).reverse(),
+      execution.root_workflow_id,
     ]);
-    const loaded = await Promise.all(
-      [...ids]
-        .filter((id) => id && !known[id])
-        .map(
-          async (id) =>
-            [id, await this.api.workflowState(this.executionId, id)] as const,
-        ),
-    );
-    return { ...known, ...Object.fromEntries(loaded) };
+    const missing = [...ids].filter((id) => id && !known[id]);
+    const states = { ...known };
+    for (
+      let offset = 0;
+      offset < missing.length;
+      offset += workflowStateBatchSize
+    ) {
+      if (!current()) break;
+      const loaded = await Promise.all(
+        missing
+          .slice(offset, offset + workflowStateBatchSize)
+          .map(
+            async (id) =>
+              [id, await this.api.workflowState(this.executionId, id)] as const,
+          ),
+      );
+      Object.assign(states, Object.fromEntries(loaded));
+    }
+    return states;
   }
 
   private update(event: Params): boolean {

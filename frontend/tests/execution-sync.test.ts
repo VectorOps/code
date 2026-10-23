@@ -369,6 +369,124 @@ test("loading older history fetches only missing workflow metadata", async () =>
   );
 });
 
+test("workflow metadata loads backwards in sequential batches below the RPC cap", async () => {
+  const { sync, reads, view } = setup();
+  const ids = [
+    "root",
+    ...Array.from({ length: 464 }, (_, index) => `workflow-${index}`),
+  ];
+  reads.execution.mockResolvedValue({
+    ...execution,
+    checkpoint: {
+      heads: Object.fromEntries(ids.map((id) => [id, `${id}-head`])),
+    },
+  });
+  let outstanding = 0;
+  let peak = 0;
+  const releases: (() => void)[] = [];
+  reads.workflow.mockImplementation(
+    (_execution, id) =>
+      new Promise((resolve) => {
+        outstanding++;
+        peak = Math.max(peak, outstanding);
+        releases.push(() => {
+          outstanding--;
+          resolve({ id, definition_ref: `test:${id}` });
+        });
+      }),
+  );
+  const loading = sync.synchronize(() => true);
+  const newestFirst = [...ids].reverse();
+  for (let offset = 0; offset < ids.length; offset += 32) {
+    const end = Math.min(offset + 32, ids.length);
+    await vi.waitFor(() => expect(reads.workflow).toHaveBeenCalledTimes(end));
+    expect(reads.workflow.mock.calls.map((call) => call[1])).toEqual(
+      newestFirst.slice(0, end),
+    );
+    expect(outstanding).toBe(end - offset);
+    const batch = releases.splice(0);
+    for (const release of batch.slice(1)) release();
+    await Promise.resolve();
+    expect(reads.workflow).toHaveBeenCalledTimes(end);
+    batch[0]();
+  }
+  await loading;
+  expect(peak).toBe(32);
+  expect(outstanding).toBe(0);
+  expect(Object.keys(view().workflowStates ?? {})).toEqual(newestFirst);
+});
+
+test("newest history references take priority and workflow IDs are deduplicated", async () => {
+  const { sync, reads } = setup();
+  reads.execution.mockResolvedValue({
+    ...execution,
+    checkpoint: { heads: { root: "head", older: "old", newer: "new" } },
+  });
+  reads.history.mockResolvedValue({
+    items: [
+      {
+        position: 1,
+        step: { id: "old", workflow_id: "older" },
+      },
+      {
+        position: 2,
+        step: {
+          id: "new",
+          workflow_id: "newer",
+          operation: { kind: "workflow.spawn", child_workflow_id: "child" },
+        },
+      },
+    ],
+    next_cursor: null,
+  });
+  reads.pending.mockResolvedValue([
+    { ...request, workflow_id: "newer" },
+    { ...request, workflow_id: "pending" },
+  ]);
+  await sync.synchronize(() => true);
+  expect(reads.workflow.mock.calls.map((call) => call[1])).toEqual([
+    "child",
+    "newer",
+    "older",
+    "pending",
+    "root",
+  ]);
+});
+
+test.each(["invalidated", "inactive"])(
+  "%s workflow metadata loading does not schedule another batch",
+  async (reason) => {
+    const { sync, reads, view } = setup();
+    reads.execution.mockResolvedValue({
+      ...execution,
+      checkpoint: {
+        heads: Object.fromEntries(
+          Array.from({ length: 65 }, (_, index) => [
+            `workflow-${index}`,
+            "head",
+          ]),
+        ),
+      },
+    });
+    let finish = () => {};
+    const batch = new Promise<void>((resolve) => (finish = resolve));
+    reads.workflow.mockImplementation(async (_execution, id) => {
+      await batch;
+      return { id, definition_ref: `test:${id}` };
+    });
+    let active = true;
+    const loading = sync.synchronize(() => active);
+    await vi.waitFor(() => expect(reads.workflow).toHaveBeenCalledTimes(32));
+    if (reason === "invalidated") sync.invalidate();
+    else active = false;
+    finish();
+    await loading;
+    expect(reads.workflow).toHaveBeenCalledTimes(32);
+    expect(view().execution).toBeUndefined();
+    expect(view().workflowStates).toBeUndefined();
+  },
+);
+
 test("workflow state uses the persisted workflow RPC", async () => {
   const connection = new RunnerConnection("ws://localhost", "test");
   const request = vi

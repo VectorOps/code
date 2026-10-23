@@ -543,7 +543,7 @@ function WorkspaceContent({
           ) : (
             <div className="feed-content" ref={feed.content}>
               {hasOlder && (
-                <div className="history-boundary">
+                <div className="history-boundary" ref={feed.boundary}>
                   <p>
                     Earlier steps are not loaded. Some loaded steps may be
                     hidden from chat.

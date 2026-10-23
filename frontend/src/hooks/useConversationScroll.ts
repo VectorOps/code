@@ -16,6 +16,7 @@ export function useConversationScroll(
   historyRef.current = history;
   const viewport = React.useRef<HTMLDivElement>(null);
   const content = React.useRef<HTMLDivElement>(null);
+  const boundary = React.useRef<HTMLDivElement>(null);
   const previousRevision = React.useRef(revision);
   const synchronize = React.useRef((_changed: boolean) => {});
   const resume = React.useRef(() => {});
@@ -70,6 +71,14 @@ export function useConversationScroll(
           anchor = {
             element,
             key: element.dataset.historyKey,
+            offset: rect.top - bounds.top,
+          };
+      }
+      if (boundary.current) {
+        const rect = boundary.current.getBoundingClientRect();
+        if (rect.bottom > bounds.top && rect.top < bounds.bottom)
+          anchor = {
+            element: boundary.current,
             offset: rect.top - bounds.top,
           };
       }
@@ -242,6 +251,7 @@ export function useConversationScroll(
   return {
     viewport,
     content,
+    boundary,
     newActivity,
     jumpToLatest: () => resume.current(),
     pauseFollowing,

@@ -114,10 +114,13 @@ vitest.test(
       .spyOn(Element.prototype, "getBoundingClientRect")
       .mockImplementation(function (this: HTMLElement) {
         const position = this.dataset.historyPosition;
+        const boundary = this.classList.contains("history-boundary");
         const top = position
           ? (Number(position) - origin) * 100 - (area?.scrollTop ?? 0)
-          : 0;
-        const height = position ? 100 : 400;
+          : boundary
+            ? -(area?.scrollTop ?? 0)
+            : 0;
+        const height = position || boundary ? 100 : 400;
         return {
           top,
           bottom: top + height,
@@ -166,6 +169,70 @@ vitest.test(
     fireEvent.click(view.getByRole("button", { name: /Jump to latest/ }));
     vitest.expect(following).toHaveBeenLastCalledWith(true);
     vitest.expect(trim).toHaveBeenLastCalledWith(16);
+  },
+);
+
+vitest.test(
+  "loading from the history boundary reveals the prepended steps",
+  () => {
+    let origin = 10;
+    let area: HTMLElement;
+    vitest.vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const position = this.dataset.historyPosition;
+        const boundary = this.classList.contains("history-boundary");
+        const top = position
+          ? 100 + (Number(position) - origin) * 100 - (area?.scrollTop ?? 0)
+          : boundary
+            ? -(area?.scrollTop ?? 0)
+            : 0;
+        const size = position || boundary ? 100 : 400;
+        return {
+          top,
+          bottom: top + size,
+          height: size,
+          left: 0,
+          right: 400,
+          width: 400,
+          x: 0,
+          y: top,
+          toJSON() {},
+        };
+      });
+    const props = {
+      ...workspaceProps(),
+      hasOlder: true,
+      onLoadOlder: vitest.vi.fn(async () => {}),
+      history: Array.from({ length: 10 }, (_, index) => message(index + 10)),
+    };
+    const view = render(<Workspace {...props} />);
+    area = view.getByRole("region", { name: "Conversation history" });
+    scrollUp(area, 20);
+    fireEvent.click(
+      view.getByRole("button", { name: "Load 200 earlier steps" }),
+    );
+    view.rerender(<Workspace {...props} historyLoading />);
+    resize();
+    origin = 6;
+    height = 1400;
+    view.rerender(
+      <Workspace
+        {...props}
+        history={[
+          ...Array.from({ length: 4 }, (_, index) => message(index + 6)),
+          ...props.history,
+        ]}
+      />,
+    );
+    vitest.expect(area.scrollTop).toBe(20);
+    const earlier = view
+      .getByText("Message 6")
+      .closest<HTMLElement>("[data-history-position]")!;
+    vitest
+      .expect(earlier.getBoundingClientRect().top)
+      .toBeGreaterThanOrEqual(0);
+    vitest.expect(earlier.getBoundingClientRect().bottom).toBeLessThan(visible);
   },
 );
 
