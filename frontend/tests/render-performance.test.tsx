@@ -5,7 +5,7 @@ import { vi } from "vitest";
 import ReactMarkdown from "react-markdown";
 import hljs from "highlight.js/lib/common";
 import type { HistoryItem, InputRequest } from "../src/models/runner";
-import type { Json } from "../src/models/json";
+import { object, type Json } from "../src/models/json";
 import { stepView, toolDescription, toolPayload } from "../src/models/steps";
 import { workflowProjection } from "../src/models/workflow-tree";
 import { StepFeed } from "../src/components/StepFeed";
@@ -112,7 +112,7 @@ function nestedHistory() {
   ];
 }
 
-function disclosure(view: testing.RenderResult, label: string) {
+function disclosure(view: testing.RenderResult, label: string | RegExp) {
   const element = view.getByText(label).closest("details");
   if (!element) throw new Error(`Missing disclosure: ${label}`);
   return element;
@@ -276,6 +276,109 @@ vitest.test(
     toggle(disclosure(view, "Agent: Child"), true);
     vitest.expect(disclosure(view, "Agent: Grandchild").open).toBe(true);
     vitest.expect(view.getByText("Message 4")).toBeTruthy();
+  },
+);
+
+vitest.test.each(["checkpoint-first", "step-first"])(
+  "adding a workflow preserves open disclosures with %s delivery",
+  (order) => {
+    const history = [
+      tool(1, "exec", { command: "first command" }),
+      tool(2, "exec", { command: "second command" }),
+      item(3, "workflow.spawn", "root", {
+        child_workflow_id: "child",
+        description: "Child",
+      }),
+      item(4, "workflow.spawn", "child", {
+        child_workflow_id: "grandchild",
+        description: "Grandchild",
+      }),
+      item(5, "llm.generate", "grandchild"),
+    ].map((entry) => ({
+      ...entry,
+      step: {
+        ...object(entry.step),
+        previous_step_id:
+          entry.position === 2 || entry.position === 3
+            ? `step-${entry.position - 1}`
+            : null,
+      },
+    }));
+    const execution = {
+      id: "session",
+      root_workflow_id: "root",
+      status: "running",
+      checkpoint: {
+        heads: { root: "step-3", child: "step-4", grandchild: "step-5" },
+      },
+    };
+    const props: React.ComponentProps<typeof Workspace> = {
+      sessions: [],
+      selected: "session",
+      onSelect: vitest.vi.fn(),
+      execution,
+      history,
+      pending: [],
+      status: "Connected",
+      endpoint: "ws://localhost",
+      enabled: true,
+      busy: false,
+      onStop: vitest.vi.fn(),
+      onReply: vitest.vi.fn(async () => true),
+      newSession: null,
+      connection: null,
+      error: "",
+      dismiss: vitest.vi.fn(),
+      hasOlder: false,
+    };
+    const view = testing.render(<Workspace {...props} />);
+    toggle(disclosure(view, /2 calls/), true);
+    toggle(disclosure(view, "Agent: Child"), true);
+    toggle(disclosure(view, "Agent: Grandchild"), true);
+    const spawn = item(6, "workflow.spawn", "root", {
+      child_workflow_id: "new-child",
+      description: "New child",
+    });
+    const nextHistory = [
+      ...history,
+      {
+        ...spawn,
+        step: { ...object(spawn.step), previous_step_id: "step-3" },
+      },
+    ];
+    const nextExecution = {
+      ...execution,
+      checkpoint: {
+        heads: { ...execution.checkpoint.heads, root: "step-6" },
+      },
+    };
+    view.rerender(
+      <Workspace
+        {...props}
+        execution={order === "checkpoint-first" ? nextExecution : execution}
+        history={order === "step-first" ? nextHistory : history}
+      />,
+    );
+    if (order === "checkpoint-first")
+      vitest.expect(view.queryByText("Agent: Child")).toBeNull();
+    view.rerender(
+      <Workspace {...props} execution={nextExecution} history={nextHistory} />,
+    );
+    vitest.expect(disclosure(view, "Agent: Child").open).toBe(true);
+    vitest.expect(disclosure(view, "Agent: Grandchild").open).toBe(true);
+    vitest.expect(disclosure(view, /2 calls/).open).toBe(true);
+    vitest.expect(view.getByText("Message 5")).toBeTruthy();
+    vitest.expect(disclosure(view, "Agent: New child").open).toBe(false);
+    view.rerender(
+      <Workspace {...props} execution={nextExecution} history={[]} />,
+    );
+    view.rerender(
+      <Workspace {...props} execution={nextExecution} history={nextHistory} />,
+    );
+    vitest.expect(disclosure(view, "Agent: Child").open).toBe(false);
+    vitest.expect(disclosure(view, /2 calls/).open).toBe(false);
+    toggle(disclosure(view, "Agent: Child"), true);
+    vitest.expect(disclosure(view, "Agent: Grandchild").open).toBe(false);
   },
 );
 

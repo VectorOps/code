@@ -566,7 +566,7 @@ function WorkspaceContent({
               )}
               <StepFeed
                 key={scope}
-                history={conversationHistory}
+                history={history}
                 active={Boolean(current?.active)}
                 registry={stepRegistry}
                 actions={actions}
