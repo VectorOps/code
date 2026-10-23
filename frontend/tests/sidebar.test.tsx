@@ -94,6 +94,42 @@ function sidebarProps(count: number) {
   };
 }
 
+test.each([undefined, null, "", " \t ", " Investigate the sidebar title "])(
+  "sidebar resolves generated description %j before the workflow name",
+  (description) => {
+    const props = sidebarProps(1);
+    props.sessions[0] = {
+      ...props.sessions[0],
+      name: "Coding agent",
+      description,
+    };
+    const view = testing.render(<SessionSidebar {...props} />);
+    const expected = description?.trim() || "Coding agent";
+    vitest.expect(view.getByText(expected)).toBeTruthy();
+    testing.fireEvent.change(view.getByRole("searchbox"), {
+      target: { value: expected },
+    });
+    vitest.expect(view.getByText(expected)).toBeTruthy();
+  },
+);
+
+test("sidebar replaces the default name when a generated description arrives", () => {
+  const props = sidebarProps(1);
+  props.sessions[0] = { ...props.sessions[0], name: "Coding agent" };
+  const view = testing.render(<SessionSidebar {...props} />);
+  vitest.expect(view.getByText("Coding agent")).toBeTruthy();
+  const description =
+    "Investigate generated session descriptions in the sidebar";
+  view.rerender(
+    <SessionSidebar
+      {...props}
+      sessions={[{ ...props.sessions[0], description }]}
+    />,
+  );
+  vitest.expect(view.getByText(description)).toBeTruthy();
+  vitest.expect(view.queryByText("Coding agent")).toBeNull();
+});
+
 test.each([false, true])(
   "connection controls stay compact and accessible when collapsed=%s",
   (collapsed) => {

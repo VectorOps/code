@@ -168,6 +168,7 @@ function WorkspaceContent({
     current?.reference ?? null,
     workflows,
     current?.name,
+    current?.description,
   );
   const scope = `${endpoint}/${selected}`;
   const draft = drafts[scope] || "";

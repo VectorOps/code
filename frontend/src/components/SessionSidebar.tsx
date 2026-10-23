@@ -129,6 +129,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               session.reference,
               names,
               session.name,
+              session.description,
             );
             return {
               session,

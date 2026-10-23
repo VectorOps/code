@@ -43,6 +43,25 @@ function setup() {
 
 vitest.afterEach(() => vitest.vi.restoreAllMocks());
 
+vitest.test(
+  "preserves generated descriptions from snapshots and live updates",
+  async () => {
+    const { sync, sessions, publish, push } = setup();
+    const summary = {
+      ...original,
+      name: "Coding agent",
+      description: "Investigate session titles",
+    };
+    sessions.mockResolvedValue(page([summary]));
+    await sync.synchronize(() => true);
+    vitest.expect(sync.get("existing")).toEqual(summary);
+    const updated = { ...summary, description: "Fix session descriptions" };
+    push(updated);
+    vitest.expect(publish.mock.lastCall![0].sessions).toEqual([updated]);
+    vitest.expect(sync.get("existing")?.name).toBe("Coding agent");
+  },
+);
+
 vitest.test.each(["synchronize", "loadMore"] as const)(
   "deletion survives stale %s responses and later updates",
   async (method) => {

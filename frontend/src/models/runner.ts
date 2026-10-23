@@ -22,6 +22,7 @@ export type Session = {
   root_workflow_id?: string | null;
   reference: string | null;
   name?: string | null;
+  description?: string | null;
   status: string;
   active: boolean;
   pending_inputs: number;
@@ -51,8 +52,10 @@ export function workflowDisplayName(
   reference: string | null,
   workflows: Workflow[] | ReadonlyMap<string, string>,
   name?: string | null,
+  description?: string | null,
 ): string {
   return (
+    description?.trim() ||
     name ||
     (Array.isArray(workflows)
       ? workflows.find(
