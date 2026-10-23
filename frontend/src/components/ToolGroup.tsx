@@ -22,7 +22,6 @@ export function ToolGroup({
     () => group.steps.map((step) => toolDescription(step)),
     [group],
   );
-  const failures = tools.filter((tool) => tool.failed);
   const running = tools.filter((tool) =>
     ["pending", "streaming"].includes(tool.state),
   );
@@ -50,18 +49,6 @@ export function ToolGroup({
               <span className="tool-group-running" role="status">
                 <span className="workflow-spinner" aria-hidden="true" />
                 Running
-              </span>
-            )}
-            {failures.length > 0 && (
-              <span
-                className="tool-failure-marker"
-                title={
-                  failuresRecovered
-                    ? "Workflow completed after these failures"
-                    : "Review failed calls"
-                }
-              >
-                {failures.length} failed
               </span>
             )}
           </span>

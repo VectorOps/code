@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { StepFeed } from "../src/components/StepFeed";
 import { AssistantStep } from "../src/components/steps/AssistantStep";
 import { UserStep } from "../src/components/steps/UserStep";
@@ -103,14 +103,37 @@ test("running groups retain a single preview and short running status", () => {
   assert.doesNotMatch(html, /Completed|completed/);
 });
 
-test("grouped failures retain their warning without rendering error details", () => {
+test("grouped failures omit the failure count and error details", () => {
   const html = feed([call(1, "failed"), call(2)]);
-  assert.match(html, /1 failed/);
-  assert.match(html, /tool-failure-marker/);
+  assert.match(html, /2 calls/);
+  assert.doesNotMatch(html, /1 failed|tool-failure-marker/);
   assert.doesNotMatch(html, /Command was not found\.|failure-text/);
 });
 
-test("successful workflow completion reduces historical failures to group markers", () => {
+test("expanded groups retain failed-call indicators and inspection actions", () => {
+  const inspected: string[] = [];
+  const view = render(
+    <StepFeed
+      history={[call(1, "failed"), call(2)]}
+      registry={defaultStepRegistry}
+      actions={{ ...actions, inspect: (id) => inspected.push(id) }}
+      active
+    />,
+  );
+  assert.equal(view.queryByRole("img", { name: "Failed" }), null);
+  const group = view.getByText(/2 calls/).closest("details");
+  assert.ok(group);
+  act(() => {
+    group.open = true;
+    fireEvent(group, new Event("toggle"));
+  });
+  assert.ok(view.getByRole("img", { name: "Failed" }));
+  assert.equal(view.queryByText("Command was not found."), null);
+  fireEvent.click(view.getAllByRole("button", { name: "View details" })[0]);
+  assert.deepEqual(inspected, ["call-1"]);
+});
+
+test("successful workflow completion keeps grouped failure counts hidden", () => {
   const html = feed([
     call(1, "failed"),
     call(2),
@@ -124,8 +147,9 @@ test("successful workflow completion reduces historical failures to group marker
       },
     },
   ]);
-  assert.match(html, /1 failed/);
-  assert.match(html, /Workflow completed after these failures/);
+  assert.match(html, /2 calls/);
+  assert.doesNotMatch(html, /1 failed|tool-failure-marker/);
+  assert.doesNotMatch(html, /Workflow completed after these failures/);
   assert.doesNotMatch(html, /Command was not found\.|tool-failure"/);
 });
 
@@ -140,7 +164,7 @@ test("standalone failures keep their warning and clickable card without error te
   );
 });
 
-test("failed workflows retain tool failure warnings without error text", () => {
+test("failed workflows omit grouped tool failure counts and error text", () => {
   const html = feed([
     call(1, "failed"),
     call(2),
@@ -154,7 +178,8 @@ test("failed workflows retain tool failure warnings without error text", () => {
       },
     },
   ]);
-  assert.match(html, /1 failed/);
+  assert.match(html, /2 calls/);
+  assert.doesNotMatch(html, /1 failed|tool-failure-marker/);
   assert.doesNotMatch(html, /Command was not found\./);
   assert.doesNotMatch(html, /Workflow completed after these failures/);
 });
@@ -205,7 +230,7 @@ test("approvals stay outside groups with prominent actions", () => {
   assert.doesNotMatch(html, /2 calls/);
 });
 
-test("pending questions keep their card alongside compact failure warnings", () => {
+test("pending questions keep their card without grouped failure counts", () => {
   const html = feed(
     [
       call(1, "failed"),
@@ -233,7 +258,8 @@ test("pending questions keep their card alongside compact failure warnings", () 
   );
   assert.match(html, /decision-card/);
   assert.match(html, /Send response/);
-  assert.match(html, /1 failed/);
+  assert.match(html, /2 calls/);
+  assert.doesNotMatch(html, /1 failed|tool-failure-marker/);
   assert.doesNotMatch(html, /Command was not found\./);
   assert.doesNotMatch(html, /Workflow completed after these failures/);
 });

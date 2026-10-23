@@ -60,7 +60,6 @@
   .tool-group-running {
     @apply inline-flex shrink-0 items-center gap-2 text-xs;
   }
-  .tool-failure-marker,
   .tool-step .entry-state > [aria-label="Failed"] {
     @apply shrink-0 text-xs text-neutral-400;
   }
