@@ -86,12 +86,6 @@ function workspaceProps(): React.ComponentProps<typeof Workspace> {
   };
 }
 
-function openOutput(view: testing.RenderResult) {
-  const disclosure = view.getByText("Result / output").closest("details")!;
-  disclosure.open = true;
-  testing.fireEvent(disclosure, new Event("toggle"));
-}
-
 test("production hides debug steps and message inspection but retains useful tool details", () => {
   const view = testing.render(<Workspace {...workspaceProps()} />);
   expect(view.queryByRole("button", { name: "Debug steps" })).toBeNull();
@@ -101,7 +95,8 @@ test("production hides debug steps and message inspection but retains useful too
   testing.fireEvent.click(view.getByText("Read"));
   expect(view.getByLabelText("Work inspector")).toBeTruthy();
   expect(view.queryByText("Raw call and result")).toBeNull();
-  openOutput(view);
+  expect(view.getByRole("region", { name: "Result / output" })).toBeTruthy();
+  expect(view.queryByRole("heading", { name: "Request" })).toBeNull();
   expect(view.getByText("File content")).toBeTruthy();
   expect(view.getByText(/Partial content/)).toBeTruthy();
   expect(view.queryByText("internal-hash")).toBeNull();
@@ -145,7 +140,7 @@ test("disabling debug keeps tool inspection but removes diagnostics immediately"
     </DebugProvider>,
   );
   testing.fireEvent.click(view.getByText("Read"));
-  openOutput(view);
+  expect(view.getByRole("heading", { name: "Request" })).toBeTruthy();
   expect(view.getByText("internal-hash")).toBeTruthy();
   view.rerender(
     <DebugProvider value={false}>
@@ -156,6 +151,7 @@ test("disabling debug keeps tool inspection but removes diagnostics immediately"
   expect(view.getByText("File content")).toBeTruthy();
   expect(view.queryByText("Raw call and result")).toBeNull();
   expect(view.queryByText("internal-hash")).toBeNull();
+  expect(view.queryByRole("heading", { name: "Request" })).toBeNull();
 });
 
 test("managed production hides connection editing while attachment retains it", () => {
@@ -212,7 +208,6 @@ test("process results retain exit status, output and warnings without transport 
       factory={defaultToolFormatters}
     />,
   );
-  openOutput(view);
   expect(view.getByText("Task output")).toBeTruthy();
   expect(view.getByText("returncode")).toBeTruthy();
   expect(view.getByText("Execution timed out.")).toBeTruthy();
@@ -273,9 +268,59 @@ test("non-envelope process results and domain IDs remain task content", () => {
       factory={defaultToolFormatters}
     />,
   );
-  openOutput(view);
   expect(view.container.textContent).toContain("Useful result");
   expect(view.container.textContent).toContain("customer-123");
+});
+
+test.each([
+  "read_file",
+  "list_files",
+  "web_fetch",
+  "exec",
+  "poll_process",
+  "write_stdin",
+  "kill_process",
+  "list_processes",
+  "update_plan",
+  "custom_tool",
+])("%s requests are debug-only while results remain expanded", (name) => {
+  const description = toolDescription(
+    stepView(
+      tool(name, { internal_option: "request-only-value" }, "Useful output"),
+    ),
+  );
+  const contents = (
+    <ToolDetails tool={description} factory={defaultToolFormatters} />
+  );
+  const view = testing.render(contents);
+  expect(view.getByText("Useful output")).toBeTruthy();
+  expect(view.queryByText("request-only-value")).toBeNull();
+  expect(view.queryByText("internal option")).toBeNull();
+  expect(view.getByText("Useful output").closest("details")).toBeNull();
+  view.rerender(<DebugProvider value={true}>{contents}</DebugProvider>);
+  expect(view.getByText("request-only-value")).toBeTruthy();
+  expect(view.getByText("Useful output")).toBeTruthy();
+});
+
+test("normal patch inspection keeps the requested diff and immediately shows the result", () => {
+  const description = toolDescription(
+    stepView(
+      tool(
+        "apply_patch",
+        { text: "*** Update File: hello.txt\n@@\n-old\n+new" },
+        "Patch applied",
+      ),
+    ),
+  );
+  const view = testing.render(
+    <ToolDetails tool={description} factory={defaultToolFormatters} />,
+  );
+  expect(view.getByRole("heading", { name: "Requested diff" })).toBeTruthy();
+  expect(view.container.querySelector(".tool-diff")?.textContent).toContain(
+    "+new",
+  );
+  expect(view.getByText("Patch applied")).toBeTruthy();
+  expect(view.queryByText("Raw call and result")).toBeNull();
 });
 
 test("custom step and tool formatters receive the shared debug mode", () => {

@@ -67,7 +67,6 @@ export const defaultToolFormatters = new ToolFormatterFactory(
     write_stdin: {
       ...process,
       activity: { completed: "Sent input to", running: "Sending input to" },
-      details: views.GenericDetails,
     },
     list_processes: { ...generic, details: views.ProcessesDetails },
     web_fetch: {

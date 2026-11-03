@@ -5,7 +5,7 @@ import { memo, type ReactNode } from "react";
 import { HighlightedCode } from "../HighlightedCode";
 import { CodeBlock } from "../CodeBlock";
 import { LazyDetails } from "../LazyDetails";
-import { useDebug } from "../Diagnostics";
+import { DebugOnly, useDebug } from "../Diagnostics";
 
 function Summary({ items, fallback }: { items: string[]; fallback: string }) {
   const first = items[0] || fallback;
@@ -35,17 +35,26 @@ function RequestResult({
   request,
   children,
 }: ToolProps & { request?: ReactNode; children: ReactNode }) {
-  const debug = useDebug();
   return (
     <>
-      <h3>Request</h3>
-      {request ??
-        (tool.arguments === undefined ? (
-          <p>Arguments were not recorded in this history.</p>
-        ) : (
-          <Fields data={requestArguments(tool, debug)} />
-        ))}
-      <LazyDetails summary="Result / output">{() => children}</LazyDetails>
+      {request ?? (
+        <DebugOnly>
+          {() => (
+            <>
+              <h3>Request</h3>
+              {tool.arguments === undefined ? (
+                <p>Arguments were not recorded in this history.</p>
+              ) : (
+                <Fields data={object(tool.arguments)} />
+              )}
+            </>
+          )}
+        </DebugOnly>
+      )}
+      <section className="tool-result" aria-label="Result / output">
+        <h3>Result / output</h3>
+        {children}
+      </section>
     </>
   );
 }
@@ -97,29 +106,6 @@ function Metadata({
             )
       }
     />
-  );
-}
-
-function requestArguments(tool: ToolView, debug: boolean) {
-  const args = object(tool.arguments);
-  if (
-    debug ||
-    ![
-      "exec",
-      "poll_process",
-      "write_stdin",
-      "kill_process",
-      "list_processes",
-    ].includes(tool.name)
-  )
-    return args;
-  return Object.fromEntries(
-    Object.entries(args).filter(
-      ([key]) =>
-        !["process_id", "cursor", "worktree_id", "yield_timeout_ms"].includes(
-          key,
-        ),
-    ),
   );
 }
 
@@ -253,6 +239,7 @@ export function FileDetails({ tool }: ToolProps) {
 }
 
 function FileOutput({ tool }: ToolProps) {
+  const debug = useDebug();
   const blocks = values(object(tool.output).content);
   if (blocks.length && object(blocks[0]).type !== "text")
     return <Result tool={tool} />;
@@ -280,9 +267,11 @@ function FileOutput({ tool }: ToolProps) {
         </p>
       )}
       {result.encoding === "base64" ? (
-        <LazyDetails summary="Binary content (base64)">
-          {() => <Code value={content} />}
-        </LazyDetails>
+        debug ? (
+          <Code value={content} />
+        ) : (
+          <p>Binary content. Enable debug mode to inspect the base64 data.</p>
+        )
       ) : content !== undefined || lines !== undefined ? (
         <Code value={content ?? lines} />
       ) : null}
@@ -372,7 +361,7 @@ export const ProcessSummary = memo(function ProcessSummary({
 
 export function ProcessDetails({ tool }: ToolProps) {
   const debug = useDebug();
-  const args = requestArguments(tool, debug);
+  const args = object(tool.arguments);
   const { command: requestedCommand, ...options } = args;
   return (
     <RequestResult
@@ -381,13 +370,23 @@ export function ProcessDetails({ tool }: ToolProps) {
         <>
           {(requestedCommand !== undefined ||
             tool.processCommand !== undefined) && (
-            <Code value={command(tool, debug)} language="bash" />
+            <>
+              <h3>Command</h3>
+              <Code value={command(tool, debug)} language="bash" />
+            </>
           )}
-          {tool.arguments === undefined ? (
-            <p>Arguments were not recorded in this history.</p>
-          ) : (
-            <Fields data={options} />
-          )}
+          <DebugOnly>
+            {() => (
+              <>
+                <h3>Request options</h3>
+                {tool.arguments === undefined ? (
+                  <p>Arguments were not recorded in this history.</p>
+                ) : (
+                  <Fields data={options} />
+                )}
+              </>
+            )}
+          </DebugOnly>
         </>
       }
     >
@@ -418,17 +417,7 @@ function ProcessOutput({ tool }: ToolProps) {
   }
   return (
     <>
-      <Metadata
-        data={metadata}
-        visible={[
-          "state",
-          "returncode",
-          "error",
-          "timed_out",
-          "output_complete",
-          "dropped_bytes",
-        ]}
-      />
+      <Metadata data={metadata} visible={["state", "returncode", "error"]} />
       {result.timed_out === true && (
         <p className="tool-notice">Execution timed out.</p>
       )}

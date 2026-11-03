@@ -1,7 +1,7 @@
 import { DebugProvider } from "../src/components/Diagnostics";
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { fireEvent, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Json } from "../src/models/json";
 import type { HistoryItem } from "../src/models/runner";
@@ -70,12 +70,9 @@ test("poll summaries and details show the matching exec command", () => {
     ),
     /process-a/,
   );
-  assert.doesNotMatch(details, /No new output/);
+  assert.match(details, /No new output/);
   const view = render(<ProcessDetails tool={description} />);
-  const disclosure = view.getByText("Result / output").closest("details");
-  assert.ok(disclosure);
-  disclosure.open = true;
-  fireEvent(disclosure, new Event("toggle"));
+  assert.ok(view.getByRole("region", { name: "Result / output" }));
   assert.ok(view.getByText("No new output."));
 });
 

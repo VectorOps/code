@@ -136,6 +136,7 @@ test("frontend CSS preserves global layer order and appearance overrides", async
     /flex-basis:\s*100%/,
   );
   const iconButton = lastRule(css, ".step-details-button");
+  assert.match(lastRule(css, ".step-card"), /cursor:\s*default/);
   assert.match(iconButton, /display:\s*flex/);
   assert.match(iconButton, /color:\s*var\(--color-neutral-400(?:,|\))/);
   assert.match(iconButton, /background-color:\s*(?:transparent|#0000)/);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { fireEvent, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
+import { DebugProvider } from "../src/components/Diagnostics";
 import type { Json } from "../src/models/json";
 import type { ToolView } from "../src/components/tools/factory";
 import { DirectorySummary, FileDetails } from "../src/components/tools/views";
@@ -16,10 +17,7 @@ function output(blocks: Json[]) {
     processCommand: undefined,
   };
   const view = render(<FileDetails tool={tool} />);
-  const disclosure = view.getByText("Result / output").closest("details");
-  assert.ok(disclosure);
-  disclosure.open = true;
-  fireEvent(disclosure, new Event("toggle"));
+  assert.ok(view.getByRole("region", { name: "Result / output" }));
   return view;
 }
 
@@ -55,7 +53,7 @@ test("file output preserves trailing images and text without repeating structure
     { type: "text", text: "Additional information" },
   ]);
   assert.equal(view.getAllByText("File content").length, 1);
-  assert.equal(view.getAllByText("example.png", { selector: "dd" }).length, 2);
+  assert.equal(view.getAllByText("example.png", { selector: "dd" }).length, 1);
   assert.ok(view.getByText("Additional information"));
   assert.ok(
     view.getByText(
@@ -94,7 +92,7 @@ test.each(["png", "jpeg", "gif", "webp"])(
   },
 );
 
-test("binary file output retains its disclosure and trailing result blocks", () => {
+test("binary file output hides base64 outside debug and retains trailing result blocks", () => {
   const view = output([
     {
       type: "text",
@@ -104,12 +102,32 @@ test("binary file output retains its disclosure and trailing result blocks", () 
   ]);
   assert.ok(view.getByText("Binary file note"));
   assert.equal(view.queryByText("YmluYXJ5"), null);
-  const disclosure = view
-    .getByText("Binary content (base64)")
-    .closest("details");
-  assert.ok(disclosure);
-  disclosure.open = true;
-  fireEvent(disclosure, new Event("toggle"));
+  assert.ok(view.getByText(/Binary content. Enable debug mode/));
+  view.rerender(
+    <DebugProvider value={true}>
+      <FileDetails
+        tool={{
+          name: "read_file",
+          arguments: {},
+          output: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  encoding: "base64",
+                  content: "YmluYXJ5",
+                }),
+              },
+            ],
+          },
+          state: "completed",
+          failed: false,
+          error: "",
+          processCommand: undefined,
+        }}
+      />
+    </DebugProvider>,
+  );
   assert.equal(view.getAllByText("YmluYXJ5").length, 1);
 });
 

@@ -63,13 +63,9 @@ test("plan summaries prefer the complete returned plan over a partial update", (
   assert.ok(view.getByText("Task C"));
 });
 
-test("plan details use the same status icons when output opens", () => {
+test("plan details show the same status icons immediately", () => {
   const view = render(<PlanDetails tool={tool({}, { todos })} />);
-  assert.equal(view.queryByRole("list"), null);
-  const disclosure = view.getByText("Result / output").closest("details");
-  assert.ok(disclosure);
-  disclosure.open = true;
-  fireEvent(disclosure, new Event("toggle"));
+  assert.ok(view.getByRole("region", { name: "Result / output" }));
   assert.deepEqual(
     view.getAllByRole("listitem").map((item) => item.textContent),
     ["Task A", "Task B", "Task C"],
@@ -151,10 +147,6 @@ test("plan details do not present failed requested updates as results", () => {
       tool={{ ...tool({ todos }, { error: "Update rejected" }), failed: true }}
     />,
   );
-  const disclosure = view.getByText("Result / output").closest("details");
-  assert.ok(disclosure);
-  disclosure.open = true;
-  fireEvent(disclosure, new Event("toggle"));
   assert.equal(view.queryByRole("list"), null);
   assert.ok(view.getByText(/Update rejected/));
 });

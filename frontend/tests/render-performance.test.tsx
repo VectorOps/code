@@ -127,7 +127,7 @@ function toggle(element: HTMLDetailsElement, open: boolean) {
 }
 
 vitest.test(
-  "tool output and raw serialization wait for opening and unmount on closing",
+  "tool output renders immediately while raw serialization waits for opening",
   () => {
     const description = toolDescription(stepView(tool(1)));
     const highlight = vitest.vi.spyOn(hljs, "highlight");
@@ -137,19 +137,18 @@ vitest.test(
         <ToolDetails tool={description} factory={defaultToolFormatters} />
       </DebugProvider>,
     );
-    vitest.expect(highlight).not.toHaveBeenCalled();
+    vitest.expect(highlight).toHaveBeenCalledTimes(1);
     vitest
       .expect(serialize.mock.calls.some(([value]) => value === description))
       .toBe(false);
-    toggle(disclosure(view, "Result / output"), true);
-    vitest.expect(highlight).toHaveBeenCalledTimes(1);
     vitest.expect(view.container.querySelector(".hljs")).not.toBeNull();
-    toggle(disclosure(view, "Result / output"), false);
-    vitest.expect(view.container.querySelector(".hljs")).toBeNull();
     toggle(disclosure(view, "Raw call and result"), true);
     vitest.expect(serialize).toHaveBeenCalledWith(description, null, 2);
     toggle(disclosure(view, "Raw call and result"), false);
-    vitest.expect(view.container.querySelector("pre")).toBeNull();
+    vitest
+      .expect(serialize.mock.calls.filter(([value]) => value === description))
+      .toHaveLength(1);
+    vitest.expect(view.container.querySelector(".hljs")).not.toBeNull();
   },
 );
 
@@ -186,7 +185,7 @@ vitest.test(
 );
 
 vitest.test(
-  "specialized tool formatters defer payload parsing until output opens",
+  "specialized tool formatters show output immediately when inspected",
   () => {
     const cases: { name: string; args: Json; result: Json }[] = [
       {
@@ -243,9 +242,6 @@ vitest.test(
       const view = testing.render(
         <ToolDetails tool={description} factory={defaultToolFormatters} />,
       );
-      vitest.expect(parse).not.toHaveBeenCalledWith(raw);
-      vitest.expect(view.queryByText("deferred-value")).toBeNull();
-      toggle(disclosure(view, "Result / output"), true);
       vitest.expect(parse).toHaveBeenCalledWith(raw);
       vitest
         .expect(view.getAllByText("deferred-value").length)
