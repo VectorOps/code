@@ -60,7 +60,13 @@ def launch(
         try:
             if worker is not None:
                 endpoint = worker.start()
-            fragment = urlencode({"endpoint": endpoint, "token": token})
+            fragment = urlencode(
+                {
+                    "endpoint": endpoint,
+                    "token": token,
+                    "managed": "1" if worker else "0",
+                }
+            )
             window = webview.create_window(
                 f"VectorOps - {workspace.resolve()}",
                 f"{assets.origin}/#{fragment}",

@@ -4,7 +4,7 @@ import { RunnerConnection } from "../src/communication/websocket";
 import * as preferences from "../src/components/DesktopSettings";
 
 export function settingsHost(
-  initial: Partial<preferences.DesktopSettings> = {},
+  initial: Partial<preferences.SettingsSnapshot> = {},
 ) {
   let value = { ...preferences.defaultDesktopSettings, ...initial };
   const connection = new RunnerConnection("ws://127.0.0.1:1234", "test");

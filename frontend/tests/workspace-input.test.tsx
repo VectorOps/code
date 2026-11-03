@@ -1,3 +1,4 @@
+import { DebugProvider } from "../src/components/Diagnostics";
 import { StrictMode, useState, type ComponentProps } from "react";
 import { act, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -1295,20 +1296,22 @@ vitest.test(
   "outside dismissal of step details allows typing without a transcript click",
   async () => {
     const view = render(
-      <Workspace
-        {...workspaceProps()}
-        history={[
-          {
-            position: 1,
-            step: {
-              id: "step-1",
-              workflow_id: "root",
-              operation: { kind: "llm.generate" },
-              outcome: { kind: "completed", result: "Message" },
+      <DebugProvider value={true}>
+        <Workspace
+          {...workspaceProps()}
+          history={[
+            {
+              position: 1,
+              step: {
+                id: "step-1",
+                workflow_id: "root",
+                operation: { kind: "llm.generate" },
+                outcome: { kind: "completed", result: "Message" },
+              },
             },
-          },
-        ]}
-      />,
+          ]}
+        />
+      </DebugProvider>,
     );
     const user = userEvent.setup();
     const draft = view.getByLabelText("Message draft");

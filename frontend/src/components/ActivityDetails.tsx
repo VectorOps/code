@@ -6,6 +6,7 @@ import type { ToolFormatterFactory } from "./tools/factory";
 import { ToolDetails } from "./tools/ToolDetails";
 import { LazyDetails } from "./LazyDetails";
 import { memo } from "react";
+import { useDebug } from "./Diagnostics";
 
 export const ActivityDetails = memo(function ActivityDetails({
   item,
@@ -18,6 +19,7 @@ export const ActivityDetails = memo(function ActivityDetails({
   history?: HistoryItem[];
   tools?: ToolFormatterFactory;
 }) {
+  const debug = useDebug();
   if (!item) return <p>This activity is outside the current history window.</p>;
   const entry = activity(item);
   if (entry.kind === "llm.tool") {
@@ -29,6 +31,7 @@ export const ActivityDetails = memo(function ActivityDetails({
       />
     );
   }
+  if (!debug) return null;
   return (
     <>
       <h3>{entry.name || entry.kind}</h3>

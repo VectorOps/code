@@ -5,6 +5,7 @@ import { memo } from "react";
 import { stepView } from "../models/steps";
 import type { StepActions } from "./steps/registry";
 import { StepBranchControls } from "./StepBranchControls";
+import { useDebug } from "./Diagnostics";
 
 export const DebugSteps = memo(function DebugSteps({
   history,
@@ -13,6 +14,7 @@ export const DebugSteps = memo(function DebugSteps({
   history: HistoryItem[];
   actions?: StepActions;
 }) {
+  if (!useDebug()) return null;
   return (
     <>
       <p>

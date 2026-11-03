@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useDebug } from "./Diagnostics";
 import { WorktreesApi } from "../communication/worktrees-api";
 import type { RunnerApi } from "../communication/runner-api";
 import type { Worktree } from "../models/worktrees";
@@ -92,6 +93,7 @@ export function useWorktreeList() {
 }
 
 export function WorktreeLabel({ id, path }: { id: string; path?: string }) {
+  const debug = useDebug();
   const { api, records, remember } = useWorktrees();
   const record = records.find((item) => item.id === id);
   const [error, setError] = React.useState("");
@@ -116,10 +118,12 @@ export function WorktreeLabel({ id, path }: { id: string; path?: string }) {
       className="worktree-label"
       title={
         error ||
-        `${record ? `${record.name} · ` : ""}${record?.path || path || id}${record ? ` · ${record.branch} · ${record.status}` : ""}`
+        `${record ? `${record.name} · ` : ""}${record?.path || path || (debug ? id : "Worktree details unavailable")}${record ? ` · ${record.branch} · ${record.status}` : ""}`
       }
     >
-      Worktree: {record?.name || id}
+      Worktree:{" "}
+      {record?.name ||
+        (debug ? id : error || !api ? "Unavailable" : "Loading…")}
     </span>
   );
 }

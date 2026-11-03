@@ -1,3 +1,4 @@
+import { DebugProvider } from "../src/components/Diagnostics";
 import * as React from "react";
 import * as testing from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -381,7 +382,7 @@ vitest.test(
 );
 
 vitest.test(
-  "unavailable worktree metadata falls back to an ID without breaking history",
+  "unavailable worktree metadata hides its ID unless debugging is enabled",
   async () => {
     const { api, request } = client();
     request.mockRejectedValue(new Error("Worktree not found"));
@@ -392,9 +393,18 @@ vitest.test(
     );
     await testing.waitFor(() =>
       vitest
-        .expect(view.getByText("Worktree: old-tree").title)
+        .expect(view.getByText("Worktree: Unavailable").title)
         .toContain("Worktree not found"),
     );
+    vitest.expect(view.queryByText("Worktree: old-tree")).toBeNull();
+    view.rerender(
+      <DebugProvider value={true}>
+        <WorktreesProvider runner={api}>
+          <WorktreeLabel id="old-tree" />
+        </WorktreesProvider>
+      </DebugProvider>,
+    );
+    vitest.expect(view.getByText("Worktree: old-tree")).toBeTruthy();
   },
 );
 

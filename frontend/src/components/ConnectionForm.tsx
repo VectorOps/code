@@ -16,7 +16,7 @@ export function ConnectionForm({
         <input
           value={value.endpoint}
           onChange={(event) =>
-            change({ ...value, endpoint: event.target.value })
+            change({ ...value, endpoint: event.target.value, managed: false })
           }
         />
       </label>

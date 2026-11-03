@@ -9,6 +9,7 @@ import type { StepActions } from "../src/components/steps/registry";
 import { object, type Json } from "../src/models/json";
 import type { HistoryItem } from "../src/models/runner";
 import { stepView } from "../src/models/steps";
+import { DebugProvider } from "../src/components/Diagnostics";
 
 const actions: StepActions = {
   pending: [],
@@ -46,10 +47,12 @@ function feed(item: HistoryItem, handlers = actions) {
 test("echo text appears in the main chat as an inspectable message", () => {
   const inspected: string[] = [];
   const view = render(
-    feed(echo("You're right"), {
-      ...actions,
-      inspect: (id) => inspected.push(id),
-    }),
+    <DebugProvider value={true}>
+      {feed(echo("You're right"), {
+        ...actions,
+        inspect: (id) => inspected.push(id),
+      })}
+    </DebugProvider>,
   );
   const message = view.getByText("You're right");
   assert.ok(message.closest(".echo-step"));

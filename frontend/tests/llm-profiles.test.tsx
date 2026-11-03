@@ -1,4 +1,5 @@
 import * as testing from "@testing-library/react";
+import { DebugProvider } from "../src/components/Diagnostics";
 import userEvent from "@testing-library/user-event";
 import * as vitest from "vitest";
 import { RunnerConnection } from "../src/communication/websocket";
@@ -52,14 +53,16 @@ class Connection extends RunnerConnection {
   }
 }
 
-async function open(connection = new Connection()) {
+async function open(connection = new Connection(), debug = false) {
   const user = userEvent.setup();
   const view = testing.render(
-    <Settings
-      api={new RunnerApi(connection)}
-      connected
-      connection={{ endpoint: "ws://127.0.0.1:1234", token: "test" }}
-    />,
+    <DebugProvider value={debug}>
+      <Settings
+        api={new RunnerApi(connection)}
+        connected
+        connection={{ endpoint: "ws://127.0.0.1:1234", token: "test" }}
+      />
+    </DebugProvider>,
   );
   await user.click(view.getByRole("button", { name: "LLM profiles" }));
   await view.findByRole("form", { name: "Edit Model" });
@@ -82,7 +85,7 @@ vitest.test("profile settings require a runner connection", async () => {
 vitest.test(
   "shows raw shared values, configured profiles, and no invented inheritance",
   async () => {
-    const { connection, view, user } = await open();
+    const { connection, view, user } = await open(new Connection(), true);
     vitest
       .expect(view.getByLabelText("Model"))
       .toHaveProperty("value", "openai/base");

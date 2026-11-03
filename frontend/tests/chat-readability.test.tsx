@@ -1,3 +1,4 @@
+import { DebugProvider } from "../src/components/Diagnostics";
 import assert from "node:assert/strict";
 import { test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -266,10 +267,12 @@ test("pending questions keep their card without grouped failure counts", () => {
 
 test("tool errors remain available in the debug details view", () => {
   const html = renderToStaticMarkup(
-    <ToolDetails
-      tool={toolDescription(stepView(call(1, "failed")))}
-      factory={defaultToolFormatters}
-    />,
+    <DebugProvider value={true}>
+      <ToolDetails
+        tool={toolDescription(stepView(call(1, "failed")))}
+        factory={defaultToolFormatters}
+      />
+    </DebugProvider>,
   );
   assert.match(html, /aria-label="Tool error"/);
   assert.match(html, /Command was not found\./);

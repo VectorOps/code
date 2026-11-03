@@ -4,6 +4,7 @@ import { toolDescription } from "../models/steps";
 import type { StepActions, StepRegistry } from "./steps/registry";
 import { defaultToolFormatters } from "./tools/defaults";
 import { useFeedExpansion } from "./FeedState";
+import { useDebug } from "./Diagnostics";
 
 export function ToolGroup({
   group,
@@ -16,6 +17,7 @@ export function ToolGroup({
   actions: StepActions;
   failuresRecovered?: boolean;
 }) {
+  const debug = useDebug();
   const [expanded, setExpanded] = useFeedExpansion(group.id);
   const factory = actions.tools ?? defaultToolFormatters;
   const tools = useMemo(
@@ -44,7 +46,7 @@ export function ToolGroup({
             <span className="tool-activity-label">
               {factory.name(group.name)} · {tools.length} calls
             </span>
-            {latest && Summary && <Summary tool={latest} />}
+            {latest && Summary && <Summary tool={latest} debug={debug} />}
             {running.length > 0 && (
               <span className="tool-group-running" role="status">
                 <span className="workflow-spinner" aria-hidden="true" />
@@ -65,6 +67,7 @@ export function ToolGroup({
                   data-history-key={step.id}
                 >
                   <Component
+                    debug={debug}
                     step={step}
                     actions={actions}
                     failuresRecovered={failuresRecovered}

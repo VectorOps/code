@@ -1,3 +1,4 @@
+import { DebugOnly } from "../components/Diagnostics";
 import * as React from "react";
 import { LlmSettingsApi } from "../communication/llm-settings-api";
 import type {
@@ -212,14 +213,18 @@ export function LlmProfiles({ api: runner }: { api: RunnerApi }) {
               />
             ))}
           </fieldset>
-          <details>
-            <summary>Configuration JSON</summary>
-            <pre>
-              {target === undefined
-                ? "Not configured"
-                : JSON.stringify(target, null, 2)}
-            </pre>
-          </details>
+          <DebugOnly>
+            {() => (
+              <details>
+                <summary>Configuration JSON</summary>
+                <pre>
+                  {target === undefined
+                    ? "Not configured"
+                    : JSON.stringify(target, null, 2)}
+                </pre>
+              </details>
+            )}
+          </DebugOnly>
         </>
       )}
     </>

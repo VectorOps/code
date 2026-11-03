@@ -1,3 +1,4 @@
+import { DebugOnly } from "../components/Diagnostics";
 import * as React from "react";
 import { useWorktreeList, useWorktrees } from "../components/Worktrees";
 import { WorktreeCreate } from "../components/WorktreeCreate";
@@ -101,7 +102,9 @@ function WorktreeCard({ record }: { record: Worktree }) {
         </p>
         <p>Created: {record.created_at}</p>
         {record.last_used_at && <p>Last used: {record.last_used_at}</p>}
-        <p className="worktree-path">ID: {record.id}</p>
+        <DebugOnly>
+          {() => <p className="worktree-path">ID: {record.id}</p>}
+        </DebugOnly>
       </details>
       {record.error && <p role="alert">{record.error}</p>}
       {error && <p role="alert">{error}</p>}

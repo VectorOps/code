@@ -57,6 +57,7 @@ async def run(
         "-c",
         "from runner_desktop.cli import main; main()",
         "serve",
+        "--development",
         "--workspace",
         str(workspace.resolve()),
         "--port",

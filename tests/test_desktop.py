@@ -127,6 +127,7 @@ def test_local_launch_ignores_occupied_conventional_ports(
         )
         launch(tmp_path)
     url = urlsplit(webview.create_window.call_args.args[1])
+    assert parse_qs(url.fragment)["managed"] == ["1"]
     endpoint = urlsplit(parse_qs(url.fragment)["endpoint"][0])
     assert url.port not in (0, 8765, 8766)
     assert endpoint.port not in (0, 8765, 8766, url.port)
@@ -143,6 +144,9 @@ def test_attached_desktop_does_not_own_worker(tmp_path: Path) -> None:
     assets.assert_called_once_with(port=8766)
     worker.assert_not_called()
     webview.start.assert_called_once_with()
+    assert parse_qs(urlsplit(webview.create_window.call_args.args[1]).fragment)[
+        "managed"
+    ] == ["0"]
 
 
 def test_worker_failure_is_shown_in_window(

@@ -1,4 +1,5 @@
 import * as testing from "@testing-library/react";
+import { DebugProvider } from "../src/components/Diagnostics";
 import userEvent from "@testing-library/user-event";
 import * as vitest from "vitest";
 import { RunnerConnection } from "../src/communication/websocket";
@@ -68,14 +69,16 @@ class Connection extends RunnerConnection {
   }
 }
 
-async function open(connection = new Connection()) {
+async function open(connection = new Connection(), debug = false) {
   const user = userEvent.setup();
   const view = testing.render(
-    <Settings
-      api={new RunnerApi(connection)}
-      connected
-      connection={{ endpoint: "ws://127.0.0.1:1234", token: "test" }}
-    />,
+    <DebugProvider value={debug}>
+      <Settings
+        api={new RunnerApi(connection)}
+        connected
+        connection={{ endpoint: "ws://127.0.0.1:1234", token: "test" }}
+      />
+    </DebugProvider>,
   );
   await user.click(view.getByRole("button", { name: "Workflows" }));
   await view.findByRole("form", { name: "Edit Allowed agents" });
@@ -312,7 +315,7 @@ vitest.test(
   async () => {
     const connection = new Connection();
     connection.value = { agent: { agents: "invalid" } };
-    const { view, user } = await open(connection);
+    const { view, user } = await open(connection, true);
     vitest
       .expect(view.getByRole("button", { name: "Apply allowed agents" }))
       .toHaveProperty("disabled", true);

@@ -42,7 +42,7 @@ function ConnectedRunner({ initial }: { initial: ConnectionSettings }) {
   const runner = useRunner(initial, historySettings.limits);
   const settingsConnection =
     runner.status === "Connected" ? runner.api?.connection : undefined;
-  React.useEffect(
+  React.useLayoutEffect(
     () => preferences.attach(settingsConnection),
     [preferences.attach, settingsConnection],
   );
@@ -157,6 +157,7 @@ function ConnectedRunner({ initial }: { initial: ConnectionSettings }) {
         steering={runner.steering}
         status={runner.status}
         endpoint={runner.settings.endpoint}
+        managedConnection={runner.settings.managed === true}
         enabled={runner.enabled}
         busy={runner.busy}
         error={launchError || runner.error || preferences.error}

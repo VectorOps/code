@@ -3,6 +3,8 @@ import { expect, test } from "vitest";
 import * as preferences from "../src/components/DesktopSettings";
 import { AppearanceProvider } from "../src/components/Appearance";
 import { settingsHost, SettingsHarness } from "./desktop-settings-fixture";
+import { useDebug } from "../src/components/Diagnostics";
+import { Settings } from "../src/screens/Settings";
 
 test("backend appearance and all preferences survive a new frontend instance", async () => {
   const host = settingsHost({
@@ -93,4 +95,81 @@ test("late responses from a previous host cannot replace the current host settin
     finish({ ...preferences.defaultDesktopSettings, appearance: "light" }),
   );
   expect(view.result.current.value.appearance).toBe("dark");
+});
+
+test("debug visibility follows the backend snapshot and resets during reconnect", async () => {
+  const host = settingsHost({ debug_enabled: true, development: true });
+  const view = testing.renderHook(
+    () => ({ ...preferences.useDesktopSettings(), debug: useDebug() }),
+    {
+      wrapper: preferences.DesktopSettingsProvider,
+    },
+  );
+  expect(view.result.current.debug).toBe(false);
+  await testing.act(async () => {
+    view.result.current.attach(host.connection);
+  });
+  expect(view.result.current.debug).toBe(true);
+  testing.act(() => {
+    view.result.current.attach(undefined);
+  });
+  expect(view.result.current.debug).toBe(false);
+  host.request.mockResolvedValueOnce({
+    ...preferences.defaultDesktopSettings,
+    development: true,
+    debug_enabled: false,
+  });
+  await testing.act(async () => {
+    view.result.current.attach(host.connection);
+  });
+  expect(view.result.current.debug).toBe(false);
+});
+
+test("production settings can enable and disable diagnostics without a dev client", async () => {
+  const host = settingsHost({ development: false, debug_enabled: false });
+  function Probe() {
+    return <p>{useDebug() ? "Diagnostics visible" : "Diagnostics hidden"}</p>;
+  }
+  const view = testing.render(
+    <SettingsHarness connection={host.connection}>
+      <Settings
+        connected
+        connection={{ endpoint: "ws://localhost", token: "test" }}
+      />
+      <Probe />
+    </SettingsHarness>,
+  );
+  testing.fireEvent.click(
+    view.getByRole("button", { name: "Developer tools" }),
+  );
+  await testing.waitFor(() =>
+    expect(view.getByLabelText("Debug interface")).toHaveProperty(
+      "disabled",
+      false,
+    ),
+  );
+  expect(view.getByText("Diagnostics hidden")).toBeTruthy();
+  host.request.mockResolvedValueOnce({
+    ...preferences.defaultDesktopSettings,
+    debug_mode: "on",
+    development: false,
+    debug_enabled: true,
+  });
+  testing.fireEvent.change(view.getByLabelText("Debug interface"), {
+    target: { value: "on" },
+  });
+  await view.findByText("Diagnostics visible");
+  expect(host.request).toHaveBeenLastCalledWith("desktop.settings.update", {
+    debug_mode: "on",
+  });
+  host.request.mockResolvedValueOnce({
+    ...preferences.defaultDesktopSettings,
+    debug_mode: "off",
+    development: false,
+    debug_enabled: false,
+  });
+  testing.fireEvent.change(view.getByLabelText("Debug interface"), {
+    target: { value: "off" },
+  });
+  await view.findByText("Diagnostics hidden");
 });

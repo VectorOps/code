@@ -1,4 +1,5 @@
 import * as React from "react";
+import { DebugProvider } from "../src/components/Diagnostics";
 import * as testing from "@testing-library/react";
 import * as vitest from "vitest";
 import { vi } from "vitest";
@@ -132,7 +133,9 @@ vitest.test(
     const highlight = vitest.vi.spyOn(hljs, "highlight");
     const serialize = vitest.vi.spyOn(JSON, "stringify");
     const view = testing.render(
-      <ToolDetails tool={description} factory={defaultToolFormatters} />,
+      <DebugProvider value={true}>
+        <ToolDetails tool={description} factory={defaultToolFormatters} />
+      </DebugProvider>,
     );
     vitest.expect(highlight).not.toHaveBeenCalled();
     vitest
@@ -155,7 +158,11 @@ vitest.test(
   () => {
     const history = [item(1, "llm.generate")];
     const serialize = vitest.vi.spyOn(JSON, "stringify");
-    const debug = testing.render(<DebugSteps history={history} />);
+    const debug = testing.render(
+      <DebugProvider value={true}>
+        <DebugSteps history={history} />
+      </DebugProvider>,
+    );
     vitest
       .expect(serialize.mock.calls.some(([value]) => value === history[0].step))
       .toBe(false);
@@ -165,7 +172,11 @@ vitest.test(
     vitest.expect(debug.container.querySelector("pre")).toBeNull();
     debug.unmount();
     serialize.mockClear();
-    const details = testing.render(<ActivityDetails item={history[0]} />);
+    const details = testing.render(
+      <DebugProvider value={true}>
+        <ActivityDetails item={history[0]} />
+      </DebugProvider>,
+    );
     vitest
       .expect(serialize.mock.calls.some(([value]) => value === history[0].step))
       .toBe(false);
@@ -202,7 +213,7 @@ vitest.test(
       {
         name: "list_processes",
         args: {},
-        result: [{ process_id: "deferred-value" }],
+        result: [{ process_id: "internal-process", command: "deferred-value" }],
       },
       {
         name: "update_plan",
@@ -630,7 +641,11 @@ vitest.test(
       hasOlder: false,
     };
     const resolve = vitest.vi.spyOn(defaultStepRegistry, "resolve");
-    const view = testing.render(<Workspace {...props} />);
+    const view = testing.render(
+      <DebugProvider value={true}>
+        <Workspace {...props} />
+      </DebugProvider>,
+    );
     const renders = vitest.vi.mocked(ReactMarkdown).mock.calls.length;
     resolve.mockClear();
     names.mockClear();
@@ -643,7 +658,11 @@ vitest.test(
     );
     testing.fireEvent.click(view.getByRole("button", { name: "View details" }));
     vitest.expect(resolve).not.toHaveBeenCalled();
-    view.rerender(<Workspace {...props} enabled={false} busy />);
+    view.rerender(
+      <DebugProvider value={true}>
+        <Workspace {...props} enabled={false} busy />
+      </DebugProvider>,
+    );
     vitest.expect(ReactMarkdown).toHaveBeenCalledTimes(renders);
   },
 );

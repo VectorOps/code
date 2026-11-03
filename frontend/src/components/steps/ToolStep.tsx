@@ -7,8 +7,10 @@ import { StepCard } from "./StepCard";
 import "../tools/tools.css";
 import { memo } from "react";
 import { useStepBranchControls } from "../StepBranchControls";
+import { useDebug } from "../Diagnostics";
 
 export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
+  const debug = useDebug();
   const approval = approvalFor(step, actions.pending);
   const tool = toolDescription(step, approval);
   const factory = actions.tools ?? defaultToolFormatters;
@@ -18,6 +20,7 @@ export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
   const Summary = formatter.summary;
   return (
     <StepCard
+      diagnostic={false}
       className={`tool-step${approval ? " tool-approval" : ""}`}
       inspect={() => actions.inspect(step.id)}
       busy={
@@ -32,7 +35,7 @@ export const ToolStep = memo(function ToolStep({ step, actions }: StepProps) {
               : factory.activity(tool)}
           </span>
         )}
-        {!approval && <Summary tool={tool} />}
+        {!approval && <Summary tool={tool} debug={debug} />}
         {(!formatter.hideIndicators ||
           approval ||
           tool.failed ||

@@ -19,6 +19,7 @@ export type StepActions = {
   ) => Promise<boolean>;
 };
 export type StepProps = {
+  debug?: boolean;
   step: StepView;
   actions: StepActions;
   failuresRecovered?: boolean;

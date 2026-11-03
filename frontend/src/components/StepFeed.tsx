@@ -16,6 +16,7 @@ import { FocusRegion } from "../focus/FocusProvider";
 import { StepBranchControls } from "./StepBranchControls";
 import { WorktreeLabel } from "./Worktrees";
 import * as presentation from "../models/workflow-display";
+import { useDebug } from "./Diagnostics";
 
 function displayStyle(
   display: presentation.WorkflowDisplay,
@@ -148,6 +149,7 @@ function WorkflowContents({
   grouping: ToolGrouping;
   display: presentation.WorkflowDisplay;
 }) {
+  const debug = useDebug();
   const inline = new Set<string>();
   const entries = React.useMemo(
     () =>
@@ -245,6 +247,7 @@ function WorkflowContents({
                   <div className="workflow-message-prefix">{display.label}</div>
                 )}
               <Component
+                debug={debug}
                 step={entry}
                 actions={entryActions}
                 failuresRecovered={failuresRecovered}

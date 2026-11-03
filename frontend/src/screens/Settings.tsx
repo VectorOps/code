@@ -1,5 +1,6 @@
 import * as React from "react";
 import { AppearanceControl } from "../components/Appearance";
+import { DebugSettings } from "../components/DesktopSettings";
 import type { RunnerApi } from "../communication/runner-api";
 import type { ConnectionSettings, Workflow } from "../models/runner";
 import { Authentication } from "./Authentication";
@@ -23,6 +24,7 @@ const categories = {
   permissions: "Tool permissions",
   workflows: "Workflows",
   worktrees: "Worktrees",
+  developer: "Developer tools",
 };
 
 type Category = keyof typeof categories;
@@ -65,6 +67,8 @@ export function Settings({
         <h3>{title}</h3>
         {category === "appearance" ? (
           <AppearanceControl />
+        ) : category === "developer" ? (
+          <DebugSettings />
         ) : category === "conversations" ? (
           <>
             <label>

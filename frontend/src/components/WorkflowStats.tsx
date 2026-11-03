@@ -1,12 +1,29 @@
 import type { Session } from "../models/runner";
+import { DebugOnly } from "./Diagnostics";
 
-export function WorkflowStats({ session }: { session: Session }) {
+export function WorkflowStats({
+  session,
+  workflowId = session.root_workflow_id,
+}: {
+  session: Session;
+  workflowId?: string | null;
+}) {
   const totals = session.usage?.totals;
   return (
     <>
       <dl>
-        <dt>Execution</dt>
-        <dd>{session.execution_id}</dd>
+        <dt>Workflow</dt>
+        <dd>
+          <code>{workflowId || "Not available"}</code>
+        </dd>
+        <DebugOnly>
+          {() => (
+            <>
+              <dt>Execution</dt>
+              <dd>{session.execution_id}</dd>
+            </>
+          )}
+        </DebugOnly>
         <dt>Status</dt>
         <dd>{session.status}</dd>
         <dt>Input tokens</dt>

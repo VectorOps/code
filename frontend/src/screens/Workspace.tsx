@@ -10,6 +10,7 @@ import {
 import { activity, messageText } from "../models/activity";
 import { StepFeed } from "../components/StepFeed";
 import { DebugSteps } from "../components/DebugSteps";
+import { useDebug } from "../components/Diagnostics";
 import { defaultStepRegistry } from "../components/steps/defaults";
 import type { StepRegistry } from "../components/steps/registry";
 import { ActivityDetails } from "../components/ActivityDetails";
@@ -75,6 +76,7 @@ function WorkspaceContent({
   steering,
   status,
   endpoint,
+  managedConnection = false,
   enabled,
   busy,
   onStop,
@@ -124,6 +126,7 @@ function WorkspaceContent({
   };
   status: string;
   endpoint: string;
+  managedConnection?: boolean;
   enabled: boolean;
   busy: boolean;
   onStop: () => void | Promise<void>;
@@ -153,7 +156,27 @@ function WorkspaceContent({
   fileSearch?: FileSearchApi;
 }) {
   const [leftOpen, setLeftOpen] = React.useState(true);
-  const [inspector, setInspector] = React.useState<Inspector | null>(null);
+  const debug = useDebug();
+  const [requestedInspector, setInspector] = React.useState<Inspector | null>(
+    null,
+  );
+  const canConfigure = !managedConnection || debug;
+  const inspector =
+    requestedInspector &&
+    (requestedInspector.kind !== "debug" || debug) &&
+    (requestedInspector.kind !== "connection" || canConfigure) &&
+    (requestedInspector.kind !== "activity" ||
+      debug ||
+      history.some(
+        (item) =>
+          activity(item).id === requestedInspector.id &&
+          activity(item).kind === "llm.tool",
+      ))
+      ? requestedInspector
+      : null;
+  React.useEffect(() => {
+    if (requestedInspector && !inspector) setInspector(null);
+  }, [requestedInspector, inspector]);
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
   const [historyError, setHistoryError] = React.useState("");
   const inspectorRef = React.useRef<HTMLElement>(null);
@@ -387,7 +410,7 @@ function WorkspaceContent({
         create={create}
         advanced={advanced}
         enabled={enabled}
-        configure={configure}
+        configure={canConfigure ? configure : undefined}
       />
       <section className="chat-workspace" aria-label="Conversation">
         <header className="session-header">
@@ -508,7 +531,7 @@ function WorkspaceContent({
         )}
         <div className="feed-controls">
           <span>{selected ? "Conversation and activity" : "Welcome"}</span>
-          {selected && (
+          {selected && debug && (
             <button
               className="quiet-button"
               onClick={() => open({ kind: "debug" })}
@@ -694,7 +717,12 @@ function WorkspaceContent({
             {inspector.kind === "settings" && settings}
             {inspector.kind === "workflow-permissions" && workflowPermissions}
             {inspector.kind === "stats" && current && (
-              <WorkflowStats session={current} />
+              <WorkflowStats
+                session={current}
+                workflowId={
+                  execution?.root_workflow_id ?? current.root_workflow_id
+                }
+              />
             )}
             {inspector.kind === "delete" && current && onDelete && (
               <DeleteWorkflow

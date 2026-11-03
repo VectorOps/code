@@ -1,3 +1,4 @@
+import { useDebug } from "./Diagnostics";
 import type { Json } from "../models/json";
 import { object } from "../models/json";
 import type { InputRequest } from "../models/runner";
@@ -23,6 +24,7 @@ export function ApprovalActions({
   tool?: ToolView;
   tools?: ToolFormatterFactory;
 }) {
+  const debug = useDebug();
   const [submitted, setSubmitted] = useRetainedState(
     request,
     "approval-submitted",
@@ -81,7 +83,7 @@ export function ApprovalActions({
     <div className="approval-actions">
       <div className="approval-summary">
         <span>{tools.name(tool.name)}</span>
-        <Summary tool={tool} />
+        <Summary tool={tool} debug={debug} />
       </div>
       {propertyNames.length > 0 && (
         <div className="approval-metadata">

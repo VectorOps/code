@@ -1,3 +1,4 @@
+import { DebugProvider } from "../src/components/Diagnostics";
 import * as testing from "@testing-library/react";
 import * as vitest from "vitest";
 import type { Json, Params } from "../src/models/json";
@@ -87,7 +88,11 @@ vitest.test(
     const history = [2, 1, 3].map((position) =>
       item(`step-${position}`, null, "root", undefined, null, position),
     );
-    const view = testing.render(<DebugSteps history={history} />);
+    const view = testing.render(
+      <DebugProvider value={true}>
+        <DebugSteps history={history} />
+      </DebugProvider>,
+    );
     vitest
       .expect(
         [...view.container.querySelectorAll("summary")].map(
@@ -477,12 +482,14 @@ vitest.test.each(["user", "assistant", "tool"])(
           : item("assistant");
     const callbacks = actions();
     const view = testing.render(
-      <StepFeed
-        history={[entry]}
-        registry={defaultStepRegistry}
-        actions={callbacks}
-        active={false}
-      />,
+      <DebugProvider value={true}>
+        <StepFeed
+          history={[entry]}
+          registry={defaultStepRegistry}
+          actions={callbacks}
+          active={false}
+        />
+      </DebugProvider>,
     );
     const card = view
       .getByRole("button", { name: "View details" })
@@ -733,10 +740,12 @@ vitest.test(
       .toHaveLength(1);
     view.unmount();
     const debug = testing.render(
-      <DebugSteps
-        history={[item("internal", null, "root", { kind: "workflow.join" })]}
-        actions={callbacks}
-      />,
+      <DebugProvider value={true}>
+        <DebugSteps
+          history={[item("internal", null, "root", { kind: "workflow.join" })]}
+          actions={callbacks}
+        />
+      </DebugProvider>,
     );
     toggle(debug.getByText("1. workflow.join / completed").closest("details")!);
     vitest
@@ -957,35 +966,37 @@ vitest.test(
     );
     const branch = vitest.vi.fn(async () => true);
     const view = testing.render(
-      <Workspace
-        sessions={[
-          {
-            execution_id: "existing",
-            root_workflow_id: "root",
-            reference: "chat:workflow",
-            status: "cancelled",
-            active: false,
-            pending_inputs: 0,
-          },
-        ]}
-        selected="existing"
-        onSelect={() => {}}
-        history={[first, old, next]}
-        execution={execution}
-        pending={[]}
-        status="Connected"
-        endpoint="ws://localhost"
-        enabled
-        busy={false}
-        onStop={() => {}}
-        onReply={async () => true}
-        onBranch={branch}
-        newSession={null}
-        connection={null}
-        error=""
-        dismiss={() => {}}
-        hasOlder={false}
-      />,
+      <DebugProvider value={true}>
+        <Workspace
+          sessions={[
+            {
+              execution_id: "existing",
+              root_workflow_id: "root",
+              reference: "chat:workflow",
+              status: "cancelled",
+              active: false,
+              pending_inputs: 0,
+            },
+          ]}
+          selected="existing"
+          onSelect={() => {}}
+          history={[first, old, next]}
+          execution={execution}
+          pending={[]}
+          status="Connected"
+          endpoint="ws://localhost"
+          enabled
+          busy={false}
+          onStop={() => {}}
+          onReply={async () => true}
+          onBranch={branch}
+          newSession={null}
+          connection={null}
+          error=""
+          dismiss={() => {}}
+          hasOlder={false}
+        />
+      </DebugProvider>,
     );
     vitest.expect(view.getByText("Selected response")).toBeTruthy();
     vitest.expect(view.queryByText("Abandoned response")).toBeNull();

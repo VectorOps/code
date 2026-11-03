@@ -5,6 +5,7 @@ import { memo, type ReactNode } from "react";
 import { HighlightedCode } from "../HighlightedCode";
 import { CodeBlock } from "../CodeBlock";
 import { LazyDetails } from "../LazyDetails";
+import { useDebug } from "../Diagnostics";
 
 function Summary({ items, fallback }: { items: string[]; fallback: string }) {
   const first = items[0] || fallback;
@@ -34,6 +35,7 @@ function RequestResult({
   request,
   children,
 }: ToolProps & { request?: ReactNode; children: ReactNode }) {
+  const debug = useDebug();
   return (
     <>
       <h3>Request</h3>
@@ -41,7 +43,7 @@ function RequestResult({
         (tool.arguments === undefined ? (
           <p>Arguments were not recorded in this history.</p>
         ) : (
-          <Fields data={object(tool.arguments)} />
+          <Fields data={requestArguments(tool, debug)} />
         ))}
       <LazyDetails summary="Result / output">{() => children}</LazyDetails>
     </>
@@ -74,6 +76,50 @@ export function Fields({ data }: { data: Record<string, Json> }) {
           </div>
         ))}
     </dl>
+  );
+}
+
+function Metadata({
+  data,
+  visible,
+}: {
+  data: Record<string, Json>;
+  visible: readonly string[];
+}) {
+  const debug = useDebug();
+  return (
+    <Fields
+      data={
+        debug
+          ? data
+          : Object.fromEntries(
+              Object.entries(data).filter(([key]) => visible.includes(key)),
+            )
+      }
+    />
+  );
+}
+
+function requestArguments(tool: ToolView, debug: boolean) {
+  const args = object(tool.arguments);
+  if (
+    debug ||
+    ![
+      "exec",
+      "poll_process",
+      "write_stdin",
+      "kill_process",
+      "list_processes",
+    ].includes(tool.name)
+  )
+    return args;
+  return Object.fromEntries(
+    Object.entries(args).filter(
+      ([key]) =>
+        !["process_id", "cursor", "worktree_id", "yield_timeout_ms"].includes(
+          key,
+        ),
+    ),
   );
 }
 
@@ -215,7 +261,19 @@ function FileOutput({ tool }: ToolProps) {
   const { content, text: lines, ...metadata } = result;
   return (
     <>
-      <Fields data={metadata} />
+      <Metadata
+        data={metadata}
+        visible={[
+          "path",
+          "url",
+          "method",
+          "status",
+          "mime_type",
+          "content_type",
+          "bytes_read",
+          "total_bytes",
+        ]}
+      />
       {result.truncated === true && (
         <p className="tool-notice">
           Partial content. More data is available beyond this range.
@@ -279,7 +337,7 @@ function FilesOutput({ tool }: ToolProps) {
   );
 }
 
-function command(tool: ToolView): string {
+function command(tool: ToolView, debug: boolean): string {
   const args = object(tool.arguments),
     requested = args.command ?? tool.processCommand,
     cmd = object(requested);
@@ -294,24 +352,27 @@ function command(tool: ToolView): string {
           : `'${argument.replaceAll("'", "'\\''")}'`;
       })
       .join(" ") ||
-    text(args.process_id) ||
-    text(object(payload(tool)).process_id)
+    (debug
+      ? text(args.process_id) || text(object(payload(tool)).process_id)
+      : "")
   );
 }
 
 export const ProcessSummary = memo(function ProcessSummary({
   tool,
 }: ToolProps) {
+  const debug = useDebug();
   return (
     <Summary
-      items={[command(tool)].filter(Boolean)}
+      items={[command(tool, debug)].filter(Boolean)}
       fallback="Process details"
     />
   );
 });
 
 export function ProcessDetails({ tool }: ToolProps) {
-  const args = object(tool.arguments);
+  const debug = useDebug();
+  const args = requestArguments(tool, debug);
   const { command: requestedCommand, ...options } = args;
   return (
     <RequestResult
@@ -320,7 +381,7 @@ export function ProcessDetails({ tool }: ToolProps) {
         <>
           {(requestedCommand !== undefined ||
             tool.processCommand !== undefined) && (
-            <Code value={command(tool)} language="bash" />
+            <Code value={command(tool, debug)} language="bash" />
           )}
           {tool.arguments === undefined ? (
             <p>Arguments were not recorded in this history.</p>
@@ -337,6 +398,10 @@ export function ProcessDetails({ tool }: ToolProps) {
 
 function ProcessOutput({ tool }: ToolProps) {
   const result = object(payload(tool));
+  if (
+    !["chunks", "process_id", "state"].some((key) => Object.hasOwn(result, key))
+  )
+    return <Result tool={tool} />;
   const { chunks, ...metadata } = result;
   const streams = new Map<
     string,
@@ -353,7 +418,17 @@ function ProcessOutput({ tool }: ToolProps) {
   }
   return (
     <>
-      <Fields data={metadata} />
+      <Metadata
+        data={metadata}
+        visible={[
+          "state",
+          "returncode",
+          "error",
+          "timed_out",
+          "output_complete",
+          "dropped_bytes",
+        ]}
+      />
       {result.timed_out === true && (
         <p className="tool-notice">Execution timed out.</p>
       )}
@@ -376,7 +451,6 @@ function ProcessOutput({ tool }: ToolProps) {
         );
       })}
       {chunks !== undefined && !values(chunks).length && <p>No new output.</p>}
-      {chunks === undefined && <Result tool={tool} />}
     </>
   );
 }
@@ -390,6 +464,7 @@ export function ProcessesDetails({ tool }: ToolProps) {
 }
 
 function ProcessesOutput({ tool }: ToolProps) {
+  const debug = useDebug();
   const result = payload(tool);
   if (!Array.isArray(result)) return <Result tool={tool} />;
   return (
@@ -397,8 +472,21 @@ function ProcessesOutput({ tool }: ToolProps) {
       {!result.length && <p>No retained processes.</p>}
       {result.map((value, index) => (
         <section key={index}>
-          <h3>{text(object(value).process_id)}</h3>
-          <Fields data={object(value)} />
+          <h3>
+            {text(object(value).command) ||
+              (debug ? text(object(value).process_id) : `Process ${index + 1}`)}
+          </h3>
+          <Metadata
+            data={object(value)}
+            visible={[
+              "command",
+              "cwd",
+              "state",
+              "returncode",
+              "error",
+              "timed_out",
+            ]}
+          />
         </section>
       ))}
     </>

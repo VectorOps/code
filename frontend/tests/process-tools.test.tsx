@@ -1,3 +1,4 @@
+import { DebugProvider } from "../src/components/Diagnostics";
 import assert from "node:assert/strict";
 import { test } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
@@ -60,7 +61,15 @@ test("poll summaries and details show the matching exec command", () => {
   assert.doesNotMatch(summary, /process-a|other command/);
   const details = renderToStaticMarkup(<ProcessDetails tool={description} />);
   assert.match(details, /npm run build/);
-  assert.match(details, /process-a/);
+  assert.doesNotMatch(details, /process-a/);
+  assert.match(
+    renderToStaticMarkup(
+      <DebugProvider value={true}>
+        <ProcessDetails tool={description} />
+      </DebugProvider>,
+    ),
+    /process-a/,
+  );
   assert.doesNotMatch(details, /No new output/);
   const view = render(<ProcessDetails tool={description} />);
   const disclosure = view.getByText("Result / output").closest("details");
@@ -148,7 +157,15 @@ test("unmatched, earlier and other-workflow polls do not borrow commands", () =>
     assert.equal(description.processCommand, undefined);
     const summary = renderToStaticMarkup(<ProcessSummary tool={description} />);
     assert.doesNotMatch(summary, /echo hello/);
-    assert.match(summary, /unknown|process-a/);
+    assert.match(summary, /Process details/);
+    assert.match(
+      renderToStaticMarkup(
+        <DebugProvider value={true}>
+          <ProcessSummary tool={description} />
+        </DebugProvider>,
+      ),
+      /unknown|process-a/,
+    );
   }
 });
 

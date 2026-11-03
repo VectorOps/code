@@ -18,11 +18,13 @@ class DesktopService(RunnerService):
         *,
         history_path: Optional[Path] = None,
         settings_path: Optional[Path] = None,
+        development: bool = False,
     ) -> None:
         super().__init__(path)
         self.prompt_history = PromptHistory(history_path)
         self.desktop_settings = Store(
-            settings_path or self.configuration.path / "desktop-settings.json"
+            settings_path or self.configuration.path / "desktop-settings.json",
+            development=development,
         )
         self.file_search: Optional[FileSearch] = None
 

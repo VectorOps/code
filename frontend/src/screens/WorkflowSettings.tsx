@@ -1,3 +1,4 @@
+import { DebugOnly } from "../components/Diagnostics";
 import * as React from "react";
 import { ConfigurationApi } from "../communication/configuration-api";
 import type { ConfigurationSnapshot } from "../communication/configuration-api";
@@ -248,14 +249,18 @@ export function WorkflowSettings({ api: runner }: { api: RunnerApi }) {
               ))}
             </fieldset>
           ))}
-          <details>
-            <summary>Configuration JSON</summary>
-            <pre>
-              {snapshot.exists
-                ? JSON.stringify(snapshot.value, null, 2)
-                : "Not configured"}
-            </pre>
-          </details>
+          <DebugOnly>
+            {() => (
+              <details>
+                <summary>Configuration JSON</summary>
+                <pre>
+                  {snapshot.exists
+                    ? JSON.stringify(snapshot.value, null, 2)
+                    : "Not configured"}
+                </pre>
+              </details>
+            )}
+          </DebugOnly>
         </>
       )}
     </>

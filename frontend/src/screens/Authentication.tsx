@@ -1,3 +1,4 @@
+import { DebugOnly } from "../components/Diagnostics";
 import * as React from "react";
 import { AuthApi } from "../communication/auth-api";
 import { authenticate } from "../communication/oauth-host";
@@ -372,7 +373,8 @@ export function Authentication({
           <article key={login.id}>
             <h4>{login.provider}</h4>
             <p>
-              {login.status} / {login.id}
+              {login.status}
+              <DebugOnly>{() => <> / {login.id}</>}</DebugOnly>
             </p>
             <div className="settings-actions">
               <button

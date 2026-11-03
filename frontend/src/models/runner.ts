@@ -115,7 +115,11 @@ export type ToolRuleInput = {
   properties: Record<string, Json>;
 };
 export type ToolRule = ToolRuleInput & { id: string };
-export type ConnectionSettings = { endpoint: string; token: string };
+export type ConnectionSettings = {
+  endpoint: string;
+  token: string;
+  managed?: boolean;
+};
 
 export function isChatRequest(request: InputRequest): boolean {
   return (

@@ -14,13 +14,20 @@ from runner_desktop.server import wait_for_shutdown, websocket_server
 from runner_desktop.service import DesktopService
 
 
-async def serve(workspace: Path, token: str, origins: list[str], port: int) -> None:
+async def serve(
+    workspace: Path,
+    token: str,
+    origins: list[str],
+    port: int,
+    *,
+    development: bool = False,
+) -> None:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     previous = signal.getsignal(signal.SIGTERM)
     signal.signal(signal.SIGTERM, lambda *_: loop.call_soon_threadsafe(stop.set))
     try:
-        async with DesktopService(workspace) as service:
+        async with DesktopService(workspace, development=development) as service:
             async with websocket_server(service, token, origins, port) as listener:
                 actual_port = next(iter(listener.sockets)).getsockname()[1]
                 print(
@@ -44,6 +51,11 @@ def main(argv: Optional[list[str]] = None) -> None:
     worker.add_argument("--workspace", type=Path, default=Path.cwd())
     worker.add_argument("--port", type=int, default=0)
     worker.add_argument("--origin", action="append", required=True)
+    worker.add_argument(
+        "--development",
+        action="store_true",
+        help="Enable client diagnostics by default",
+    )
     desktop = commands.add_parser("desktop", help="Open the native desktop shell")
     desktop.add_argument("project", type=Path, nargs="?")
     desktop.add_argument("--workspace", type=Path)
@@ -60,7 +72,11 @@ def main(argv: Optional[list[str]] = None) -> None:
         if args.command == "serve":
             asyncio.run(
                 serve(
-                    args.workspace, validate_token(token or ""), args.origin, args.port
+                    args.workspace,
+                    validate_token(token or ""),
+                    args.origin,
+                    args.port,
+                    development=args.development,
                 )
             )
         else:

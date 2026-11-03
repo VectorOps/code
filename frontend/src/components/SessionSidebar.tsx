@@ -103,7 +103,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   create: () => void;
   advanced?: () => void;
   enabled?: boolean;
-  configure: () => void;
+  configure?: () => void;
 }) {
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState("all");
@@ -351,24 +351,26 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       <div className="sidebar-footer">
         <StatusIcon status={status} label="Connection status" />
         {!collapsed && <span className="connection-label">Backend</span>}
-        <button
-          className="quiet-button icon-button"
-          onClick={configure}
-          aria-label="Connection settings"
-          title={`Connection settings: ${status}`}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            aria-hidden="true"
+        {configure && (
+          <button
+            className="quiet-button icon-button"
+            onClick={configure}
+            aria-label="Connection settings"
+            title={`Connection settings: ${status}`}
           >
-            <path d="M8 3v5m8-5v5M6 8h12v3a6 6 0 0 1-12 0Zm6 9v4" />
-          </svg>
-        </button>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              aria-hidden="true"
+            >
+              <path d="M8 3v5m8-5v5M6 8h12v3a6 6 0 0 1-12 0Zm6 9v4" />
+            </svg>
+          </button>
+        )}
       </div>
     </aside>
   );

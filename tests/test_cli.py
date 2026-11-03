@@ -50,6 +50,16 @@ def test_headless_port_is_automatic_unless_explicit(
     with patch("runner_desktop.cli.serve", new_callable=AsyncMock) as serve:
         cli.main(["serve", "--origin", "http://127.0.0.1:8766"])
     assert serve.call_args.args[-1] == 0
+    assert serve.call_args.kwargs == {"development": False}
+
+
+def test_headless_development_flag_reaches_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RUNNER_DESKTOP_TOKEN", "x" * 43)
+    with patch("runner_desktop.cli.serve", new_callable=AsyncMock) as serve:
+        cli.main(["serve", "--origin", "http://127.0.0.1:5173", "--development"])
+    assert serve.call_args.kwargs == {"development": True}
 
 
 def test_dev_ports_remain_preconfigured() -> None:

@@ -10,10 +10,11 @@ import { UserStep } from "../src/components/steps/UserStep";
 import type { StepActions } from "../src/components/steps/registry";
 import { stepView } from "../src/models/steps";
 import { StepCard } from "../src/components/steps/StepCard";
+import { DebugProvider } from "../src/components/Diagnostics";
 
 test("step cards preserve rich content and keep controls outside button semantics", () => {
   const view = render(
-    <StepCard className="assistant-step" inspect={vi.fn()}>
+    <StepCard className="assistant-step" inspect={vi.fn()} diagnostic={false}>
       <h2>Deployment failed</h2>
       <p>Do not proceed.</p>
       <ul>
@@ -102,7 +103,9 @@ test("chat entries open details by card click or a separate keyboard control", a
   });
   for (const Component of [AssistantStep, ToolStep, UserStep]) {
     const html = renderToStaticMarkup(
-      <Component step={step} actions={actions} />,
+      <DebugProvider value={true}>
+        <Component step={step} actions={actions} />
+      </DebugProvider>,
     );
     assert.doesNotMatch(
       html,
@@ -119,7 +122,9 @@ test("chat entries open details by card click or a separate keyboard control", a
     assert.doesNotMatch(html, />completed|\/ Details|>Details</);
     const inspect = vi.fn();
     const view = render(
-      <Component step={step} actions={{ ...actions, inspect }} />,
+      <DebugProvider value={true}>
+        <Component step={step} actions={{ ...actions, inspect }} />
+      </DebugProvider>,
     );
     const details = view.getByRole("button", { name: "View details" });
     const card = details.closest(".step-card")!;
@@ -141,7 +146,7 @@ test("nested controls and selected text do not open step details", () => {
   const inspect = vi.fn();
   const click = vi.fn();
   const view = render(
-    <StepCard className="user-step" inspect={inspect}>
+    <StepCard className="user-step" inspect={inspect} diagnostic={false}>
       <p>Selectable text</p>
       <a href="#link">Link</a>
       <button onClick={click}>

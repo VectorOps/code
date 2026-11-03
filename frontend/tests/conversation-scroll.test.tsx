@@ -284,7 +284,7 @@ vitest.test(
       />,
     );
     vitest.expect(trim).toHaveBeenLastCalledWith(1);
-    fireEvent.click(view.getByRole("button", { name: "Debug steps" }));
+    fireEvent.click(view.getByRole("button", { name: "Settings" }));
     trim.mockClear();
     resize();
     vitest.expect(trim).not.toHaveBeenCalled();

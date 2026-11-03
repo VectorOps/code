@@ -9,6 +9,7 @@ export function readBootstrap(): ConnectionSettings {
   element?.remove();
   history.replaceState(null, "", location.pathname + location.search);
   return {
+    managed: fragment.get("managed") === "1",
     endpoint:
       fragment.get("endpoint") || local.endpoint || "ws://127.0.0.1:8765",
     token:

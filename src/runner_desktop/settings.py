@@ -32,11 +32,18 @@ class Settings(pydantic.BaseModel):
         default="agent", min_length=1, max_length=4096
     )
     history_limits: HistoryLimits = pydantic.Field(default_factory=HistoryLimits)
+    debug_mode: Literal["auto", "on", "off"] = "auto"
+
+
+class Snapshot(Settings):
+    development: bool = False
+    debug_enabled: bool = False
 
 
 class Store:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, development: bool = False) -> None:
         self.path = path
+        self.development = development
 
     def _read(self) -> Settings:
         if not self.path.exists():
@@ -71,7 +78,12 @@ class Store:
             value = await asyncio.to_thread(
                 self._access, params if method == "desktop.settings.update" else None
             )
-            return value.model_dump(mode="json")
+            return Snapshot(
+                **value.model_dump(),
+                development=self.development,
+                debug_enabled=value.debug_mode == "on"
+                or (value.debug_mode == "auto" and self.development),
+            ).model_dump(mode="json")
         except pydantic.ValidationError:
             raise protocol.RemoteError(
                 "invalid_argument", "invalid desktop settings"

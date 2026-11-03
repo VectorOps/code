@@ -1,4 +1,5 @@
 import * as React from "react";
+import { DebugOnly } from "./Diagnostics";
 
 export function DeleteWorkflow({
   executionId,
@@ -39,9 +40,13 @@ export function DeleteWorkflow({
   return (
     <div role="group" aria-label="Confirm workflow deletion">
       <p>Delete “{name}”?</p>
-      <p>
-        <code>{executionId}</code>
-      </p>
+      <DebugOnly>
+        {() => (
+          <p>
+            <code>{executionId}</code>
+          </p>
+        )}
+      </DebugOnly>
       <p>
         This permanently deletes this workflow run and its conversation and
         activity history. This cannot be undone. The workflow definition and

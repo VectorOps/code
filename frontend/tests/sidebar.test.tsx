@@ -168,7 +168,7 @@ test("sidebar shows a second line only for worktree sessions", () => {
   const props = sidebarProps(2);
   props.sessions[0] = { ...props.sessions[0], worktree_id: "old-tree" };
   const view = testing.render(<SessionSidebar {...props} />);
-  const label = view.getByText("Worktree: old-tree");
+  const label = view.getByText("Worktree: Unavailable");
   vitest
     .expect(label.previousElementSibling?.className)
     .toBe("session-list-heading");

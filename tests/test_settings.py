@@ -20,7 +20,7 @@ async def test_defaults_persistence_and_concurrent_field_updates(
     path = tmp_path / "config" / "desktop-settings.json"
     assert (
         await settings.Store(path).dispatch("desktop.settings.get", {})
-        == settings.Settings().model_dump()
+        == settings.Snapshot().model_dump()
     )
     await asyncio.gather(
         settings.Store(path).dispatch(
@@ -30,7 +30,7 @@ async def test_defaults_persistence_and_concurrent_field_updates(
             "desktop.settings.update", {"default_workflow": "custom:review"}
         ),
     )
-    result = settings.Settings.model_validate(
+    result = settings.Snapshot.model_validate(
         await settings.Store(path).dispatch("desktop.settings.get", {})
     )
     assert result.appearance == "dark"
@@ -50,6 +50,10 @@ async def test_defaults_persistence_and_concurrent_field_updates(
         {"history_limits": {"maximum": 10}},
         {"history_limits": {"target": 1.5}},
         {"appearance": None},
+        {"debug_mode": "invalid"},
+        {"debug_mode": True},
+        {"debug_enabled": True},
+        {"development": True},
     ],
 )
 async def test_invalid_updates_do_not_overwrite_settings(
@@ -86,7 +90,7 @@ async def test_settings_require_authentication_and_survive_changed_origins(
     ):
         project = tmp_path / f"project-{index}"
         project.mkdir()
-        async with DesktopService(project) as service:
+        async with DesktopService(project, development=index == 0) as service:
             async with websocket_server(service, token, [origin]) as listener:
                 port = next(iter(listener.sockets)).getsockname()[1]
                 endpoint = f"ws://127.0.0.1:{port}"
@@ -129,3 +133,49 @@ async def test_settings_require_authentication_and_survive_changed_origins(
                     reply = json.loads(await socket.recv())
                     assert reply["kind"] == "response"
                     assert reply["result"]["appearance"] == "dark"
+                    assert reply["result"]["development"] is (index == 0)
+                    assert reply["result"]["debug_enabled"] is (index == 0)
+
+
+@pytest.mark.parametrize("development", [False, True])
+@pytest.mark.parametrize("mode", ["auto", "on", "off"])
+async def test_debug_override_and_launch_defaults(
+    tmp_path: Path, development: bool, mode: str
+) -> None:
+    path = tmp_path / "desktop-settings.json"
+    store = settings.Store(path, development=development)
+    before = settings.Snapshot.model_validate(
+        await store.dispatch("desktop.settings.get", {})
+    )
+    assert before.debug_mode == "auto"
+    assert before.debug_enabled is development
+    assert not path.exists()
+    result = settings.Snapshot.model_validate(
+        await store.dispatch("desktop.settings.update", {"debug_mode": mode})
+    )
+    assert result.debug_enabled is (mode == "on" or (mode == "auto" and development))
+    persisted = json.loads(path.read_text())
+    assert persisted["debug_mode"] == mode
+    assert "development" not in persisted
+    assert "debug_enabled" not in persisted
+    restarted = settings.Snapshot.model_validate(
+        await settings.Store(path, development=not development).dispatch(
+            "desktop.settings.get", {}
+        )
+    )
+    assert restarted.debug_enabled is (
+        mode == "on" or (mode == "auto" and not development)
+    )
+
+
+async def test_existing_settings_files_default_to_auto(tmp_path: Path) -> None:
+    path = tmp_path / "desktop-settings.json"
+    path.write_text('{"appearance":"dark"}')
+    result = settings.Snapshot.model_validate(
+        await settings.Store(path, development=True).dispatch(
+            "desktop.settings.get", {}
+        )
+    )
+    assert result.debug_mode == "auto"
+    assert result.debug_enabled is True
+    assert path.read_text() == '{"appearance":"dark"}'

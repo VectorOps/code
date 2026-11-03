@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import type { toolDescription } from "../../models/steps";
 
 export type ToolView = ReturnType<typeof toolDescription>;
-export type ToolProps = { tool: ToolView };
+export type ToolProps = { tool: ToolView; debug?: boolean };
 export type ToolFormatter = {
   summary: ComponentType<ToolProps>;
   activity?: { completed: string; running: string };

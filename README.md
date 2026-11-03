@@ -81,8 +81,8 @@ In another terminal run `npm run dev` in `frontend/`, open `http://127.0.0.1:517
 
 ## Persistent desktop settings
 
-Appearance, default workflow, and conversation history limits are stored by the
-backend in `~/.config/vops-runner/desktop-settings.json`, or under
+Appearance, default workflow, conversation history limits, and the debug
+preference are stored by the backend in `~/.config/vops-runner/desktop-settings.json`, or under
 `VOPS_RUNNER_CONFIG_DIR` when configured. They are shared across projects on that
 runner host and survive changing frontend ports. Existing workflow and provider
 configuration remains owned by the runner.
@@ -99,6 +99,51 @@ not imported; configure them once through Settings after upgrading. When attache
 to another host, that host owns the preferences. OAuth callback listeners remain
 short-lived and use provider-specific redirect ports; concurrent authentication
 attempts may fail when the callback port is occupied.
+
+### Debug interface
+
+Open **Settings → Developer tools → Debug interface** to select a mode. Changes
+apply immediately in the current client; no development frontend or restart is
+required. Other clients reload the shared preference when they reconnect.
+
+| Preference | Development backend | Production backend |
+| --- | --- | --- |
+| Auto (default) | On | Off |
+| On | On | On |
+| Off | Off | Off |
+
+`runner-desktop-dev` marks its worker as development-mode. Independently managed
+workers can opt in with `serve --development`. Normal local startup and plain
+`serve` use production mode. The backend launch mode is transient: starting a
+development worker does not save an override or enable debugging on a later
+production launch. Frontend build mode does not determine diagnostic visibility.
+
+With debugging off, the client hides Debug steps, raw message-step inspection,
+raw tool records, configuration JSON, transport metadata, and internal IDs.
+Disabling debugging closes debug-only inspectors and removes diagnostic sections
+from open tool details. Commands, results, diffs, errors, approvals, retry/edit
+controls, usage, and workflow IDs remain available. Required response schemas and
+structured task output remain accessible. Managed local clients also hide manual
+connection editing; explicit attachments retain it.
+
+The persisted field is `debug_mode`, accepting `auto`, `on`, or `off`:
+
+```json
+{"kind":"request","id":"debug-setting","method":"desktop.settings.update","params":{"debug_mode":"on"}}
+```
+
+Settings responses add read-only `development` and `debug_enabled` booleans. The
+backend resolves the effective value; the client hides diagnostics until settings
+load successfully. Existing settings files default to `auto`. This is a UI
+preference, not an authorization boundary, and does not alter persisted history,
+tool permissions, or workflow execution.
+
+Custom step and tool formatters receive the shared `debug` prop through
+`StepProps` and `ToolProps`. Nested components can use `useDebug` or `DebugOnly`
+from `components/Diagnostics`; `DebugOnly` takes a render callback so disabled
+diagnostics do not evaluate or serialize their content. `StepCard` treats its
+inspection action as diagnostic by default; a curated task-details view can set
+`diagnostic={false}`. Keep actual task content separate from internal metadata.
 
 ## Message input and prompt recall
 

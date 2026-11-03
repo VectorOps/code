@@ -1,8 +1,12 @@
 import asyncio
 from pathlib import Path
 import sys
+from typing import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from runner_desktop.dev import stop_process, watch_paths
+import pytest
+
+from runner_desktop.dev import run, stop_process, watch_paths
 
 
 def test_watch_paths(tmp_path: Path) -> None:
@@ -24,3 +28,33 @@ async def test_stop_process() -> None:
     await stop_process(process)
     assert process.returncode is not None
     await stop_process(process)
+
+
+async def test_dev_launcher_marks_worker_as_development(tmp_path: Path) -> None:
+    vite = tmp_path / "frontend/node_modules/vite/bin/vite.js"
+    vite.parent.mkdir(parents=True)
+    vite.touch()
+    process = MagicMock(spec=asyncio.subprocess.Process)
+    process.returncode = 0
+    process.wait = AsyncMock(return_value=0)
+
+    async def watch(
+        *args: object, **kwargs: object
+    ) -> AsyncIterator[set[tuple[int, str]]]:
+        await asyncio.Event().wait()
+        yield set()
+
+    with (
+        patch("runner_desktop.dev.shutil.which", return_value="node"),
+        patch("runner_desktop.dev.TemplateServer"),
+        patch("watchfiles.awatch", watch),
+        patch(
+            "asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=process,
+        ) as create,
+    ):
+        with pytest.raises(RuntimeError, match="Development frontend exited"):
+            await run(tmp_path, tmp_path, 8765, 5173, [])
+    assert "--development" in create.call_args_list[1].args
+    assert "--strictPort" in create.call_args_list[0].args
