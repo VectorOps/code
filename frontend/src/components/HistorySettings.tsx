@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as history from "../models/history-limits";
 
 const labels: Record<keyof history.HistoryLimits, string> = {
@@ -16,6 +16,7 @@ export function HistorySettings({
   change: (limits: history.HistoryLimits) => void;
 }) {
   const [draft, setDraft] = useState(limits);
+  useEffect(() => setDraft(limits), [limits]);
   const [error, setError] = useState("");
   return (
     <form
@@ -32,8 +33,8 @@ export function HistorySettings({
       <h4>Conversation history</h4>
       <p>
         Chat and debug share this window of raw steps; some steps are hidden
-        from chat. Saved on this device. Trimming pauses while reviewing history
-        and resumes at the latest activity.
+        from chat. Saved on the runner host. Trimming pauses while reviewing
+        history and resumes at the latest activity.
       </p>
       {(Object.keys(labels) as (keyof history.HistoryLimits)[]).map((key) => (
         <label key={key}>

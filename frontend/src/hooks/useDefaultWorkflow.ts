@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useDesktopSettings } from "../components/DesktopSettings";
 import type { Workflow } from "../models/runner";
 
 export function resolveDefaultWorkflow(
@@ -20,18 +20,9 @@ export function resolveDefaultWorkflow(
 }
 
 export function useDefaultWorkflow() {
-  const [reference, setReference] = useState(() => {
-    try {
-      return localStorage.getItem("runner.defaultWorkflow") || "agent";
-    } catch {
-      return "agent";
-    }
-  });
+  const { value, save } = useDesktopSettings();
   function change(next: string) {
-    setReference(next);
-    try {
-      localStorage.setItem("runner.defaultWorkflow", next);
-    } catch {}
+    save({ default_workflow: next });
   }
-  return { reference, change };
+  return { reference: value.default_workflow, change };
 }

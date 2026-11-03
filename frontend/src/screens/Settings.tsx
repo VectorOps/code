@@ -99,8 +99,8 @@ export function Settings({
             </label>
             <p>
               New conversation and Cmd/Ctrl+N start this workflow. Saved on this
-              device. Use Advanced or Cmd/Ctrl+Shift+N to choose a workflow and
-              its inputs.
+              runner host. Use Advanced or Cmd/Ctrl+Shift+N to choose a workflow
+              and its inputs.
             </p>
             {!connected ? (
               <p role="status">Connect to a runner to choose a workflow.</p>

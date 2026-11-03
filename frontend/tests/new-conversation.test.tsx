@@ -11,6 +11,8 @@ import {
 } from "../src/components/NewSessionForm";
 import type { Workflow } from "../src/models/runner";
 import type { Params } from "../src/models/json";
+import { RunnerApi } from "../src/communication/runner-api";
+import { settingsHost } from "./desktop-settings-fixture";
 
 const workflows: Workflow[] = [
   {
@@ -47,9 +49,9 @@ vitest.beforeEach(() => {
 });
 vitest.afterEach(() => vitest.vi.unstubAllGlobals());
 
-function mockRunner() {
+function mockRunner(host = settingsHost()) {
   const runner: ReturnType<typeof runnerHook.useRunner> = {
-    api: undefined,
+    api: new RunnerApi(host.connection),
     settings: { endpoint: "ws://localhost", token: "" },
     connect: vitest.vi.fn(),
     status: "Connected",
@@ -94,6 +96,7 @@ async function shortcut(options: KeyboardEventInit) {
     cancelable: true,
     ...options,
   });
+  await testing.act(async () => {});
   await testing.act(async () => {
     (document.activeElement ?? document.body).dispatchEvent(event);
   });
@@ -131,7 +134,8 @@ vitest.test.each(["ctrlKey", "metaKey"])(
 vitest.test(
   "default workflow setting is saved and used by the main button after remount",
   async () => {
-    const runner = mockRunner();
+    const host = settingsHost();
+    const runner = mockRunner(host);
     const user = userEvent.setup();
     const view = testing.render(<RunnerScreen initial={runner.settings} />);
     await user.click(view.getByRole("button", { name: "Settings" }));
@@ -143,9 +147,7 @@ vitest.test(
       view.getByLabelText("Default workflow"),
       "custom:review",
     );
-    vitest
-      .expect(localStorage.getItem("runner.defaultWorkflow"))
-      .toBe("custom:review");
+    vitest.expect(host.read().default_workflow).toBe("custom:review");
     view.unmount();
     const next = testing.render(<RunnerScreen initial={runner.settings} />);
     await user.click(
@@ -160,8 +162,9 @@ vitest.test(
 vitest.test(
   "missing defaults report an error rather than silently starting another workflow",
   async () => {
-    localStorage.setItem("runner.defaultWorkflow", "missing:workflow");
-    const runner = mockRunner();
+    const runner = mockRunner(
+      settingsHost({ default_workflow: "missing:workflow" }),
+    );
     const view = testing.render(<RunnerScreen initial={runner.settings} />);
     await shortcut({ metaKey: true });
     vitest

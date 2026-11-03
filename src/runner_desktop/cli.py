@@ -5,6 +5,7 @@ import asyncio
 import os
 from pathlib import Path
 import signal
+import sys
 from typing import Optional
 
 from vectorops.runner.control.auth import validate_token
@@ -33,19 +34,27 @@ async def serve(workspace: Path, token: str, origins: list[str], port: int) -> N
 
 
 def main(argv: Optional[list[str]] = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        usage="%(prog)s [PROJECT] | {desktop,serve} ...",
+        epilog="Start locally with runner-desktop [PROJECT]. No token or ports required.",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     worker = commands.add_parser("serve", help="Run an independent headless worker")
     worker.add_argument("--workspace", type=Path, default=Path.cwd())
-    worker.add_argument("--port", type=int, default=8765)
+    worker.add_argument("--port", type=int, default=0)
     worker.add_argument("--origin", action="append", required=True)
     desktop = commands.add_parser("desktop", help="Open the native desktop shell")
-    desktop.add_argument("--workspace", type=Path, default=Path.cwd())
+    desktop.add_argument("project", type=Path, nargs="?")
+    desktop.add_argument("--workspace", type=Path)
     desktop.add_argument(
         "--endpoint", help="Attach to an independent worker; never stop it on exit"
     )
-    desktop.add_argument("--asset-port", type=int, default=8766)
-    args = parser.parse_args(argv)
+    desktop.add_argument("--asset-port", type=int, default=0)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if not arguments or arguments[0] not in ("desktop", "serve", "-h", "--help"):
+        arguments.insert(0, "desktop")
+    args = parser.parse_args(arguments)
     token = os.environ.get("RUNNER_DESKTOP_TOKEN")
     try:
         if args.command == "serve":
@@ -57,8 +66,15 @@ def main(argv: Optional[list[str]] = None) -> None:
         else:
             from runner_desktop.desktop import launch
 
-            launch(args.workspace, args.endpoint, token, args.asset_port)
+            if args.project is not None and args.workspace is not None:
+                parser.error("specify PROJECT or --workspace, not both")
+            launch(
+                args.project or args.workspace or Path.cwd(),
+                args.endpoint,
+                token,
+                args.asset_port,
+            )
     except KeyboardInterrupt:
         pass
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, RuntimeError, ImportError) as exc:
         parser.exit(1, f"{exc}\n")

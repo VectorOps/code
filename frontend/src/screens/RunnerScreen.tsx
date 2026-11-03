@@ -1,4 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import * as React from "react";
+import {
+  DesktopSettingsProvider,
+  useDesktopSettings,
+} from "../components/DesktopSettings";
+import { AppearanceProvider } from "../components/Appearance";
 import { PromptHistoryApi } from "../communication/prompt-history";
 import { FileSearchApi } from "../communication/file-search";
 import type { ConnectionSettings } from "../models/runner";
@@ -22,16 +27,33 @@ import { WorktreesProvider } from "../components/Worktrees";
 import { useHistoryLimits } from "../hooks/useHistoryLimits";
 
 export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
+  return (
+    <DesktopSettingsProvider>
+      <AppearanceProvider>
+        <ConnectedRunner initial={initial} />
+      </AppearanceProvider>
+    </DesktopSettingsProvider>
+  );
+}
+
+function ConnectedRunner({ initial }: { initial: ConnectionSettings }) {
+  const preferences = useDesktopSettings();
   const historySettings = useHistoryLimits();
   const runner = useRunner(initial, historySettings.limits);
+  const settingsConnection =
+    runner.status === "Connected" ? runner.api?.connection : undefined;
+  React.useEffect(
+    () => preferences.attach(settingsConnection),
+    [preferences.attach, settingsConnection],
+  );
   useWorkspaceTitle(runner.api, runner.status === "Connected");
-  const promptHistory = useMemo(
+  const promptHistory = React.useMemo(
     () =>
       runner.api ? new PromptHistoryApi(runner.api.connection) : undefined,
     [runner.api],
   );
-  const [connection, setConnection] = useState(initial);
-  const fileSearch = useMemo(
+  const [connection, setConnection] = React.useState(initial);
+  const fileSearch = React.useMemo(
     () =>
       runner.api && runner.status === "Connected"
         ? new FileSearchApi(runner.api.connection)
@@ -39,9 +61,9 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
     [runner.api, runner.status],
   );
   const defaultWorkflow = useDefaultWorkflow();
-  const [launchError, setLaunchError] = useState("");
-  const starting = useRef(false);
-  const [draft, setDraft] = useState<NewSessionDraft>({
+  const [launchError, setLaunchError] = React.useState("");
+  const starting = React.useRef(false);
+  const [draft, setDraft] = React.useState<NewSessionDraft>({
     reference: "",
     input: "{}",
   });
@@ -58,6 +80,7 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
     }
   }
   async function create() {
+    if (!preferences.ready) return false;
     const workflow = resolveDefaultWorkflow(
       runner.workflows,
       defaultWorkflow.reference,
@@ -88,9 +111,13 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
             connection={runner.settings}
             workflows={runner.workflows}
             defaultWorkflow={defaultWorkflow.reference}
-            onDefaultWorkflowChange={defaultWorkflow.change}
+            onDefaultWorkflowChange={
+              preferences.ready ? defaultWorkflow.change : undefined
+            }
             historyLimits={historySettings.limits}
-            onHistoryLimitsChange={historySettings.change}
+            onHistoryLimitsChange={
+              preferences.ready ? historySettings.change : undefined
+            }
           />
         }
         workflowPermissions={
@@ -132,7 +159,7 @@ export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
         endpoint={runner.settings.endpoint}
         enabled={runner.enabled}
         busy={runner.busy}
-        error={launchError || runner.error}
+        error={launchError || runner.error || preferences.error}
         dismiss={() => {
           setLaunchError("");
           runner.dismiss();
