@@ -21,11 +21,16 @@ export class ToolFormatterFactory {
   ) {}
 
   name(name: string): string {
+    const label = name
+      .replace(/^mcp_(.+_.+)_[a-f0-9]{20}$/, "mcp_$1")
+      .replace(/^mcp_discover_[a-f0-9]{24}$/, "mcp_discover")
+      .replace(/^mcp_(prompt|resource)_[a-f0-9]{32}$/, "mcp_$1");
     return (
       this.names[name] ??
-      name
+      label
         .replace(/[_ .-]+/g, " ")
         .replace(/\b\w/g, (letter) => letter.toUpperCase())
+        .replace(/\bMcp\b/g, "MCP")
     );
   }
 
