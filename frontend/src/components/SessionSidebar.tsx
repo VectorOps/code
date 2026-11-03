@@ -1,6 +1,7 @@
 import * as React from "react";
 import * as models from "../models/runner";
 import { StatusIcon } from "./StatusIcon";
+import { WorktreeLabel } from "./Worktrees";
 
 const pageSize = 100;
 const noActivity = new Set<string>();
@@ -25,20 +26,25 @@ const SessionRow = React.memo(function SessionRow({
       aria-current={selected ? "page" : undefined}
       onClick={() => select(session.execution_id)}
     >
-      <span>{name}</span>
-      <span className="session-list-meta">
-        <small>
-          {session.pending_inputs
-            ? `${session.pending_inputs} pending`
-            : session.status}{" "}
-          / {session.execution_id.slice(0, 8)}
-        </small>
+      <span className="session-list-heading">
+        <StatusIcon
+          status={session.pending_inputs > 0 ? "Needs input" : session.status}
+          label="Workflow status"
+        />
+        <span className="session-list-title" title={name}>
+          {name}
+        </span>
         {activity && (
-          <span aria-label="New activity" title="New activity">
+          <span
+            className="session-list-activity"
+            aria-label="New activity"
+            title="New activity"
+          >
             ●
           </span>
         )}
       </span>
+      {session.worktree_id && <WorktreeLabel id={session.worktree_id} />}
     </button>
   );
 });

@@ -44,6 +44,20 @@ function setup() {
 vitest.afterEach(() => vitest.vi.restoreAllMocks());
 
 vitest.test(
+  "preserves worktree associations in snapshots and live updates",
+  async () => {
+    const { sync, sessions, publish, push } = setup();
+    const summary = { ...original, worktree_id: "tree-1" };
+    sessions.mockResolvedValue(page([summary]));
+    await sync.synchronize(() => true);
+    vitest.expect(sync.get("existing")?.worktree_id).toBe("tree-1");
+    const updated = { ...summary, pending_inputs: 1 };
+    push(updated);
+    vitest.expect(publish.mock.lastCall![0].sessions).toEqual([updated]);
+  },
+);
+
+vitest.test(
   "preserves generated descriptions from snapshots and live updates",
   async () => {
     const { sync, sessions, publish, push } = setup();

@@ -94,6 +94,92 @@ function sidebarProps(count: number) {
   };
 }
 
+test.each([
+  "starting",
+  "running",
+  "paused",
+  "stopping",
+  "completed",
+  "failed",
+  "cancelled",
+])(
+  "sidebar shows an inline %s icon instead of status and ID text",
+  (status) => {
+    const props = sidebarProps(1);
+    props.sessions[0] = { ...props.sessions[0], status };
+    const view = testing.render(<SessionSidebar {...props} />);
+    const row = testing
+      .within(view.getByRole("navigation", { name: "Conversations" }))
+      .getByRole("button");
+    const icon = testing.within(row).getByRole("img", {
+      name: `Workflow status: ${status}`,
+    });
+    vitest
+      .expect(icon.parentElement)
+      .toBe(view.getByText("Conversation 0").parentElement);
+    vitest.expect(row.textContent).toBe("Conversation 0");
+    vitest
+      .expect(view.getByText("Conversation 0").title)
+      .toBe("Conversation 0");
+    testing.fireEvent.click(row);
+    vitest.expect(props.select).toHaveBeenCalledWith("execution-0");
+  },
+);
+
+test("pending input takes icon priority and clears back to the workflow status", () => {
+  const props = sidebarProps(1);
+  props.sessions[0] = {
+    ...props.sessions[0],
+    status: "running",
+    pending_inputs: 2,
+  };
+  const activitySessions = new Set(["execution-0"]);
+  const view = testing.render(
+    <SessionSidebar {...props} activitySessions={activitySessions} />,
+  );
+  const bubble = view.getByRole("img", {
+    name: "Workflow status: Needs input",
+  });
+  vitest.expect(bubble.querySelectorAll('circle[r="1"]')).toHaveLength(3);
+  vitest.expect(bubble.querySelector('circle[r="9"]')).toBeNull();
+  vitest.expect(view.getByLabelText("New activity")).toBeTruthy();
+  view.rerender(
+    <SessionSidebar
+      {...props}
+      sessions={[{ ...props.sessions[0], pending_inputs: 0 }]}
+    />,
+  );
+  vitest
+    .expect(view.queryByRole("img", { name: "Workflow status: Needs input" }))
+    .toBeNull();
+  vitest
+    .expect(view.getByRole("img", { name: "Workflow status: running" }))
+    .toBeTruthy();
+  vitest
+    .expect(
+      view
+        .getByRole("img", { name: "Workflow status: running" })
+        .querySelector('circle[r="9"]'),
+    )
+    .not.toBeNull();
+});
+
+test("sidebar shows a second line only for worktree sessions", () => {
+  const props = sidebarProps(2);
+  props.sessions[0] = { ...props.sessions[0], worktree_id: "old-tree" };
+  const view = testing.render(<SessionSidebar {...props} />);
+  const label = view.getByText("Worktree: old-tree");
+  vitest
+    .expect(label.previousElementSibling?.className)
+    .toBe("session-list-heading");
+  vitest
+    .expect(label.closest("button"))
+    .toBe(view.getByText("Conversation 0").closest("button"));
+  vitest
+    .expect(view.getByText("Conversation 1").closest("button")?.textContent)
+    .toBe("Conversation 1");
+});
+
 test.each([undefined, null, "", " \t ", " Investigate the sidebar title "])(
   "sidebar resolves generated description %j before the workflow name",
   (description) => {

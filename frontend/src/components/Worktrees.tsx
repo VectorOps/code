@@ -116,7 +116,7 @@ export function WorktreeLabel({ id, path }: { id: string; path?: string }) {
       className="worktree-label"
       title={
         error ||
-        `${record?.path || path || id}${record ? ` · ${record.branch} · ${record.status}` : ""}`
+        `${record ? `${record.name} · ` : ""}${record?.path || path || id}${record ? ` · ${record.branch} · ${record.status}` : ""}`
       }
     >
       Worktree: {record?.name || id}

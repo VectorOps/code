@@ -20,6 +20,7 @@ export type ExecutionUsage = {
 export type Session = {
   execution_id: string;
   root_workflow_id?: string | null;
+  worktree_id?: string | null;
   reference: string | null;
   name?: string | null;
   description?: string | null;

@@ -199,7 +199,7 @@ vitest.test(
 );
 
 vitest.test(
-  "info icon exposes stats without a redundant workflow status indicator",
+  "info icon exposes stats without a redundant header workflow status indicator",
   async () => {
     const props = workspaceProps();
     const session = {
@@ -222,8 +222,10 @@ vitest.test(
     const view = render(<Workspace {...props} sessions={[session]} />);
     const user = userEvent.setup();
     vitest.expect(view.queryByRole("button", { name: "Session" })).toBeNull();
+    const statusIcon = view.getByRole("img", { name: /Workflow status:/ });
+    vitest.expect(statusIcon.closest(".session-sidebar")).not.toBeNull();
     vitest
-      .expect(view.queryByRole("img", { name: /Workflow status:/ }))
+      .expect(view.container.querySelector(".session-header .status-icon"))
       .toBeNull();
     const info = view.getByRole("button", { name: "Workflow stats" });
     vitest.expect(info.textContent).toBe("");

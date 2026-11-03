@@ -35,6 +35,24 @@ test("frontend CSS preserves global layer order and appearance overrides", async
   const styles: unknown = JSON.parse(stdout);
   assert.ok(Array.isArray(styles) && styles.length > 0);
   const css = styles.join("\n");
+  assert.match(
+    lastRule(css, '.status-icon[data-status="needs input"]'),
+    /color:\s*var\(--color-blue-500(?:,|\))/,
+  );
+  for (const selector of [
+    ".session-list-title",
+    ".session-list .worktree-label",
+  ]) {
+    const rule = lastRule(css, selector);
+    assert.match(rule, /white-space:\s*nowrap/);
+    assert.match(rule, /text-overflow:\s*ellipsis/);
+    assert.match(rule, /overflow:\s*hidden/);
+  }
+  assert.match(lastRule(css, ".session-list-heading"), /display:\s*flex/);
+  assert.match(
+    lastRule(css, ".session-list .worktree-label"),
+    /display:\s*block/,
+  );
   const feedItem = lastRule(css, ".feed-item");
   assert.match(feedItem, /content-visibility:\s*visible/);
   assert.doesNotMatch(feedItem, /contain-intrinsic-size:/);

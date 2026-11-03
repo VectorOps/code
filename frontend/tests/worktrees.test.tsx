@@ -13,6 +13,7 @@ import {
 import { Settings } from "../src/screens/Settings";
 import { WorktreeCreate } from "../src/components/WorktreeCreate";
 import { Workspace } from "../src/screens/Workspace";
+import { SessionSidebar } from "../src/components/SessionSidebar";
 import type { Worktree } from "../src/models/worktrees";
 import type { Params } from "../src/models/json";
 import { workflowTree, workflowWorktree } from "../src/models/workflow-tree";
@@ -394,6 +395,46 @@ vitest.test(
         .expect(view.getByText("Worktree: old-tree").title)
         .toContain("Worktree not found"),
     );
+  },
+);
+
+vitest.test(
+  "sidebar resolves worktree names and keeps full metadata in the tooltip",
+  async () => {
+    const { api, request } = client();
+    const name = "A very long worktree name that must stay on a single line";
+    request.mockResolvedValue({ ...record, name });
+    const noop = () => {};
+    const view = testing.render(
+      <WorktreesProvider runner={api}>
+        <SessionSidebar
+          sessions={[
+            {
+              execution_id: "execution",
+              reference: "agent",
+              name: "Review changes",
+              status: "running",
+              active: true,
+              pending_inputs: 0,
+              worktree_id: record.id,
+            },
+          ]}
+          workflows={[]}
+          selected="execution"
+          status="Connected"
+          select={noop}
+          collapse={noop}
+          create={noop}
+          configure={noop}
+        />
+      </WorktreesProvider>,
+    );
+    const label = await view.findByText(`Worktree: ${name}`);
+    vitest.expect(label.title).toContain(name);
+    vitest.expect(label.title).toContain(record.path);
+    vitest
+      .expect(request)
+      .toHaveBeenCalledWith("worktrees.get", { worktree_id: record.id });
   },
 );
 

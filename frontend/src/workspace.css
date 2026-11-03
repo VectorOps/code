@@ -50,22 +50,20 @@
     @apply flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-0;
   }
   .session-list button {
-    @apply min-w-0 shrink-0 border-transparent bg-transparent px-3 py-3 text-left text-neutral-700;
-    overflow-wrap: anywhere;
+    @apply block min-w-0 shrink-0 overflow-hidden border-transparent bg-transparent px-3 py-3 text-left text-neutral-700;
   }
   .session-list button[aria-current="page"] {
     @apply border-neutral-200 bg-white text-black shadow-sm;
   }
-  .session-list small {
-    @apply font-normal text-neutral-500;
-  }
-  .session-list-meta {
+  .session-list-heading {
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  .session-list-meta > span {
-    margin-left: auto;
+  .session-list-title {
+    @apply min-w-0 flex-1 truncate;
+  }
+  .session-list-activity {
     flex-shrink: 0;
   }
   .session-pagination {
@@ -98,6 +96,9 @@
   .status-icon[data-status="starting"],
   .status-icon[data-status="connecting"] {
     @apply text-blue-600;
+  }
+  .status-icon[data-status="needs input"] {
+    @apply text-blue-500;
   }
   .status-icon[data-status="paused"],
   .status-icon[data-status="stopping"] {
