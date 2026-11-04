@@ -177,6 +177,19 @@ test("frontend CSS preserves global layer order and appearance overrides", async
     );
   }
   assert.match(lastRule(css, ".assistant-controls"), /float:\s*right/);
+  assert.match(css, /@media\s*\(hover:\s*hover\)\s*and\s*\(pointer:\s*fine\)/);
+  assert.match(lastRule(css, ".branch-after-icon"), /opacity:\s*0/);
+  assert.match(lastRule(css, ".branch-after-icon"), /pointer-events:\s*none/);
+  for (const selector of [
+    ".step-card:hover .branch-after-icon",
+    ".step-card:focus-within .branch-after-icon",
+    ".step-branch-controls:hover .branch-after-icon",
+    ".step-branch-controls:focus-within .branch-after-icon",
+    ".branch-after-icon:focus-visible",
+  ]) {
+    assert.match(lastRule(css, selector), /opacity:\s*1/);
+    assert.match(lastRule(css, selector), /pointer-events:\s*auto/);
+  }
   assert.match(
     lastRule(css, ".tool-activity-row > .tool-step-controls"),
     /margin-left:\s*auto/,

@@ -3,7 +3,10 @@ import * as testing from "@testing-library/react";
 import * as vitest from "vitest";
 import type { Json, Params } from "../src/models/json";
 import type * as models from "../src/models/runner";
-import { selectedHistory } from "../src/models/selected-history";
+import {
+  branchSuccessors,
+  selectedHistory,
+} from "../src/models/selected-history";
 import { workflowProjection } from "../src/models/workflow-tree";
 import * as steps from "../src/models/steps";
 import { RunnerApi } from "../src/communication/runner-api";
@@ -64,7 +67,7 @@ function input(
   );
 }
 
-function actions(): StepActions {
+function actions(successors: Record<string, string> = {}): StepActions {
   return {
     pending: [],
     enabled: true,
@@ -72,6 +75,7 @@ function actions(): StepActions {
     inspect: vitest.vi.fn(),
     reply: vitest.vi.fn(async () => true),
     branch: vitest.vi.fn(async () => true),
+    branchSuccessors: new Map(Object.entries(successors)),
   };
 }
 
@@ -280,6 +284,77 @@ vitest.test(
 );
 
 vitest.test(
+  "branch-after resolves the immediate recorded successor on the selected path",
+  () => {
+    const first = input();
+    const old = item("old", "input");
+    const hidden = item("hidden", "input", "root", { kind: "mailbox.drain" });
+    const next = item("new", "hidden");
+    const child = item("child", "input", "child-workflow");
+    const successors = branchSuccessors(
+      [next, old, child, hidden, first],
+      execution,
+    );
+    vitest.expect([...successors]).toEqual([
+      ["hidden", "new"],
+      ["input", "hidden"],
+    ]);
+    vitest.expect(successors.has("new")).toBe(false);
+    vitest.expect(successors.has("old")).toBe(false);
+  },
+);
+
+vitest.test(
+  "branch-after does not guess through missing history or unsupported delivery markers",
+  () => {
+    const first = input();
+    const next = item("new", "missing");
+    vitest.expect(branchSuccessors([first, next], execution).size).toBe(0);
+    vitest.expect(branchSuccessors([first], undefined).size).toBe(0);
+    vitest
+      .expect(branchSuccessors([item("new", "input")], execution).size)
+      .toBe(0);
+    vitest
+      .expect(
+        branchSuccessors([first], {
+          ...execution,
+          checkpoint: { heads: { root: "input" } },
+        }).size,
+      )
+      .toBe(0);
+    const delivery = item("delivery", "input", "root", {
+      kind: "workflow.resume",
+    });
+    vitest
+      .expect(
+        branchSuccessors(
+          [first, delivery, item("new", "delivery")],
+          execution,
+        ).get("input"),
+      )
+      .toBeUndefined();
+  },
+);
+
+vitest.test(
+  "branch-after follows changed heads rather than abandoned successors",
+  () => {
+    const history = [input(), item("old", "input"), item("new", "input")];
+    vitest
+      .expect(branchSuccessors(history, execution).get("input"))
+      .toBe("new");
+    vitest
+      .expect(
+        branchSuccessors(history, {
+          ...execution,
+          checkpoint: { heads: { root: "old" } },
+        }).get("input"),
+      )
+      .toBe("old");
+  },
+);
+
+vitest.test(
   "partial history hides child activity until its selected spawn is loaded",
   () => {
     const spawn = item(
@@ -480,7 +555,9 @@ vitest.test.each(["user", "assistant", "tool"])(
               { content: [{ type: "text", text: "{}" }] },
             )
           : item("assistant");
-    const callbacks = actions();
+    const callbacks = actions({
+      [steps.stepView(entry).id]: "next-recorded-step",
+    });
     const view = testing.render(
       <DebugProvider value={true}>
         <StepFeed
@@ -494,11 +571,12 @@ vitest.test.each(["user", "assistant", "tool"])(
     const card = view
       .getByRole("button", { name: "View details" })
       .closest(".step-card")!;
-    const controls = card.querySelector(
-      kind === "tool"
-        ? ".tool-activity-row > .tool-step-controls"
-        : ".assistant-controls",
-    )!;
+    const controls = () =>
+      card.querySelector(
+        kind === "tool"
+          ? ".tool-activity-row > .tool-step-controls"
+          : ".assistant-controls",
+      )!;
     vitest
       .expect(view.queryByRole("button", { name: "Restart this step" }))
       .toBeNull();
@@ -507,7 +585,7 @@ vitest.test.each(["user", "assistant", "tool"])(
       .toBeNull();
     if (kind === "user") {
       const edit = view.getByRole("button", { name: "Edit input" });
-      vitest.expect(controls.contains(edit)).toBe(true);
+      vitest.expect(controls().contains(edit)).toBe(true);
       testing.fireEvent.click(edit);
       const editor = view.getByRole("textbox", { name: "Edit input" });
       vitest.expect(card.contains(editor)).toBe(true);
@@ -518,6 +596,25 @@ vitest.test.each(["user", "assistant", "tool"])(
       vitest.expect(callbacks.inspect).not.toHaveBeenCalled();
       testing.fireEvent.click(view.getByRole("button", { name: "Cancel" }));
     }
+    const fork = view.getByRole("button", { name: "Branch after this step" });
+    vitest.expect(controls().contains(fork)).toBe(true);
+    testing.fireEvent.click(fork);
+    vitest.expect(view.queryByRole("textbox")).toBeNull();
+    vitest.expect(callbacks.branch).not.toHaveBeenCalled();
+    const confirm = view.getByRole("button", { name: "Create branch" });
+    vitest.expect(card.contains(confirm)).toBe(true);
+    vitest.expect(document.activeElement).toBe(confirm);
+    vitest
+      .expect(view.getByText(/This step and earlier results are preserved/))
+      .toBeTruthy();
+    testing.fireEvent.click(confirm);
+    await testing.waitFor(() =>
+      vitest
+        .expect(callbacks.branch)
+        .toHaveBeenCalledExactlyOnceWith("next-recorded-step", {
+          kind: "restart",
+        }),
+    );
     vitest.expect(callbacks.inspect).not.toHaveBeenCalled();
     testing.fireEvent.click(card);
     vitest
@@ -563,10 +660,14 @@ vitest.test(
   "branch actions are compact icons with accessible names and explanatory tooltips",
   () => {
     const view = testing.render(
-      <StepBranchControls step={steps.stepView(input())} actions={actions()} />,
+      <StepBranchControls
+        step={steps.stepView(input())}
+        actions={actions({ input: "next" })}
+      />,
     );
     const edit = view.getByRole("button", { name: "Edit input" });
-    for (const button of [edit]) {
+    const fork = view.getByRole("button", { name: "Branch after this step" });
+    for (const button of [edit, fork]) {
       vitest.expect(button.textContent).toBe("");
       vitest.expect(button.classList.contains("branch-icon")).toBe(true);
       vitest
@@ -580,6 +681,8 @@ vitest.test(
       .expect(view.queryByRole("button", { name: "Restart this step" }))
       .toBeNull();
     vitest.expect(edit.title).toBe("Edit input on a new branch");
+    vitest.expect(fork.title).toBe("Branch after this step");
+    vitest.expect(fork.classList.contains("branch-after-icon")).toBe(true);
   },
 );
 
@@ -892,7 +995,7 @@ vitest.test(
   },
 );
 
-vitest.test.each(["child", "delivery"])(
+vitest.test.each(["child", "delivery", "spawn", "completion"])(
   "unsupported %s targets never expose branch controls",
   (target) => {
     const entry =
@@ -901,13 +1004,179 @@ vitest.test.each(["child", "delivery"])(
             kind: "mailbox.input",
             input: { channel: "user.message" },
           })
-        : item("delivery", null, "root", { kind: "workflow.resume" });
+        : item(target, null, "root", {
+            kind:
+              target === "delivery"
+                ? "workflow.resume"
+                : target === "spawn"
+                  ? "workflow.spawn"
+                  : "workflow.complete",
+          });
     const view = testing.render(
-      <StepBranchControls step={steps.stepView(entry)} actions={actions()} />,
+      <StepBranchControls
+        step={steps.stepView(entry)}
+        actions={actions({ [steps.stepView(entry).id]: "next" })}
+      />,
     );
     vitest.expect(view.queryByRole("button")).toBeNull();
   },
 );
+
+vitest.test.each(["pending", "streaming", "waiting", "failed", "cancelled"])(
+  "%s steps cannot branch after their result",
+  (state) => {
+    const entry = item("target");
+    entry.step = {
+      ...(entry.step as Record<string, Json>),
+      outcome: { kind: state },
+    };
+    const view = testing.render(
+      <StepBranchControls
+        step={steps.stepView(entry)}
+        actions={actions({ target: "next" })}
+      />,
+    );
+    vitest
+      .expect(view.queryByRole("button", { name: "Branch after this step" }))
+      .toBeNull();
+  },
+);
+
+vitest.test("joined root steps expose branch-after", () => {
+  const entry = item("join", null, "root", { kind: "workflow.join" });
+  entry.step = {
+    ...(entry.step as Record<string, Json>),
+    outcome: { kind: "joined", child_completions: [] },
+  };
+  const view = testing.render(
+    <StepBranchControls
+      step={steps.stepView(entry)}
+      actions={actions({ join: "next" })}
+    />,
+  );
+  vitest
+    .expect(view.getByRole("button", { name: "Branch after this step" }))
+    .toBeTruthy();
+});
+
+vitest.test(
+  "branch-after is unavailable without a known successor and cannot submit a stale boundary",
+  () => {
+    const callbacks = actions();
+    const step = steps.stepView(item("answer"));
+    const view = testing.render(
+      <StepBranchControls step={step} actions={callbacks} />,
+    );
+    vitest
+      .expect(view.queryByRole("button", { name: "Branch after this step" }))
+      .toBeNull();
+    view.rerender(
+      <StepBranchControls
+        step={step}
+        actions={{
+          ...callbacks,
+          branchSuccessors: new Map([["answer", "next"]]),
+        }}
+      />,
+    );
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Branch after this step" }),
+    );
+    view.rerender(<StepBranchControls step={step} actions={callbacks} />);
+    vitest
+      .expect(view.getByRole("button", { name: "Create branch" }))
+      .toHaveProperty("disabled", true);
+    vitest
+      .expect(view.getByRole("alert").textContent)
+      .toContain("no longer available");
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Create branch" }),
+    );
+    vitest.expect(callbacks.branch).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
+  "branch-after can cancel with Escape, restores focus, and handles failures",
+  async () => {
+    const callbacks = actions({ answer: "next" });
+    const props = { step: steps.stepView(item("answer")), actions: callbacks };
+    const view = testing.render(<StepBranchControls {...props} />);
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Branch after this step" }),
+    );
+    testing.fireEvent.keyDown(
+      view.getByRole("button", { name: "Create branch" }),
+      { key: "Escape" },
+    );
+    vitest
+      .expect(document.activeElement)
+      .toBe(view.getByRole("button", { name: "Branch after this step" }));
+    vitest.expect(callbacks.branch).not.toHaveBeenCalled();
+    view.rerender(
+      <StepBranchControls
+        {...props}
+        actions={{ ...callbacks, enabled: false }}
+      />,
+    );
+    vitest
+      .expect(view.getByRole("button", { name: "Branch after this step" }))
+      .toHaveProperty("disabled", true);
+    view.rerender(<StepBranchControls {...props} />);
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Branch after this step" }),
+    );
+    vitest.vi.mocked(callbacks.branch!).mockResolvedValueOnce(false);
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Create branch" }),
+    );
+    await testing.waitFor(() =>
+      vitest
+        .expect(view.getByRole("alert").textContent)
+        .toContain("not confirmed"),
+    );
+    vitest.vi
+      .mocked(callbacks.branch!)
+      .mockRejectedValueOnce(new Error("Unsafe boundary"));
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Create branch" }),
+    );
+    await testing.waitFor(() =>
+      vitest
+        .expect(view.getByRole("alert").textContent)
+        .toContain("Unsafe boundary"),
+    );
+    testing.fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    vitest.expect(callbacks.branch).toHaveBeenCalledTimes(2);
+  },
+);
+
+vitest.test("branch-after prevents duplicate submissions", async () => {
+  const callbacks = actions({ answer: "next" });
+  let finish: (value: boolean) => void = () => {};
+  vitest.vi.mocked(callbacks.branch!).mockReturnValue(
+    new Promise<boolean>((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const view = testing.render(
+    <StepBranchControls
+      step={steps.stepView(item("answer"))}
+      actions={callbacks}
+    />,
+  );
+  testing.fireEvent.click(
+    view.getByRole("button", { name: "Branch after this step" }),
+  );
+  testing.fireEvent.click(view.getByRole("button", { name: "Create branch" }));
+  const submit = view.getByRole("button", { name: "Submitting…" });
+  vitest.expect(submit).toHaveProperty("disabled", true);
+  testing.fireEvent.click(submit);
+  vitest.expect(callbacks.branch).toHaveBeenCalledTimes(1);
+  await testing.act(async () => {
+    finish(true);
+  });
+});
 
 vitest.test(
   "duplicate submissions are disabled while awaiting branch acceptance",
@@ -956,13 +1225,21 @@ vitest.test(
       "Abandoned response",
       2,
     );
+    const hidden = item(
+      "hidden",
+      "input",
+      "root",
+      { kind: "mailbox.drain" },
+      [],
+      3,
+    );
     const next = item(
       "new",
-      "input",
+      "hidden",
       "root",
       undefined,
       "Selected response",
-      3,
+      4,
     );
     const branch = vitest.vi.fn(async () => true);
     const view = testing.render(
@@ -980,7 +1257,7 @@ vitest.test(
           ]}
           selected="existing"
           onSelect={() => {}}
-          history={[first, old, next]}
+          history={[first, old, hidden, next]}
           execution={execution}
           pending={[]}
           status="Connected"
@@ -1014,6 +1291,25 @@ vitest.test(
       .expect(archived.queryByRole("button", { name: "Restart this step" }))
       .toBeNull();
     vitest.expect(branch).not.toHaveBeenCalled();
+    vitest
+      .expect(
+        archived.queryByRole("button", { name: "Branch after this step" }),
+      )
+      .toBeNull();
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Close inspector" }),
+    );
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Branch after this step" }),
+    );
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Create branch" }),
+    );
+    await testing.waitFor(() =>
+      vitest
+        .expect(branch)
+        .toHaveBeenCalledExactlyOnceWith("hidden", { kind: "restart" }),
+    );
     view.unmount();
     vitest.vi.unstubAllGlobals();
   },
@@ -1109,7 +1405,7 @@ vitest.test(
 vitest.test(
   "grouped successful tool calls do not expose restart controls",
   async () => {
-    const callbacks = actions();
+    const callbacks = actions({ "tool-1": "tool-2", "tool-2": "next" });
     const history = [1, 2].map((position) =>
       item(
         `tool-${position}`,
@@ -1144,6 +1440,19 @@ vitest.test(
       .expect(view.queryByRole("button", { name: "Restart this step" }))
       .toBeNull();
     vitest.expect(callbacks.branch).not.toHaveBeenCalled();
+    const forks = view.getAllByRole("button", {
+      name: "Branch after this step",
+    });
+    vitest.expect(forks).toHaveLength(2);
+    testing.fireEvent.click(forks[1]);
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Create branch" }),
+    );
+    await testing.waitFor(() =>
+      vitest
+        .expect(callbacks.branch)
+        .toHaveBeenCalledExactlyOnceWith("next", { kind: "restart" }),
+    );
   },
 );
 

@@ -83,6 +83,20 @@
   align-items: center;
   gap: 8px;
 }
+@media (hover: hover) and (pointer: fine) {
+  .branch-after-icon {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .step-card:hover .branch-after-icon,
+  .step-card:focus-within .branch-after-icon,
+  .step-branch-controls:hover .branch-after-icon,
+  .step-branch-controls:focus-within .branch-after-icon,
+  .branch-after-icon:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
 .branch-editor {
   clear: both;
   margin-top: 8px;

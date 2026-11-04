@@ -54,3 +54,21 @@ export function selectedHistory(
   );
   return history.filter((item) => selected.has(text(object(item.step).id)));
 }
+
+export function branchSuccessors(
+  history: HistoryItem[],
+  execution: Execution | undefined,
+): ReadonlyMap<string, string> {
+  const successors = new Map<string, string>();
+  if (!execution) return successors;
+  const steps = selectedHistory(history, execution)
+    .map((item) => object(item.step))
+    .filter((step) => step.workflow_id === execution.root_workflow_id);
+  const ids = new Set(steps.map((step) => text(step.id)));
+  for (const step of steps) {
+    const previous = text(step.previous_step_id);
+    if (ids.has(previous) && object(step.operation).kind !== "workflow.resume")
+      successors.set(previous, text(step.id));
+  }
+  return successors;
+}

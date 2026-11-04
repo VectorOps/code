@@ -12,6 +12,7 @@ export type StepActions = {
   rootWorkflowId?: string;
   worktreeId?: string;
   branch?: (id: string, action: BranchAction) => Promise<boolean>;
+  branchSuccessors?: ReadonlyMap<string, string>;
   reply: (
     request: InputRequest,
     response: Json,

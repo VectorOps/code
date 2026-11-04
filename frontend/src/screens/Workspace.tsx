@@ -2,7 +2,7 @@ import * as React from "react";
 import type { Json } from "../models/json";
 import * as models from "../models/runner";
 import { workflowProjection } from "../models/workflow-tree";
-import { selectedHistory } from "../models/selected-history";
+import { branchSuccessors, selectedHistory } from "../models/selected-history";
 import {
   defaultHistoryLimits,
   type HistoryLimits,
@@ -200,6 +200,10 @@ function WorkspaceContent({
     () => (execution ? selectedHistory(history, execution) : history),
     [history, execution],
   );
+  const successors = React.useMemo(
+    () => branchSuccessors(history, execution),
+    [history, execution],
+  );
   const projection = React.useMemo(
     () =>
       workflowProjection(
@@ -289,6 +293,7 @@ function WorkspaceContent({
         execution?.root_workflow_id ?? current?.root_workflow_id ?? undefined,
       worktreeId: execution?.target?.worktree_id ?? undefined,
       branch: onBranch,
+      branchSuccessors: successors,
     }),
     [
       toolFormatters,
@@ -297,6 +302,7 @@ function WorkspaceContent({
       onReply,
       inspect,
       onBranch,
+      successors,
       execution?.root_workflow_id,
       execution?.target?.worktree_id,
       current?.root_workflow_id,
