@@ -35,9 +35,23 @@ test("frontend CSS preserves global layer order and appearance overrides", async
   const styles: unknown = JSON.parse(stdout);
   assert.ok(Array.isArray(styles) && styles.length > 0);
   const css = styles.join("\n");
+  for (const [status, color] of Object.entries({
+    starting: "cyan-600",
+    running: "blue-600",
+    "needs input": "violet-600",
+    paused: "amber-600",
+    stopping: "orange-600",
+    completed: "green-600",
+    failed: "red-600",
+  })) {
+    assert.match(
+      lastRule(css, `.status-icon[data-status="${status}"]`),
+      new RegExp(`color:\\s*var\\(--color-${color}(?:,|\\))`),
+    );
+  }
   assert.match(
-    lastRule(css, '.status-icon[data-status="needs input"]'),
-    /color:\s*var\(--color-blue-500(?:,|\))/,
+    lastRule(css, ".status-icon"),
+    /color:\s*var\(--color-neutral-500(?:,|\))/,
   );
   for (const selector of [
     ".session-list-title",

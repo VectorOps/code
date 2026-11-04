@@ -93,16 +93,20 @@
     @apply text-green-600;
   }
   .status-icon[data-status="running"],
-  .status-icon[data-status="starting"],
   .status-icon[data-status="connecting"] {
     @apply text-blue-600;
   }
-  .status-icon[data-status="needs input"] {
-    @apply text-blue-500;
+  .status-icon[data-status="starting"] {
+    @apply text-cyan-600;
   }
-  .status-icon[data-status="paused"],
-  .status-icon[data-status="stopping"] {
+  .status-icon[data-status="needs input"] {
+    @apply text-violet-600;
+  }
+  .status-icon[data-status="paused"] {
     @apply text-amber-600;
+  }
+  .status-icon[data-status="stopping"] {
+    @apply text-orange-600;
   }
   .status-icon[data-status="failed"],
   .status-icon[data-status^="disconnected"] {
