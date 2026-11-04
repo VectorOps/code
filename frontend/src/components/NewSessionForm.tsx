@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { Params } from "../models/json";
 import type { Workflow } from "../models/runner";
 import * as inputs from "../models/workflow-input";
@@ -8,7 +8,7 @@ import { useWorktrees } from "./Worktrees";
 export type NewSessionDraft = {
   reference: string;
   input: string;
-  fields?: Record<string, string>;
+  fields?: inputs.WorkflowFieldValues;
   raw?: boolean;
   worktreeId?: string;
 };
@@ -29,6 +29,7 @@ export function NewSessionForm({
     worktreeId?: string,
   ) => Promise<boolean>;
 }) {
+  const formId = useId();
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const { records, loading, error: worktreeError, api } = useWorktrees();
@@ -140,64 +141,110 @@ export function NewSessionForm({
         </button>
       )}
       {!raw &&
-        fields?.map((field) => (
-          <label key={field.name}>
-            {field.label}
-            {field.required ? " (required)" : " (optional)"}
-            {field.choices || field.type === "boolean" ? (
-              <select
-                required={field.required}
-                value={values()[field.name] ?? ""}
-                onChange={(event) =>
-                  change({
-                    ...value,
-                    fields: { ...values(), [field.name]: event.target.value },
-                  })
-                }
+        fields?.map((field) => {
+          const fieldId = `${formId}-${field.name}`;
+          const active = !field.nullable || values()[field.name] !== null;
+          const required = field.required || field.nullable;
+          return (
+            <div key={field.name}>
+              <label
+                htmlFor={field.nullable ? `${fieldId}-enabled` : fieldId}
+                className="flex items-center gap-2"
               >
-                <option value="">
-                  {field.required ? "Choose a value" : "Use workflow default"}
-                </option>
-                {(field.choices ?? [true, false]).map((choice) => (
-                  <option
-                    key={JSON.stringify(choice)}
-                    value={JSON.stringify(choice)}
+                {field.nullable && (
+                  <input
+                    id={`${fieldId}-enabled`}
+                    className="w-auto"
+                    type="checkbox"
+                    aria-label={`Set ${field.label}`}
+                    checked={active}
+                    onChange={(event) =>
+                      change({
+                        ...value,
+                        fields: {
+                          ...values(),
+                          [field.name]: event.target.checked ? "" : null,
+                        },
+                      })
+                    }
+                  />
+                )}
+                <span id={`${fieldId}-label`}>
+                  {field.label}
+                  {field.required ? " (required)" : " (optional)"}
+                </span>
+              </label>
+              {active &&
+                (field.choices || field.type === "boolean" ? (
+                  <select
+                    id={fieldId}
+                    aria-labelledby={`${fieldId}-label`}
+                    required={required}
+                    value={values()[field.name] ?? ""}
+                    onChange={(event) =>
+                      change({
+                        ...value,
+                        fields: {
+                          ...values(),
+                          [field.name]: event.target.value,
+                        },
+                      })
+                    }
                   >
-                    {typeof choice === "string"
-                      ? choice
-                      : JSON.stringify(choice)}
-                  </option>
+                    <option value="">
+                      {required ? "Choose a value" : "Use workflow default"}
+                    </option>
+                    {(field.choices ?? [true, false]).map((choice) => (
+                      <option
+                        key={JSON.stringify(choice)}
+                        value={JSON.stringify(choice)}
+                      >
+                        {typeof choice === "string"
+                          ? choice
+                          : JSON.stringify(choice)}
+                      </option>
+                    ))}
+                  </select>
+                ) : field.type === "string" ? (
+                  <textarea
+                    id={fieldId}
+                    aria-labelledby={`${fieldId}-label`}
+                    rows={2}
+                    required={required}
+                    value={values()[field.name] ?? ""}
+                    onChange={(event) =>
+                      change({
+                        ...value,
+                        fields: {
+                          ...values(),
+                          [field.name]: event.target.value,
+                        },
+                      })
+                    }
+                  />
+                ) : (
+                  <input
+                    id={fieldId}
+                    aria-labelledby={`${fieldId}-label`}
+                    type="number"
+                    step={field.type === "integer" ? 1 : "any"}
+                    required={required}
+                    value={values()[field.name] ?? ""}
+                    onChange={(event) =>
+                      change({
+                        ...value,
+                        fields: {
+                          ...values(),
+                          [field.name]: event.target.value,
+                        },
+                      })
+                    }
+                  />
                 ))}
-              </select>
-            ) : field.type === "string" ? (
-              <textarea
-                rows={2}
-                required={field.required}
-                value={values()[field.name] ?? ""}
-                onChange={(event) =>
-                  change({
-                    ...value,
-                    fields: { ...values(), [field.name]: event.target.value },
-                  })
-                }
-              />
-            ) : (
-              <input
-                type="number"
-                step={field.type === "integer" ? 1 : "any"}
-                required={field.required}
-                value={values()[field.name] ?? ""}
-                onChange={(event) =>
-                  change({
-                    ...value,
-                    fields: { ...values(), [field.name]: event.target.value },
-                  })
-                }
-              />
-            )}
-            {field.description && <small>{field.description}</small>}
-          </label>
-        ))}
+              {field.description && <small>{field.description}</small>}
+            </div>
+          );
+        })}
       {!raw && fields?.length === 0 && (
         <p>No inputs are required. You can start this workflow as is.</p>
       )}

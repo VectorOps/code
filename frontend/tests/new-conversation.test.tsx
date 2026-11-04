@@ -453,3 +453,177 @@ vitest.test(
     vitest.expect(view.queryByLabelText("Workflow input (JSON)")).toBeNull();
   },
 );
+
+vitest.test(
+  "goal inputs use nullable controls and round-trip through JSON",
+  async () => {
+    const start = vitest.vi.fn(async () => true);
+    const goal: Workflow = {
+      descriptor: {
+        ...formWorkflow.descriptor,
+        input_schema: {
+          type: "object",
+          properties: {
+            request: {
+              anyOf: [
+                { type: "string", minLength: 1, pattern: "\\S" },
+                { type: "null" },
+              ],
+              default: null,
+              title: "Request",
+            },
+            max_iterations: {
+              anyOf: [{ type: "integer", minimum: 1 }, { type: "null" }],
+              default: null,
+              title: "Max Iterations",
+            },
+            max_rounds: {
+              type: "integer",
+              minimum: 1,
+              default: 50,
+              title: "Max Rounds",
+            },
+          },
+        },
+      },
+    };
+    const view = testing.render(
+      <FormHarness start={start} available={[goal]} />,
+    );
+    const user = userEvent.setup();
+    await user.selectOptions(view.getByLabelText("Workflow"), "custom:form");
+    vitest.expect(view.queryByLabelText("Workflow input (JSON)")).toBeNull();
+    const enableRequest = view.getByRole("checkbox", {
+      name: "Set Request",
+    });
+    const enableIterations = view.getByRole("checkbox", {
+      name: "Set Max Iterations",
+    });
+    vitest.expect(enableRequest).toHaveProperty("checked", false);
+    vitest.expect(enableIterations).toHaveProperty("checked", false);
+    vitest
+      .expect(view.queryByRole("textbox", { name: "Request (optional)" }))
+      .toBeNull();
+    vitest
+      .expect(
+        view.queryByRole("spinbutton", { name: "Max Iterations (optional)" }),
+      )
+      .toBeNull();
+    await user.click(view.getByRole("button", { name: "Start conversation" }));
+    vitest.expect(start).toHaveBeenLastCalledWith("custom:form", {
+      request: null,
+      max_iterations: null,
+      max_rounds: 50,
+    });
+    await user.click(enableRequest);
+    const request = view.getByRole("textbox", { name: "Request (optional)" });
+    vitest.expect(request).toHaveProperty("required", true);
+    await user.click(view.getByRole("button", { name: "Start conversation" }));
+    vitest.expect(start).toHaveBeenCalledTimes(1);
+    await user.type(request, "Review changes");
+    await user.click(enableIterations);
+    const iterations = view.getByRole("spinbutton", {
+      name: "Max Iterations (optional)",
+    });
+    vitest.expect(iterations).toHaveProperty("required", true);
+    await user.click(view.getByRole("button", { name: "Start conversation" }));
+    vitest.expect(start).toHaveBeenCalledTimes(1);
+    await user.type(iterations, "1.5");
+    await user.click(view.getByRole("button", { name: "Start conversation" }));
+    vitest.expect(start).toHaveBeenCalledTimes(1);
+    await user.clear(iterations);
+    await user.type(iterations, "3");
+    await user.click(view.getByRole("button", { name: "Edit as JSON" }));
+    const raw = view.getByLabelText("Workflow input (JSON)");
+    vitest.expect(JSON.parse((raw as HTMLTextAreaElement).value)).toEqual({
+      request: "Review changes",
+      max_iterations: 3,
+      max_rounds: 50,
+    });
+    testing.fireEvent.change(raw, {
+      target: {
+        value: JSON.stringify({
+          request: null,
+          max_rounds: 50,
+          extra: { keep: true },
+        }),
+      },
+    });
+    await user.click(view.getByRole("button", { name: "Use form fields" }));
+    vitest
+      .expect(view.getByRole("checkbox", { name: "Set Request" }))
+      .toHaveProperty("checked", false);
+    vitest
+      .expect(view.getByRole("checkbox", { name: "Set Max Iterations" }))
+      .toHaveProperty("checked", false);
+    await user.click(view.getByRole("checkbox", { name: "Set Request" }));
+    await user.type(
+      view.getByRole("textbox", { name: "Request (optional)" }),
+      "Discard this value",
+    );
+    await user.click(view.getByRole("checkbox", { name: "Set Request" }));
+    vitest
+      .expect(view.queryByRole("textbox", { name: "Request (optional)" }))
+      .toBeNull();
+    await user.click(view.getByRole("button", { name: "Start conversation" }));
+    vitest.expect(start).toHaveBeenLastCalledWith("custom:form", {
+      request: null,
+      max_iterations: null,
+      max_rounds: 50,
+      extra: { keep: true },
+    });
+  },
+);
+
+vitest.test(
+  "required nullable selects accept explicit null or a scalar value",
+  async () => {
+    const start = vitest.vi.fn(async () => true);
+    const workflow: Workflow = {
+      descriptor: {
+        ...formWorkflow.descriptor,
+        input_schema: {
+          type: "object",
+          required: ["enabled", "mode"],
+          properties: {
+            enabled: { anyOf: [{ type: "boolean" }, { type: "null" }] },
+            mode: {
+              anyOf: [
+                { type: "string", enum: ["fast", "slow"] },
+                { type: "null" },
+              ],
+            },
+          },
+        },
+      },
+    };
+    const view = testing.render(
+      <FormHarness start={start} available={[workflow]} />,
+    );
+    const user = userEvent.setup();
+    await user.selectOptions(view.getByLabelText("Workflow"), "custom:form");
+    await user.click(view.getByRole("button", { name: "Start conversation" }));
+    vitest
+      .expect(start)
+      .toHaveBeenLastCalledWith("custom:form", { enabled: null, mode: null });
+    await user.click(view.getByRole("checkbox", { name: "Set enabled" }));
+    await user.click(view.getByRole("button", { name: "Start conversation" }));
+    vitest.expect(start).toHaveBeenCalledTimes(1);
+    await user.selectOptions(
+      view.getByRole("combobox", { name: "enabled (required)" }),
+      "false",
+    );
+    await user.click(view.getByRole("checkbox", { name: "Set mode" }));
+    await user.click(view.getByRole("button", { name: "Start conversation" }));
+    vitest.expect(start).toHaveBeenCalledTimes(1);
+    await user.selectOptions(
+      view.getByRole("combobox", { name: "mode (required)" }),
+      '"fast"',
+    );
+    await user.click(view.getByRole("button", { name: "Start conversation" }));
+    vitest.expect(start).toHaveBeenLastCalledWith("custom:form", {
+      enabled: false,
+      mode: "fast",
+    });
+  },
+);
