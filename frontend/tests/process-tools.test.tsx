@@ -9,6 +9,7 @@ import { stepView, toolDescription } from "../src/models/steps";
 import { ProcessDetails, ProcessSummary } from "../src/components/tools/views";
 import { ToolGroup } from "../src/components/ToolGroup";
 import { StepRegistry } from "../src/components/steps/registry";
+import { ToolStep } from "../src/components/steps/ToolStep";
 import { groupTools } from "../src/models/tool-groups";
 
 function tool(
@@ -37,6 +38,51 @@ function tool(
     },
   };
 }
+
+test.each(["pending", "streaming", "failed", "completed"])(
+  "%s calls display their recorded command without generation history",
+  (state) => {
+    const args = { command: { kind: "argv", argv: ["npm", "run", "build"] } };
+    const item: HistoryItem = {
+      position: 2,
+      step: {
+        id: "exec",
+        workflow_id: "root",
+        operation: {
+          kind: "llm.tool",
+          input: {
+            tool_name: "exec",
+            call: {
+              type: "tool_call",
+              id: "call",
+              name: "exec",
+              arguments: args,
+            },
+          },
+        },
+        outcome: { kind: state },
+      },
+    };
+    const step = stepView(item, [item]);
+    const description = toolDescription(step);
+    assert.equal(description.name, "exec");
+    assert.deepEqual(description.arguments, args);
+    assert.equal(description.output, undefined);
+    const html = renderToStaticMarkup(
+      <ToolStep
+        step={step}
+        actions={{
+          pending: [],
+          enabled: true,
+          inspect: () => {},
+          reply: async () => true,
+        }}
+      />,
+    );
+    assert.match(html, /npm run build/);
+    assert.doesNotMatch(html, /Tool call/);
+  },
+);
 
 test("poll summaries and details show the matching exec command", () => {
   const command = { kind: "argv", argv: ["npm", "run", "build"] };
