@@ -5,6 +5,21 @@ import { ToolDetails } from "../src/components/tools/ToolDetails";
 import { ToolStep } from "../src/components/steps/ToolStep";
 import { stepView, toolDescription } from "../src/models/steps";
 
+test("pending legacy tools use the recorded tool name without guessing arguments", () => {
+  const step = stepView({
+    position: 1,
+    step: {
+      id: "pending",
+      workflow_id: "root",
+      operation: { kind: "llm.tool", input: { tool_name: "exec" } },
+      outcome: { kind: "pending" },
+    },
+  });
+  const tool = toolDescription(step);
+  expect(tool.name).toBe("exec");
+  expect(tool.arguments).toBeUndefined();
+});
+
 test.each([
   ["mcp_github_search_issues_0123456789abcdef0123", "MCP Github Search Issues"],
   ["mcp_discover_0123456789abcdef01234567", "MCP Discover"],

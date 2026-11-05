@@ -221,7 +221,11 @@ function createToolDescription(step: StepView, approval?: InputRequest) {
     object(step.item.step).authorization_rule_id,
   );
   return {
-    name: text(call.name) || text(result.tool_name) || "Tool call",
+    name:
+      text(call.name) ||
+      text(result.tool_name) ||
+      text(step.input.tool_name) ||
+      "Tool call",
     arguments: call.arguments,
     processCommand: step.processCommand,
     failed: step.state === "failed" || result.is_error === true,

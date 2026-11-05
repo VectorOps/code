@@ -35,6 +35,22 @@ test("frontend CSS preserves global layer order and appearance overrides", async
   const styles: unknown = JSON.parse(stdout);
   assert.ok(Array.isArray(styles) && styles.length > 0);
   const css = styles.join("\n");
+  assert.match(
+    lastRule(css, ".settings-shell"),
+    /container-type:\s*inline-size/,
+  );
+  assert.match(css, /@container\s*\(max-width:\s*700px\)/);
+  assert.match(lastRule(css, ".settings-nav"), /overflow-x:\s*auto/);
+  assert.match(lastRule(css, ".settings-nav button"), /white-space:\s*nowrap/);
+  assert.match(
+    lastRule(css, ".settings-content .settings-icon-button"),
+    /width:\s*36px/,
+  );
+  assert.match(lastRule(css, ".settings-segmented span"), /min-height:\s*32px/);
+  assert.match(
+    lastRule(css, ".settings-disclosure > summary"),
+    /padding:\s*16px 0/,
+  );
   for (const [status, color] of Object.entries({
     starting: "cyan-600",
     running: "blue-600",

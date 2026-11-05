@@ -11,6 +11,8 @@ export interface SettingDefinition {
   allowEmpty?: boolean;
   min?: number;
   max?: number;
+  exclusiveMin?: number;
+  exclusiveMax?: number;
   step?: number | "any";
   pattern?: string;
   placeholder?: string;
@@ -36,8 +38,8 @@ export function OverrideLifetime({
         aria-label={`${label} override lifetime`}
       >
         {[
-          { value: false, label: "Temporary", icon: "temporary" as const },
-          { value: true, label: "Workspace", icon: "workspace" as const },
+          { value: false, label: "Temporary" },
+          { value: true, label: "Workspace" },
         ].map((option) => (
           <label
             key={option.label}
@@ -55,9 +57,7 @@ export function OverrideLifetime({
               disabled={disabled}
               onChange={() => change(option.value)}
             />
-            <span>
-              <SettingsIcon name={option.icon} />
-            </span>
+            <span>{option.label}</span>
           </label>
         ))}
       </div>
@@ -87,21 +87,23 @@ export function SettingActions({
       />
       <div className="settings-actions">
         <button
-          className="settings-icon-button settings-apply"
+          className="settings-apply"
           title={`Apply ${label.toLowerCase()}`}
           aria-label={`Apply ${label.toLowerCase()}`}
           disabled={!valid}
         >
           <SettingsIcon name="apply" />
+          Apply
         </button>
         <button
-          className="settings-icon-button"
+          className="settings-reset"
           aria-label={`Reset ${label.toLowerCase()} to TOML`}
           title="Remove overrides and restore startup TOML"
           type="button"
           onClick={() => void reset()}
         >
           <SettingsIcon name="reset" />
+          Reset
         </button>
       </div>
     </div>
@@ -154,7 +156,12 @@ export function SettingField({
 
   const valid =
     (field.allowEmpty || draft.trim() !== "") &&
-    (!field.numeric || Number.isFinite(Number(draft)));
+    (!field.numeric ||
+      (Number.isFinite(Number(draft)) &&
+        (field.exclusiveMin === undefined ||
+          Number(draft) > field.exclusiveMin) &&
+        (field.exclusiveMax === undefined ||
+          Number(draft) < field.exclusiveMax)));
   const showConfigured =
     draft !== initial ||
     (typeof value !== "string" && typeof value !== "number");
@@ -162,23 +169,29 @@ export function SettingField({
   return (
     <form
       className="settings-field"
+      data-edited={draft !== initial || permanent}
       aria-label={`Edit ${field.label}`}
       onSubmit={(event) => {
         event.preventDefault();
         if (valid) void apply(field.numeric ? Number(draft) : draft, permanent);
       }}
     >
-      <div className="settings-field-value">
+      <div className="settings-field-description">
         <label htmlFor={id}>{field.label}</label>
         {field.description && (
           <small id={`${id}-description`}>{field.description}</small>
         )}
+      </div>
+      <div className="settings-field-value">
         {field.multiline ? (
           <textarea
             id={id}
             rows={3}
             value={draft}
-            placeholder={field.placeholder}
+            placeholder={
+              field.placeholder ??
+              (value === undefined ? "Not configured" : undefined)
+            }
             aria-describedby={
               field.description ? `${id}-description` : undefined
             }
@@ -193,7 +206,10 @@ export function SettingField({
             step={field.step}
             pattern={field.pattern}
             required={!field.allowEmpty}
-            placeholder={field.placeholder}
+            placeholder={
+              field.placeholder ??
+              (value === undefined ? "Not configured" : undefined)
+            }
             value={draft}
             aria-describedby={
               field.description ? `${id}-description` : undefined
@@ -218,14 +234,14 @@ export function SettingField({
           </datalist>
         )}
         {suggestionError && <small>Suggestions unavailable.</small>}
+        <SettingActions
+          label={field.label}
+          valid={Boolean(valid)}
+          reset={reset}
+          permanent={permanent}
+          changeLifetime={setPermanent}
+        />
       </div>
-      <SettingActions
-        label={field.label}
-        valid={Boolean(valid)}
-        reset={reset}
-        permanent={permanent}
-        changeLifetime={setPermanent}
-      />
     </form>
   );
 }

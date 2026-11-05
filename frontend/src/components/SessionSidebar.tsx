@@ -13,27 +13,35 @@ const SessionRow = React.memo(function SessionRow({
   name,
   selected,
   activity,
+  collapsed,
   select,
 }: {
   session: models.Session;
   name: string;
   selected: boolean;
   activity: boolean;
+  collapsed: boolean;
   select: (id: string) => void;
 }) {
+  const status = session.pending_inputs > 0 ? "Needs input" : session.status;
+  const label = `${name} — ${status}${activity ? " — New activity" : ""}`;
   return (
     <button
       aria-current={selected ? "page" : undefined}
+      aria-label={collapsed ? label : undefined}
+      title={collapsed ? label : undefined}
       onClick={() => select(session.execution_id)}
     >
       <span className="session-list-heading">
         <StatusIcon
-          status={session.pending_inputs > 0 ? "Needs input" : session.status}
-          label="Workflow status"
+          status={status}
+          label={collapsed ? name : "Workflow status"}
         />
-        <span className="session-list-title" title={name}>
-          {name}
-        </span>
+        {!collapsed && (
+          <span className="session-list-title" title={name}>
+            {name}
+          </span>
+        )}
         {activity && (
           <span
             className="session-list-activity"
@@ -44,7 +52,9 @@ const SessionRow = React.memo(function SessionRow({
           </span>
         )}
       </span>
-      {session.worktree_id && <WorktreeLabel id={session.worktree_id} />}
+      {!collapsed && session.worktree_id && (
+        <WorktreeLabel id={session.worktree_id} />
+      )}
     </button>
   );
 });
@@ -53,11 +63,13 @@ const SessionRows = React.memo(function SessionRows({
   entries,
   selected,
   activity,
+  collapsed,
   select,
 }: {
   entries: SessionEntry[];
   selected: string;
   activity: Set<string>;
+  collapsed: boolean;
   select: (id: string) => void;
 }) {
   return entries.map(({ session, name }) => (
@@ -67,6 +79,7 @@ const SessionRows = React.memo(function SessionRows({
       name={name}
       selected={selected === session.execution_id}
       activity={activity.has(session.execution_id)}
+      collapsed={collapsed}
       select={select}
     />
   ));
@@ -117,34 +130,30 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const names = React.useMemo(
     () =>
       new Map(
-        collapsed
-          ? []
-          : workflows.map(({ descriptor }) => [
-              descriptor.reference,
-              descriptor.name,
-            ]),
+        workflows.map(({ descriptor }) => [
+          descriptor.reference,
+          descriptor.name,
+        ]),
       ),
-    [workflows, collapsed],
+    [workflows],
   );
   const entries = React.useMemo(
     () =>
-      collapsed
-        ? []
-        : sessions.map((session) => {
-            const name = models.workflowDisplayName(
-              session.reference,
-              names,
-              session.name,
-              session.description,
-            );
-            return {
-              session,
-              name,
-              search:
-                `${name} ${session.reference} ${session.execution_id}`.toLowerCase(),
-            };
-          }),
-    [sessions, names, collapsed],
+      sessions.map((session) => {
+        const name = models.workflowDisplayName(
+          session.reference,
+          names,
+          session.name,
+          session.description,
+        );
+        return {
+          session,
+          name,
+          search:
+            `${name} ${session.reference} ${session.execution_id}`.toLowerCase(),
+        };
+      }),
+    [sessions, names],
   );
   const visible = React.useMemo(() => {
     const normalized = search.toLowerCase();
@@ -193,7 +202,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       aria-label="Session navigation"
     >
       <div className="sidebar-heading">
-        {!collapsed && <strong>Runner</strong>}
+        {!collapsed && <strong>VOCODE</strong>}
         <button
           className="quiet-button"
           onClick={collapse}
@@ -278,64 +287,82 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               </button>
             ))}
           </div>
-          <nav
-            ref={list}
-            className="session-list"
-            aria-label="Conversations"
-            aria-busy={loading}
+        </>
+      )}
+      <nav
+        ref={list}
+        className="session-list"
+        aria-label="Conversations"
+        aria-busy={loading}
+      >
+        <SessionRows
+          entries={rows}
+          selected={selected}
+          activity={activitySessions}
+          collapsed={collapsed}
+          select={select}
+        />
+      </nav>
+      {(visible.length > pageSize || hasMore || loading) && (
+        <div
+          className="session-pagination"
+          role="group"
+          aria-label="Conversation pages"
+        >
+          <span
+            className={collapsed ? "session-pagination-description" : undefined}
+            aria-live="polite"
           >
-            <SessionRows
-              entries={rows}
-              selected={selected}
-              activity={activitySessions}
-              select={select}
-            />
-          </nav>
-          {(visible.length > pageSize || hasMore || loading) && (
-            <div
-              className="session-pagination"
-              role="group"
-              aria-label="Conversation pages"
+            {visible.length
+              ? `${start + 1}–${start + rows.length} of ${visible.length} loaded`
+              : "No loaded matches"}
+          </span>
+          <div>
+            <button
+              className="quiet-button"
+              disabled={start === 0}
+              onClick={() =>
+                setPosition({
+                  after:
+                    visible[Math.max(0, start - pageSize) - 1]?.session
+                      .execution_id ?? null,
+                  first: null,
+                })
+              }
+              aria-label="Newer conversations"
+              title="Newer conversations"
             >
-              <span aria-live="polite">
-                {visible.length
-                  ? `${start + 1}–${start + rows.length} of ${visible.length} loaded`
-                  : "No loaded matches"}
-              </span>
-              <div>
-                <button
-                  className="quiet-button"
-                  disabled={start === 0}
-                  onClick={() =>
-                    setPosition({
-                      after:
-                        visible[Math.max(0, start - pageSize) - 1]?.session
-                          .execution_id ?? null,
-                      first: null,
-                    })
-                  }
-                  aria-label="Newer conversations"
-                >
-                  Newer
-                </button>
-                <button
-                  className="quiet-button"
-                  disabled={
-                    !moreLoaded &&
-                    (!hasMore || loading || !loadMore || status !== "Connected")
-                  }
-                  onClick={() => void older()}
-                  aria-label={
-                    moreLoaded
-                      ? "Older conversations"
-                      : "Load older conversations"
-                  }
-                >
-                  {moreLoaded ? "Older" : loading ? "Loading…" : "Load older"}
-                </button>
-              </div>
-            </div>
-          )}
+              {collapsed ? "↑" : "Newer"}
+            </button>
+            <button
+              className="quiet-button"
+              disabled={
+                !moreLoaded &&
+                (!hasMore || loading || !loadMore || status !== "Connected")
+              }
+              onClick={() => void older()}
+              aria-label={
+                moreLoaded ? "Older conversations" : "Load older conversations"
+              }
+              title={
+                moreLoaded ? "Older conversations" : "Load older conversations"
+              }
+            >
+              {collapsed
+                ? loading
+                  ? "…"
+                  : "↓"
+                : moreLoaded
+                  ? "Older"
+                  : loading
+                    ? "Loading…"
+                    : "Load older"}
+            </button>
+          </div>
+        </div>
+      )}
+      {!collapsed && (
+        <>
           {hasMore && (
             <p className="session-search-scope">
               Search and filters cover loaded conversations. Load older

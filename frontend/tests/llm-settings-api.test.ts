@@ -93,6 +93,63 @@ test("profile names remain literal path segments", async () => {
   ]);
 });
 
+test("compaction uses nested paths and preserves null and empty policies", async () => {
+  const connection = new Connection();
+  const api = new LlmSettingsApi(connection);
+  await api.set(null, "compaction", {}, false);
+  await api.set("custom.~1", "compaction", null, true);
+  await api.set("strong", "compaction.context_window", 200000, true);
+  await api.reset("strong", "compaction.keep_recent_ratio");
+  connection.results = [{ values: ["openai/summary"] }];
+  assert.deepEqual(
+    await api.suggest(
+      "custom.~1",
+      "compaction.summary_settings.model",
+      "openai/",
+    ),
+    ["openai/summary"],
+  );
+  assert.deepEqual(connection.calls, [
+    {
+      method: "configuration.set",
+      params: {
+        name: "components.llm.compaction",
+        value: {},
+        permanent: false,
+      },
+    },
+    {
+      method: "configuration.set",
+      params: {
+        name: "components.llm.profiles.custom~1~01.compaction",
+        value: null,
+        permanent: true,
+      },
+    },
+    {
+      method: "configuration.set",
+      params: {
+        name: "components.llm.profiles.strong.compaction.context_window",
+        value: 200000,
+        permanent: true,
+      },
+    },
+    {
+      method: "configuration.reset",
+      params: {
+        name: "components.llm.profiles.strong.compaction.keep_recent_ratio",
+      },
+    },
+    {
+      method: "configuration.suggest",
+      params: {
+        name: "components.llm.profiles.custom~1~01.compaction.summary_settings.model",
+        prefix: "openai/",
+      },
+    },
+  ]);
+});
+
 test("qualified model suggestions and updates preserve provider prefixes and nested names", async () => {
   const connection = new Connection();
   const values = ["first/shared", "second/shared", "router/vendor/nested:tag"];
