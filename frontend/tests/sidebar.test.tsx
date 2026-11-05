@@ -30,6 +30,7 @@ test("collapsed sidebar retains an accessible navigation rail", () => {
   assert.match(rail, /aria-label="Connection settings"/);
   assert.doesNotMatch(rail, /Find a session|Filter sessions/);
   const expanded = renderToStaticMarkup(createElement(SessionSidebar, props));
+  assert.match(expanded, /<strong>VOCODE<\/strong>/);
   assert.match(expanded, /aria-expanded="true"/);
   assert.match(expanded, /Find a session/);
 });

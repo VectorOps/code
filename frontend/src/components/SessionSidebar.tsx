@@ -202,7 +202,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       aria-label="Session navigation"
     >
       <div className="sidebar-heading">
-        {!collapsed && <strong>Runner</strong>}
+        {!collapsed && <strong>VOCODE</strong>}
         <button
           className="quiet-button"
           onClick={collapse}
