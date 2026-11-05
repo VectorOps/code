@@ -6,6 +6,7 @@ import { SessionSidebar } from "../src/components/SessionSidebar";
 import * as testing from "@testing-library/react";
 import * as vitest from "vitest";
 import * as models from "../src/models/runner";
+import userEvent from "@testing-library/user-event";
 
 test("collapsed sidebar retains an accessible navigation rail", () => {
   const noop = () => {};
@@ -280,13 +281,143 @@ test("unrelated rerenders and search reuse projected session labels", () => {
   vitest.expect(display).toHaveBeenCalledTimes(200);
 });
 
-test("collapsed navigation skips session projection", () => {
+test("collapsed navigation renders one page and reuses session projection on expansion", () => {
   const props = sidebarProps(10000);
   const display = vitest.vi.spyOn(models, "workflowDisplayName");
   const view = testing.render(<SessionSidebar {...props} collapsed />);
-  vitest.expect(display).not.toHaveBeenCalled();
+  vitest.expect(display).toHaveBeenCalledTimes(10000);
+  vitest
+    .expect(
+      testing
+        .within(view.getByRole("navigation", { name: "Conversations" }))
+        .getAllByRole("button"),
+    )
+    .toHaveLength(100);
   view.rerender(<SessionSidebar {...props} />);
   vitest.expect(display).toHaveBeenCalledTimes(10000);
+});
+
+test("collapsed status buttons identify conversations and support keyboard selection", async () => {
+  const props = sidebarProps(7);
+  const statuses = [
+    "starting",
+    "running",
+    "paused",
+    "stopping",
+    "completed",
+    "failed",
+    "cancelled",
+  ];
+  props.sessions = props.sessions.map((session, index) => ({
+    ...session,
+    status: statuses[index],
+    worktree_id: "tree",
+  }));
+  const view = testing.render(
+    <SessionSidebar {...props} collapsed selected="execution-1" />,
+  );
+  const rows = testing.within(
+    view.getByRole("navigation", { name: "Conversations" }),
+  );
+  for (const [index, status] of statuses.entries()) {
+    const label = `Conversation ${index} — ${status}`;
+    const row = rows.getByRole("button", { name: label });
+    vitest.expect(row.title).toBe(label);
+    vitest.expect(row.textContent).toBe("");
+    vitest
+      .expect(
+        testing
+          .within(row)
+          .getByRole("img", { name: `Conversation ${index}: ${status}` }),
+      )
+      .toBeTruthy();
+  }
+  vitest.expect(view.queryByText("Worktree: Unavailable")).toBeNull();
+  vitest
+    .expect(
+      rows
+        .getByRole("button", { name: "Conversation 1 — running" })
+        .getAttribute("aria-current"),
+    )
+    .toBe("page");
+  rows.getByRole("button", { name: "Conversation 5 — failed" }).focus();
+  await userEvent.setup().keyboard("{Enter}");
+  vitest.expect(props.select).toHaveBeenCalledExactlyOnceWith("execution-5");
+});
+
+test("collapsed icons update pending input and activity without expanding", () => {
+  const props = sidebarProps(1);
+  props.sessions[0] = {
+    ...props.sessions[0],
+    status: "running",
+    pending_inputs: 1,
+  };
+  const view = testing.render(
+    <SessionSidebar
+      {...props}
+      collapsed
+      activitySessions={new Set(["execution-0"])}
+    />,
+  );
+  vitest
+    .expect(
+      view.getByRole("button", {
+        name: "Conversation 0 — Needs input — New activity",
+      }),
+    )
+    .toBeTruthy();
+  vitest
+    .expect(view.getByRole("img", { name: "Conversation 0: Needs input" }))
+    .toBeTruthy();
+  vitest.expect(view.getByLabelText("New activity")).toBeTruthy();
+  view.rerender(
+    <SessionSidebar
+      {...props}
+      collapsed
+      sessions={[
+        { ...props.sessions[0], pending_inputs: 0, status: "completed" },
+      ]}
+    />,
+  );
+  vitest
+    .expect(view.getByRole("button", { name: "Conversation 0 — completed" }))
+    .toBeTruthy();
+  vitest.expect(view.queryByLabelText("New activity")).toBeNull();
+});
+
+test("collapsing preserves pagination and filters", () => {
+  const props = sidebarProps(201);
+  const view = testing.render(<SessionSidebar {...props} />);
+  testing.fireEvent.click(
+    view.getByRole("button", { name: "Older conversations" }),
+  );
+  view.rerender(<SessionSidebar {...props} collapsed />);
+  vitest
+    .expect(view.getByRole("button", { name: "Conversation 100 — completed" }))
+    .toBeTruthy();
+  testing.fireEvent.click(
+    view.getByRole("button", { name: "Older conversations" }),
+  );
+  vitest
+    .expect(view.getByRole("button", { name: "Conversation 200 — completed" }))
+    .toBeTruthy();
+  view.rerender(<SessionSidebar {...props} />);
+  vitest.expect(view.getByText("Conversation 200")).toBeTruthy();
+  testing.fireEvent.change(view.getByRole("searchbox"), {
+    target: { value: "Conversation 19" },
+  });
+  view.rerender(<SessionSidebar {...props} collapsed />);
+  const rows = testing.within(
+    view.getByRole("navigation", { name: "Conversations" }),
+  );
+  vitest.expect(rows.getAllByRole("button")).toHaveLength(11);
+  vitest
+    .expect(rows.getByRole("button", { name: "Conversation 19 — completed" }))
+    .toBeTruthy();
+  testing.fireEvent.click(
+    view.getByRole("button", { name: "Expand navigation" }),
+  );
+  vitest.expect(props.collapse).toHaveBeenCalledOnce();
 });
 
 test("older sessions load on demand with clear loaded-only search scope", async () => {
