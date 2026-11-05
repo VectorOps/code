@@ -42,7 +42,7 @@ export function ComposerUsage({
     (item) => object(item.step).id === context?.step_id,
   );
   const metrics = object(object(object(step?.step).metrics).llm);
-  const model = text(metrics.catalog_model);
+  const model = text(metrics.requested_model) || text(metrics.catalog_model);
   const details = [
     "Latest main workflow input estimate / model context window.",
     "Estimated total cost for this execution, including child workflows and retained branches.",

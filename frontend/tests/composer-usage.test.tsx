@@ -104,6 +104,40 @@ test("usage shares the attachment row and uses root context, not cumulative or c
   );
 });
 
+test.each([
+  {
+    requested: "provider/main-model:fast",
+    expected: "provider/main-model:fast",
+  },
+  { requested: "", expected: "main-model" },
+  { requested: null, expected: "main-model" },
+  { requested: 42, expected: "main-model" },
+])(
+  "model display prefers a valid requested reference: $requested",
+  ({ requested, expected }) => {
+    const view = render(
+      workspace(session, [
+        {
+          position: 1,
+          step: {
+            id: "root-turn",
+            workflow_id: "root",
+            operation: { kind: "llm.generate" },
+            metrics: {
+              llm: { requested_model: requested, catalog_model: "main-model" },
+            },
+          },
+        },
+        history[1],
+      ]),
+    );
+    expect(
+      view.getByLabelText("Workflow usage").querySelector(".composer-model")
+        ?.textContent,
+    ).toBe(expected);
+  },
+);
+
 test("usage refreshes from durable summaries and indicates incomplete cost coverage", () => {
   const view = render(workspace(session));
   view.rerender(
