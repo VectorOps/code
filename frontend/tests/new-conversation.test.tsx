@@ -103,51 +103,93 @@ async function shortcut(options: KeyboardEventInit) {
   return event;
 }
 
-vitest.test("conversation steps do not expose forking controls", () => {
-  const runner = mockRunner();
-  runner.selected = "existing";
-  runner.execution = {
-    id: "existing",
-    root_workflow_id: "root",
-    status: "completed",
-    checkpoint: { heads: { root: "reply" } },
-  };
-  runner.history.items = [
-    {
-      position: 1,
-      step: {
-        id: "input",
-        previous_step_id: null,
-        workflow_id: "root",
-        operation: {
-          kind: "mailbox.input",
-          input: { channel: "user.message", response_type: "text" },
+vitest.test(
+  "conversation steps allow editing and retrying but not arbitrary forks",
+  async () => {
+    const runner = mockRunner();
+    runner.selected = "existing";
+    runner.execution = {
+      id: "existing",
+      root_workflow_id: "root",
+      status: "failed",
+      checkpoint: { heads: { root: "failed" } },
+    };
+    runner.history.items = [
+      {
+        position: 1,
+        step: {
+          id: "input",
+          previous_step_id: null,
+          workflow_id: "root",
+          operation: {
+            kind: "mailbox.input",
+            input: { channel: "user.message", response_type: "text" },
+          },
+          outcome: { kind: "completed", result: "Original text" },
         },
-        outcome: { kind: "completed", result: "Original text" },
       },
-    },
-    {
-      position: 2,
-      step: {
-        id: "reply",
-        previous_step_id: "input",
-        workflow_id: "root",
-        operation: { kind: "llm.generate" },
-        outcome: { kind: "completed", result: "Assistant reply" },
+      {
+        position: 2,
+        step: {
+          id: "reply",
+          previous_step_id: "input",
+          workflow_id: "root",
+          operation: { kind: "llm.generate" },
+          outcome: { kind: "completed", result: "Assistant reply" },
+        },
       },
-    },
-  ];
-  const view = testing.render(<RunnerScreen initial={runner.settings} />);
-  vitest.expect(view.getByText("Original text")).toBeDefined();
-  vitest.expect(view.getByText("Assistant reply")).toBeDefined();
-  vitest
-    .expect(
-      view.queryAllByRole("button", {
-        name: /Branch after this step|Edit input|Restart this step|Retry this step/,
+      {
+        position: 3,
+        step: {
+          id: "failed",
+          previous_step_id: "reply",
+          workflow_id: "root",
+          operation: { kind: "llm.generate" },
+          outcome: { kind: "failed", error: "Generation failed" },
+        },
+      },
+    ];
+    const view = testing.render(<RunnerScreen initial={runner.settings} />);
+    vitest.expect(view.getByText("Original text")).toBeDefined();
+    vitest.expect(view.getByText("Assistant reply")).toBeDefined();
+    vitest
+      .expect(
+        view.queryAllByRole("button", {
+          name: /Branch after this step|Restart this step/,
+        }),
+      )
+      .toHaveLength(0);
+    testing.fireEvent.click(view.getByRole("button", { name: "Edit input" }));
+    const editor = view.getByRole("textbox", { name: "Edit input" });
+    vitest.expect(editor).toHaveProperty("value", "Original text");
+    testing.fireEvent.change(editor, { target: { value: "Edited text" } });
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Save and branch" }),
+    );
+    await testing.waitFor(() =>
+      vitest.expect(runner.branch).toHaveBeenCalledExactlyOnceWith("input", {
+        kind: "insert_input",
+        response: "Edited text",
       }),
-    )
-    .toHaveLength(0);
-});
+    );
+    await testing.waitFor(() =>
+      vitest
+        .expect(view.queryByRole("textbox", { name: "Edit input" }))
+        .toBeNull(),
+    );
+    vitest.expect(view.getByText("Original text")).toBeDefined();
+    testing.fireEvent.click(
+      view.getByRole("button", { name: "Retry this step" }),
+    );
+    testing.fireEvent.click(view.getByRole("button", { name: "Retry step" }));
+    await testing.waitFor(() =>
+      vitest.expect(runner.branch).toHaveBeenLastCalledWith("failed", {
+        kind: "restart",
+      }),
+    );
+    vitest.expect(runner.branch).toHaveBeenCalledTimes(2);
+  },
+);
 
 vitest.test.each(["ctrlKey", "metaKey"])(
   "%s+N starts agent and Shift opens advanced without starting",

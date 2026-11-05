@@ -12,7 +12,7 @@ import { StepFeed } from "../components/StepFeed";
 import { DebugSteps } from "../components/DebugSteps";
 import { useDebug } from "../components/Diagnostics";
 import { defaultStepRegistry } from "../components/steps/defaults";
-import type { StepRegistry } from "../components/steps/registry";
+import type { StepActions, StepRegistry } from "../components/steps/registry";
 import { ActivityDetails } from "../components/ActivityDetails";
 import { Decision } from "../components/Decision";
 import { SessionSidebar } from "../components/SessionSidebar";
@@ -86,6 +86,7 @@ function WorkspaceContent({
   onSteer,
   onRemoveSteering,
   onBranch,
+  allowBranchAfter,
   newSession,
   connection,
   settings,
@@ -140,6 +141,7 @@ function WorkspaceContent({
   onSteer?: (value: string) => Promise<boolean>;
   onRemoveSteering?: (messageId: string) => Promise<boolean>;
   onBranch?: (id: string, action: models.BranchAction) => Promise<boolean>;
+  allowBranchAfter?: StepActions["allowBranchAfter"];
   newSession: React.ReactNode;
   connection: React.ReactNode;
   settings?: React.ReactNode;
@@ -293,6 +295,7 @@ function WorkspaceContent({
         execution?.root_workflow_id ?? current?.root_workflow_id ?? undefined,
       worktreeId: execution?.target?.worktree_id ?? undefined,
       branch: onBranch,
+      allowBranchAfter,
       branchSuccessors: successors,
     }),
     [
@@ -302,6 +305,7 @@ function WorkspaceContent({
       onReply,
       inspect,
       onBranch,
+      allowBranchAfter,
       successors,
       execution?.root_workflow_id,
       execution?.target?.worktree_id,

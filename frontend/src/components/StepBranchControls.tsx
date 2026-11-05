@@ -37,6 +37,7 @@ export function useStepBranchControls(
   const editable = step.kind === "mailbox.input" && step.state === "completed";
   const successor = actions.branchSuccessors?.get(step.id);
   const branchAfter =
+    actions.allowBranchAfter !== false &&
     Boolean(successor) &&
     ["completed", "joined"].includes(step.state) &&
     !["workflow.spawn", "workflow.complete"].includes(step.kind);

@@ -175,6 +175,8 @@ function ConnectedRunner({ initial }: { initial: ConnectionSettings }) {
         onReply={runner.reply}
         onSteer={runner.steer}
         onRemoveSteering={runner.removeSteering}
+        onBranch={runner.branch}
+        allowBranchAfter={false}
         connection={
           <ConnectionForm
             value={connection}
