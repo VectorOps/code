@@ -464,3 +464,289 @@ vitest.test(
       .toHaveLength(1);
   },
 );
+
+vitest.test(
+  "shows configured compaction values without inventing profile defaults",
+  async () => {
+    const connection = new Connection();
+    connection.value = {
+      compaction: {
+        trigger_threshold_ratio: 0.75,
+        keep_recent_messages: 12,
+        summary_settings: {
+          model: "openai/summary",
+          reasoning: { effort: "low" },
+        },
+      },
+      profiles: { strong: { compaction: { context_window: 200000 } } },
+    };
+    const { view, user } = await open(connection);
+    await user.click(view.getByText("Compaction policy", { exact: true }));
+    vitest
+      .expect(view.getByLabelText("Compaction"))
+      .toHaveProperty("value", "enabled");
+    vitest
+      .expect(view.getByLabelText("Compaction trigger ratio"))
+      .toHaveProperty("value", "0.75");
+    vitest
+      .expect(view.getByLabelText("Keep recent messages"))
+      .toHaveProperty("value", "12");
+    await user.click(view.getByText("Summary generation settings"));
+    vitest
+      .expect(view.getByLabelText("Summary model"))
+      .toHaveProperty("value", "openai/summary");
+    vitest
+      .expect(view.getByLabelText("Summary reasoning effort"))
+      .toHaveProperty("value", "low");
+    await user.selectOptions(
+      view.getByLabelText("Edit settings for"),
+      "profile:strong",
+    );
+    vitest
+      .expect(view.getByLabelText("Context window"))
+      .toHaveProperty("value", "200000");
+    vitest
+      .expect(view.getByLabelText("Compaction trigger ratio"))
+      .toHaveProperty("value", "");
+    vitest
+      .expect(view.getByLabelText("Summary model"))
+      .toHaveProperty("value", "");
+    vitest.expect(connection.write).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
+  "applying enabled compaction preserves the configured policy",
+  async () => {
+    const connection = new Connection();
+    const policy = {
+      context_window: 128000,
+      summary_settings: { model: "openai/summary", timeout: 60 },
+    };
+    connection.value = { compaction: policy };
+    const { view, user } = await open(connection);
+    await user.click(view.getByRole("button", { name: "Apply compaction" }));
+    await view.findByText("Compaction applied as a temporary override.");
+    vitest.expect(connection.write).toHaveBeenCalledExactlyOnceWith({
+      name: "components.llm.compaction",
+      value: policy,
+      permanent: false,
+    });
+  },
+);
+
+vitest.test(
+  "profile selection clears unapplied compaction mode drafts",
+  async () => {
+    const connection = new Connection();
+    connection.value = { compaction: null, profiles: { strong: {} } };
+    const { view, user } = await open(connection);
+    await user.selectOptions(view.getByLabelText("Compaction"), "enabled");
+    await user.selectOptions(
+      view.getByLabelText("Edit settings for"),
+      "profile:strong",
+    );
+    vitest
+      .expect(view.getByLabelText("Compaction"))
+      .toHaveProperty("value", "unset");
+    await user.selectOptions(
+      view.getByLabelText("Edit settings for"),
+      "shared",
+    );
+    vitest
+      .expect(view.getByLabelText("Compaction"))
+      .toHaveProperty("value", "disabled");
+    vitest.expect(connection.write).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
+  "enables, disables and resets compaction with explicit lifetimes",
+  async () => {
+    const { connection, view, user } = await open();
+    vitest
+      .expect(view.getByLabelText("Compaction"))
+      .toHaveProperty("value", "unset");
+    await user.selectOptions(view.getByLabelText("Compaction"), "enabled");
+    connection.value = { compaction: {} };
+    await user.click(view.getByRole("button", { name: "Apply compaction" }));
+    await view.findByText("Compaction applied as a temporary override.");
+    vitest.expect(connection.write).toHaveBeenLastCalledWith({
+      name: "components.llm.compaction",
+      value: {},
+      permanent: false,
+    });
+    await user.selectOptions(view.getByLabelText("Compaction"), "disabled");
+    await user.click(
+      testing
+        .within(
+          view.getByRole("group", { name: "Compaction override lifetime" }),
+        )
+        .getByRole("radio", { name: "Workspace" }),
+    );
+    connection.value = { compaction: null };
+    await user.click(view.getByRole("button", { name: "Apply compaction" }));
+    await view.findByText("Compaction applied as a permanent override.");
+    vitest.expect(connection.write).toHaveBeenLastCalledWith({
+      name: "components.llm.compaction",
+      value: null,
+      permanent: true,
+    });
+    vitest
+      .expect(view.getByLabelText("Compaction"))
+      .toHaveProperty("value", "disabled");
+    await user.click(view.getByText("Compaction policy", { exact: true }));
+    await user.click(
+      view.getByRole("button", { name: "Apply keep recent messages" }),
+    );
+    vitest.expect(connection.write).toHaveBeenCalledTimes(2);
+    connection.value = {};
+    await user.click(
+      view.getByRole("button", { name: "Reset compaction to TOML" }),
+    );
+    await view.findByText("Compaction reset to startup TOML.");
+    vitest
+      .expect(connection.reset)
+      .toHaveBeenCalledExactlyOnceWith({ name: "components.llm.compaction" });
+    vitest
+      .expect(view.getByLabelText("Compaction"))
+      .toHaveProperty("value", "unset");
+  },
+);
+
+vitest.test(
+  "edits nested profile policy and summary fields independently",
+  async () => {
+    const { connection, view, user } = await open();
+    await user.selectOptions(
+      view.getByLabelText("Edit settings for"),
+      "profile:custom.name",
+    );
+    await user.click(view.getByText("Compaction policy", { exact: true }));
+    await user.type(view.getByLabelText("Keep recent tokens"), "8192");
+    await user.click(
+      testing
+        .within(
+          view.getByRole("group", {
+            name: "Keep recent tokens override lifetime",
+          }),
+        )
+        .getByRole("radio", { name: "Workspace" }),
+    );
+    await user.click(
+      view.getByRole("button", { name: "Apply keep recent tokens" }),
+    );
+    await view.findByText(
+      "Keep recent tokens applied as a permanent override.",
+    );
+    vitest.expect(connection.write).toHaveBeenLastCalledWith({
+      name: "components.llm.profiles.custom~1name.compaction.keep_recent_tokens",
+      value: 8192,
+      permanent: true,
+    });
+    await user.click(view.getByText("Summary generation settings"));
+    await user.type(view.getByLabelText("Summary model"), "openai/summary");
+    await user.click(view.getByRole("button", { name: "Apply summary model" }));
+    await view.findByText("Summary model applied as a temporary override.");
+    vitest.expect(connection.write).toHaveBeenLastCalledWith({
+      name: "components.llm.profiles.custom~1name.compaction.summary_settings.model",
+      value: "openai/summary",
+      permanent: false,
+    });
+    await user.type(
+      view.getByLabelText("Additional summary instructions"),
+      "Preserve paths.\nKeep decisions.",
+    );
+    await user.click(
+      view.getByRole("button", {
+        name: "Apply additional summary instructions",
+      }),
+    );
+    await view.findByText(
+      "Additional summary instructions applied as a temporary override.",
+    );
+    vitest.expect(connection.write).toHaveBeenLastCalledWith({
+      name: "components.llm.profiles.custom~1name.compaction.additional_instructions",
+      value: "Preserve paths.\nKeep decisions.",
+      permanent: false,
+    });
+    await user.click(
+      view.getByRole("button", { name: "Reset summary model to TOML" }),
+    );
+    await view.findByText("Summary model reset to startup TOML.");
+    vitest.expect(connection.reset).toHaveBeenLastCalledWith({
+      name: "components.llm.profiles.custom~1name.compaction.summary_settings.model",
+    });
+  },
+);
+
+vitest.test.each([
+  { label: "Context window", invalid: "1.5", valid: "1000" },
+  { label: "Keep recent messages", invalid: "0", valid: "8" },
+  { label: "Compaction trigger ratio", invalid: "0", valid: "1" },
+  { label: "Compaction trigger ratio", invalid: "1.1", valid: "0.8" },
+  { label: "Keep recent ratio", invalid: "1", valid: "0.25" },
+  { label: "Summary target ratio", invalid: "0", valid: "0.1" },
+])(
+  "validates compaction $label: $invalid",
+  async ({ label, invalid, valid }) => {
+    const { connection, view, user } = await open();
+    await user.click(
+      view.getByText(
+        label === "Summary target ratio"
+          ? "Summary generation settings"
+          : "Compaction policy",
+        { exact: true },
+      ),
+    );
+    const input = view.getByLabelText(label);
+    const apply = view.getByRole("button", {
+      name: `Apply ${label.toLowerCase()}`,
+    });
+    await user.type(input, invalid);
+    await user.click(apply);
+    vitest.expect(connection.write).not.toHaveBeenCalled();
+    await user.clear(input);
+    await user.type(input, valid);
+    await user.click(apply);
+    await view.findByText(`${label} applied as a temporary override.`);
+    vitest.expect(connection.write).toHaveBeenCalledTimes(1);
+  },
+);
+
+vitest.test(
+  "advanced settings are disclosed on demand without losing drafts",
+  async () => {
+    const { connection, view, user } = await open();
+    for (const label of [
+      "Compaction policy",
+      "Summary generation settings",
+      "Advanced compaction",
+    ]) {
+      vitest
+        .expect(view.getByText(label, { exact: true }).closest("details"))
+        .toHaveProperty("open", false);
+    }
+    const disclosure = view
+      .getByText("Compaction policy", { exact: true })
+      .closest("summary")!;
+    await user.click(disclosure);
+    vitest.expect(disclosure.closest("details")).toHaveProperty("open", true);
+    await user.type(view.getByLabelText("Context window"), "128000");
+    await user.click(disclosure);
+    vitest.expect(disclosure.closest("details")).toHaveProperty("open", false);
+    await user.click(disclosure);
+    vitest
+      .expect(view.getByLabelText("Context window"))
+      .toHaveProperty("value", "128000");
+    await user.click(view.getByText("Advanced compaction", { exact: true }));
+    vitest
+      .expect(
+        view.getByRole("button", {
+          name: "Apply legacy context character limit",
+        }),
+      )
+      .toBeTruthy();
+    vitest.expect(connection.write).not.toHaveBeenCalled();
+  },
+);

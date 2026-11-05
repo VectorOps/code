@@ -190,13 +190,13 @@ vitest.test(
     const toggle = view.getByRole("group", {
       name: "Agent tool collection override lifetime",
     });
-    vitest.expect(toggle.textContent?.trim()).toBe("");
-    vitest.expect(toggle.querySelectorAll("svg")).toHaveLength(2);
+    vitest.expect(toggle.textContent).toContain("Temporary");
+    vitest.expect(toggle.textContent).toContain("Workspace");
     for (const button of [
       view.getByRole("button", { name: "Apply agent tool collection" }),
       view.getByRole("button", { name: "Reset agent tool collection to TOML" }),
     ]) {
-      vitest.expect(button.textContent?.trim()).toBe("");
+      vitest.expect(button.textContent?.trim()).toMatch(/Apply|Reset/);
       vitest.expect(button.querySelector("svg")).not.toBeNull();
       vitest.expect(button.title).not.toBe("");
     }
