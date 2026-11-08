@@ -1,14 +1,14 @@
 # Agent guide
 
-This repository contains Runner Desktop, a Python desktop launcher and WebSocket adapter with a React interface. VectorOps Runner owns workflow execution, permissions, and persistence; VectorOps Connect provides model-provider integration.
+This repository contains VectorOps Code, a Python desktop launcher and WebSocket adapter with a React interface. VectorOps Runner owns workflow execution, permissions, and persistence; VectorOps Connect provides model-provider integration.
 
 ## Layout and dependencies
 
 - Python 3.13; dependencies and tool settings are in `pyproject.toml`.
-- `src/runner_desktop/` contains the Python application; `tests/` contains its tests.
+- `src/vectorops_code/` contains the Python application; `tests/` contains its tests.
 - `frontend/src/` contains React and TypeScript; `frontend/tests/` contains frontend tests.
 - `examples/workflows/` contains examples, not application startup code.
-- Development uses editable sibling checkouts at `../runner` and `../connect`.
+- `uv` fetches pinned Runner and Connect dependencies. Editable sibling checkouts at `../runner` and `../connect` are optional for cross-repository development.
 - See `docs/development/index.md` for setup and build commands.
 
 ## Ownership and boundaries
@@ -21,7 +21,7 @@ This repository contains Runner Desktop, a Python desktop launcher and WebSocket
 - Preserve public contracts and deterministic replay. Do not rename or remove packet fields, discriminator values, or enum values without a migration.
 - Keep new public fields optional and backward compatible.
 - Never commit credentials, tokens, or local runtime data.
-- Do not edit generated files under `src/runner_desktop/web/`; build them from frontend source.
+- Do not edit generated files under `src/vectorops_code/web/`; build them from frontend source.
 - Preserve unrelated changes. Update tests only for intentional behavior changes.
 
 ## Python conventions

@@ -1,15 +1,25 @@
 # Development
 
-Follow the [source installation instructions](../../README.md#install-from-source) to place `code`, `runner`, and `connect` beside one another and install dependencies. Runner is installed as an editable dependency from `../runner`. Keep both sibling source trees available for type checking and live reload.
+Follow the [source installation instructions](../../README.md#install-from-source). Only the `code` checkout is required. `uv sync` installs the development tools and downloads Runner and its dependencies from their pinned sources.
 
-Runner selects the Connect dependency used at runtime. Cloning Connect alone does not override that selection; check the resolved dependency before testing local Connect changes.
+## Work on Runner or Connect locally
+
+For cross-repository changes, optionally clone Runner and Connect beside `code`. Install the pinned dependencies first, then replace those two packages with editable checkouts:
+
+```bash
+uv sync
+uv pip install --no-deps --editable ../runner --editable ../connect
+uv run --no-sync vectorops-code-dev --workspace /path/to/test-project
+```
+
+Use `uv run --no-sync pytest` when testing local dependency changes. `--no-sync` keeps the editable installations instead of restoring the pinned packages. These overrides do not change the committed dependency pins. Run `uv sync` to return to the pinned dependencies. If local changes add dependencies, install those in the development environment too.
 
 ## Run while editing
 
 From the repository root:
 
 ```bash
-uv run runner-desktop-dev --workspace /path/to/test-project
+uv run vectorops-code-dev --workspace /path/to/test-project
 ```
 
 Open `http://127.0.0.1:5173`. See [live reload](watch.md) for port options and restart behavior. Use a test project: Python reloads interrupt running workflows.
@@ -18,7 +28,7 @@ Open `http://127.0.0.1:5173`. See [live reload](watch.md) for port options and r
 
 | Path | Contents |
 | --- | --- |
-| `src/runner_desktop/` | Desktop launcher, WebSocket server, and desktop-specific services |
+| `src/vectorops_code/` | Desktop launcher, WebSocket server, and desktop-specific services |
 | `frontend/src/` | React interface, connection handling, and display models |
 | `tests/` | Python tests |
 | `frontend/tests/` | Frontend tests |
@@ -33,7 +43,7 @@ From the repository root:
 
 ```bash
 uv run black --check src tests examples
-uv run mypy src/runner_desktop examples
+uv run mypy src/vectorops_code examples
 uv run pytest
 ```
 
@@ -59,7 +69,7 @@ cd ..
 uv build
 ```
 
-Vite writes assets to `src/runner_desktop/web/`. Those files are ignored by Git and included in the Python package. Rebuild them after frontend changes before launching the native desktop or packaging it.
+Vite writes assets to `src/vectorops_code/web/`. Those files are ignored by Git and included in the Python package. Rebuild them after frontend changes before launching the native desktop or packaging it.
 
 ## Add step or tool views
 

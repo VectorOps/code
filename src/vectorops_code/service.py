@@ -6,9 +6,9 @@ from typing import Optional
 import pydantic
 from vectorops.runner.control.service import RunnerService
 
-from runner_desktop.prompt_history import PromptHistory
-from runner_desktop.file_search import FileSearch
-from runner_desktop.settings import Store
+from vectorops_code.prompt_history import PromptHistory
+from vectorops_code.file_search import FileSearch
+from vectorops_code.settings import Store
 
 
 class DesktopService(RunnerService):

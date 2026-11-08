@@ -4,7 +4,7 @@ from urllib.error import HTTPError
 
 import pytest
 
-from runner_desktop.templates import render_index, TemplateServer
+from vectorops_code.templates import render_index, TemplateServer
 
 
 def test_bootstrap_escaping() -> None:

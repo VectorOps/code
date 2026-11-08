@@ -9,9 +9,9 @@ from urllib.parse import urlencode, urlsplit
 
 from vectorops.runner.control.auth import validate_token
 
-from runner_desktop.assets import AssetServer
-from runner_desktop.oauth import OAuthBridge
-from runner_desktop.worker import Worker
+from vectorops_code.assets import AssetServer
+from vectorops_code.oauth import OAuthBridge
+from vectorops_code.worker import Worker
 
 
 def validate_endpoint(endpoint: str) -> str:
@@ -39,7 +39,7 @@ def launch(
         import webview
     except ImportError:
         raise RuntimeError(
-            "Desktop support is not installed; install runner-desktop[desktop]"
+            "Desktop support is not installed; install vectorops-code[desktop]"
         ) from None
 
     if endpoint is not None:
@@ -68,7 +68,7 @@ def launch(
                 }
             )
             window = webview.create_window(
-                f"VectorOps - {workspace.resolve()}",
+                f"VectorOps Code - {workspace.resolve()}",
                 f"{assets.origin}/#{fragment}",
                 width=1200,
                 height=820,

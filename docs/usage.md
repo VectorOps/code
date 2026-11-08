@@ -1,4 +1,4 @@
-# Using Runner Desktop
+# Using VectorOps Code
 
 Open a project with the command in the [README](../README.md#open-a-project). Each conversation represents a workflow running in that project.
 
@@ -63,9 +63,9 @@ Desktop preferences are saved on the machine running the worker, shared across p
 | Data | Default location |
 | --- | --- |
 | Appearance, default workflow, history limits, and debug preference | `~/.config/vops-runner/desktop-settings.json` |
-| Submitted prompt text for recall and search | `~/.local/state/runner-desktop/prompt-history.sqlite3` |
+| Submitted prompt text for recall and search | `~/.local/state/vectorops-code/prompt-history.sqlite3` for new installations |
 
-Set `VOPS_RUNNER_CONFIG_DIR` to change the settings directory. Set `XDG_STATE_HOME` to an absolute path to change the prompt-history base directory; the database remains under its `runner-desktop/` subdirectory.
+Set `VOPS_RUNNER_CONFIG_DIR` to change the settings directory. Set `XDG_STATE_HOME` to an absolute path to change the prompt-history base directory. Existing databases under `runner-desktop/prompt-history.sqlite3` are reused so previously saved prompts remain available; otherwise the database is created under `vectorops-code/`.
 
 Prompt history keeps the latest 1,000 submitted text prompts in plaintext. It is separate from conversation transcripts and shared across workspaces using the same host account. The database has owner-only file permissions on POSIX systems. Drafts and image payloads are not copied into it. Avoid putting credentials or other secrets in prompts.
 

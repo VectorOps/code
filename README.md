@@ -11,20 +11,9 @@ You need:
 - Git to download the source.
 - A native webview: WebKit on macOS, WebView2 on Windows, or a supported GTK/WebKit or Qt backend on Linux. See the [pywebview installation guide](https://pywebview.flowrl.com/guide/installation.html) for system packages.
 
-Clone all three repositories into the same parent directory. The dependency configuration expects these directory names:
-
-```text
-vectorops/
-  code/
-  connect/
-  runner/
-```
+Clone this repository. `uv` downloads the pinned Runner dependency and its dependencies, including Connect; separate checkouts are not needed.
 
 ```bash
-mkdir vectorops
-cd vectorops
-git clone https://github.com/vectorops/connect.git
-git clone https://github.com/vectorops/runner.git
 git clone https://github.com/vectorops/code.git
 cd code
 uv sync --extra desktop
@@ -41,7 +30,7 @@ Node.js is only needed to build the interface or work on it, not to run the buil
 From the `code` directory, run:
 
 ```bash
-uv run --extra desktop runner-desktop /path/to/your/project
+uv run --extra desktop vectorops-code /path/to/your/project
 ```
 
 Replace the path with the project you want to work on. Omit it to open the current directory. The desktop starts a local worker and connects automatically; no port or connection token setup is needed.

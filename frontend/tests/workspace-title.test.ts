@@ -23,7 +23,7 @@ vitest.test(
       .mockResolvedValue({ workspace });
     testing.renderHook(() => useWorkspaceTitle(api, true));
     await testing.waitFor(() =>
-      vitest.expect(document.title).toBe(`VectorOps - ${workspace}`),
+      vitest.expect(document.title).toBe(`VectorOps Code - ${workspace}`),
     );
     vitest.expect(request).toHaveBeenCalledExactlyOnceWith("runner.info");
   },
@@ -40,18 +40,18 @@ vitest.test(
       ({ connected }) => useWorkspaceTitle(api, connected),
       { initialProps: { connected: false } },
     );
-    vitest.expect(document.title).toBe("VectorOps");
+    vitest.expect(document.title).toBe("VectorOps Code");
     vitest.expect(request).not.toHaveBeenCalled();
     view.rerender({ connected: true });
     await testing.waitFor(() =>
-      vitest.expect(document.title).toBe("VectorOps - /projects/first"),
+      vitest.expect(document.title).toBe("VectorOps Code - /projects/first"),
     );
     view.rerender({ connected: false });
-    vitest.expect(document.title).toBe("VectorOps");
+    vitest.expect(document.title).toBe("VectorOps Code");
     request.mockResolvedValue({ workspace: "/projects/second" });
     view.rerender({ connected: true });
     await testing.waitFor(() =>
-      vitest.expect(document.title).toBe("VectorOps - /projects/second"),
+      vitest.expect(document.title).toBe("VectorOps Code - /projects/second"),
     );
     vitest.expect(request).toHaveBeenCalledTimes(2);
   },
@@ -76,10 +76,10 @@ vitest.test(
     });
     view.rerender({ api: second });
     await testing.waitFor(() =>
-      vitest.expect(document.title).toBe("VectorOps - /projects/current"),
+      vitest.expect(document.title).toBe("VectorOps Code - /projects/current"),
     );
     await testing.act(async () => finish({ workspace: "/projects/stale" }));
-    vitest.expect(document.title).toBe("VectorOps - /projects/current");
+    vitest.expect(document.title).toBe("VectorOps Code - /projects/current");
   },
 );
 
@@ -94,9 +94,9 @@ vitest.test(
       ({ api }: { api: RunnerApi | undefined }) => useWorkspaceTitle(api, true),
       { initialProps: { api: undefined as RunnerApi | undefined } },
     );
-    vitest.expect(document.title).toBe("VectorOps");
+    vitest.expect(document.title).toBe("VectorOps Code");
     view.rerender({ api });
     await testing.act(async () => {});
-    vitest.expect(document.title).toBe("VectorOps");
+    vitest.expect(document.title).toBe("VectorOps Code");
   },
 );

@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from runner_desktop.dev import run, stop_process, watch_paths
+from vectorops_code.dev import run, stop_process, watch_paths
 
 
 def test_watch_paths(tmp_path: Path) -> None:
-    root = tmp_path / "desktop"
+    root = tmp_path / "code"
     for path in [root / "src", tmp_path / "runner/src", tmp_path / "connect/src"]:
         path.mkdir(parents=True)
     paths = watch_paths(root, [root / "src", tmp_path / "missing"])
@@ -45,8 +45,8 @@ async def test_dev_launcher_marks_worker_as_development(tmp_path: Path) -> None:
         yield set()
 
     with (
-        patch("runner_desktop.dev.shutil.which", return_value="node"),
-        patch("runner_desktop.dev.TemplateServer"),
+        patch("vectorops_code.dev.shutil.which", return_value="node"),
+        patch("vectorops_code.dev.TemplateServer"),
         patch("watchfiles.awatch", watch),
         patch(
             "asyncio.create_subprocess_exec",
@@ -57,4 +57,15 @@ async def test_dev_launcher_marks_worker_as_development(tmp_path: Path) -> None:
         with pytest.raises(RuntimeError, match="Development frontend exited"):
             await run(tmp_path, tmp_path, 8765, 5173, [])
     assert "--development" in create.call_args_list[1].args
+    assert (
+        "from vectorops_code.cli import main; main()" in create.call_args_list[1].args
+    )
+    assert "VECTOROPS_CODE_TOKEN" in create.call_args_list[1].kwargs["env"]
     assert "--strictPort" in create.call_args_list[0].args
+
+
+def test_watch_paths_without_sibling_checkouts(tmp_path: Path) -> None:
+    root = tmp_path / "code"
+    source = root / "src"
+    source.mkdir(parents=True)
+    assert watch_paths(root, []) == [source.resolve()]

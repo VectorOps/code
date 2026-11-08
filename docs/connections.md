@@ -10,18 +10,18 @@ Run these commands from the `code` checkout. Generate a token:
 uv run python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Set `RUNNER_DESKTOP_TOKEN` to that value in both the worker's environment and the desktop's environment. Use your shell's environment-variable syntax. Do not include the token in application command-line arguments, source files, or bug reports.
+Set `VECTOROPS_CODE_TOKEN` to that value in both the worker's environment and the desktop's environment. Use your shell's environment-variable syntax. Do not include the token in application command-line arguments, source files, or bug reports. Existing setups using `RUNNER_DESKTOP_TOKEN` are still accepted when `VECTOROPS_CODE_TOKEN` is unset.
 
 Start the worker in one terminal:
 
 ```bash
-uv run runner-desktop serve --workspace /path/to/your/project --port 8765 --origin http://127.0.0.1:8766
+uv run vectorops-code serve --workspace /path/to/your/project --port 8765 --origin http://127.0.0.1:8766
 ```
 
 Open the desktop from another terminal:
 
 ```bash
-uv run --extra desktop runner-desktop desktop --endpoint ws://127.0.0.1:8765 --asset-port 8766
+uv run --extra desktop vectorops-code desktop --endpoint ws://127.0.0.1:8765 --asset-port 8766
 ```
 
 The desktop's asset port must match the origin allowed by the worker. Repeat `--origin` to allow more than one exact frontend origin. Connections without an allowed Origin header are rejected, including non-browser clients.
@@ -41,7 +41,7 @@ The attached desktop does not start, discover, or reconfigure the worker. Connec
 | Problem | What to check |
 | --- | --- |
 | Address already in use | Choose unused ports and update the endpoint, asset port, and allowed origin together. Explicit ports do not fall back to another port. |
-| Authentication fails | Both processes must receive the same `RUNNER_DESKTOP_TOKEN`. Restart them after changing it. |
+| Authentication fails | Both processes must receive the same `VECTOROPS_CODE_TOKEN`. Restart them after changing it. |
 | Origin rejected | Match the complete origin, including scheme, hostname, and port. `localhost` and `127.0.0.1` are different origins. |
 | Desktop assets are missing | Run `npm ci` and `npm run build` in `frontend/`. |
 | Native window cannot open | Check the [pywebview system requirements](https://pywebview.flowrl.com/guide/installation.html) for your platform. |

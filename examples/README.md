@@ -11,7 +11,7 @@ With Runner's default workspace layout, project workflows live in `.voc/workflow
 ```bash
 mkdir -p /path/to/test-project/.voc/workflows
 cp examples/workflows/riddles.py /path/to/test-project/.voc/workflows/riddles.py
-uv run --extra desktop runner-desktop /path/to/test-project
+uv run --extra desktop vectorops-code /path/to/test-project
 ```
 
 If you have customized Runner's workspace or workflow directory, use that directory instead.

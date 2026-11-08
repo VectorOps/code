@@ -2,14 +2,14 @@ import { defineConfig, loadEnv } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, ".", "RUNNER_");
-  const origin = env.RUNNER_LOCAL_ORIGIN;
-  const endpoint = env.RUNNER_LOCAL_ENDPOINT;
-  const token = env.RUNNER_DESKTOP_TOKEN;
+  const env = loadEnv(mode, ".", "VECTOROPS_CODE_");
+  const origin = env.VECTOROPS_CODE_LOCAL_ORIGIN;
+  const endpoint = env.VECTOROPS_CODE_LOCAL_ENDPOINT;
+  const token = env.VECTOROPS_CODE_TOKEN;
   const local = Boolean(origin && endpoint && token);
   return {
     base: "./",
-    build: { outDir: "../src/runner_desktop/web", emptyOutDir: true },
+    build: { outDir: "../src/vectorops_code/web", emptyOutDir: true },
     server: { port: 5173, strictPort: true, cors: false },
     plugins: [
       tailwindcss(),
@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
                   }
                 }
                 const result = await fetch(
-                  new URL("/oauth", env.RUNNER_TEMPLATE_URL),
+                  new URL("/oauth", env.VECTOROPS_CODE_TEMPLATE_URL),
                   {
                     method: "POST",
                     headers: {
@@ -83,7 +83,7 @@ export default defineConfig(({ mode }) => {
         },
         async transformIndexHtml(html) {
           if (!local) return html;
-          const response = await fetch(env.RUNNER_TEMPLATE_URL, {
+          const response = await fetch(env.VECTOROPS_CODE_TEMPLATE_URL, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${token}`,

@@ -206,21 +206,11 @@ wheels = [
 [[package]]
 name = "connect"
 version = "0.1.0"
-source = { editable = "../connect" }
+source = { git = "https://github.com/vectorops/connect.git?rev=4756d7308f68905a35cb5500d3ba1c3284cbfff5#4756d7308f68905a35cb5500d3ba1c3284cbfff5" }
 dependencies = [
     { name = "aiohttp" },
     { name = "pydantic" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.13.4" },
-    { name = "pydantic", specifier = ">=2.7.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-    { name = "websockets", marker = "extra == 'websocket'", specifier = ">=12.0" },
-]
-provides-extras = ["websocket", "test"]
 
 [[package]]
 name = "cryptography"
@@ -873,7 +863,7 @@ wheels = [
 [[package]]
 name = "pypika"
 version = "0.48.9"
-source = { git = "https://github.com/VectorOps/pypika.git?rev=v0.49.4-dev#80f85b3c3df405cce235b9f2d23841ec43a0c97b" }
+source = { git = "https://github.com/vectorops/pypika.git?rev=v0.49.4-dev#80f85b3c3df405cce235b9f2d23841ec43a0c97b" }
 
 [[package]]
 name = "pytest"
@@ -1055,48 +1045,6 @@ wheels = [
 ]
 
 [[package]]
-name = "runner-desktop"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "jinja2" },
-    { name = "vectorops-runner" },
-    { name = "websockets" },
-]
-
-[package.optional-dependencies]
-desktop = [
-    { name = "pywebview" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "black" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "watchfiles" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "jinja2", specifier = ">=3.1.6,<4" },
-    { name = "pywebview", marker = "extra == 'desktop'", specifier = ">=5,<7" },
-    { name = "vectorops-runner", editable = "../runner" },
-    { name = "websockets", specifier = ">=15,<16" },
-]
-provides-extras = ["desktop"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "black", specifier = ">=25" },
-    { name = "mypy", specifier = ">=1.11,<2" },
-    { name = "pytest", specifier = ">=8,<9" },
-    { name = "pytest-asyncio", specifier = ">=0.23,<1" },
-    { name = "watchfiles", specifier = ">=1,<2" },
-]
-
-[[package]]
 name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1187,9 +1135,51 @@ wheels = [
 ]
 
 [[package]]
+name = "vectorops-code"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "jinja2" },
+    { name = "vectorops-runner" },
+    { name = "websockets" },
+]
+
+[package.optional-dependencies]
+desktop = [
+    { name = "pywebview" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "black" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "watchfiles" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jinja2", specifier = ">=3.1.6,<4" },
+    { name = "pywebview", marker = "extra == 'desktop'", specifier = ">=5,<7" },
+    { name = "vectorops-runner", git = "https://github.com/vectorops/runner.git?rev=aebfc7ea1415bbddd18a328bc707798aea5f914d" },
+    { name = "websockets", specifier = ">=15,<16" },
+]
+provides-extras = ["desktop"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "black", specifier = ">=25" },
+    { name = "mypy", specifier = ">=1.11,<2" },
+    { name = "pytest", specifier = ">=8,<9" },
+    { name = "pytest-asyncio", specifier = ">=0.23,<1" },
+    { name = "watchfiles", specifier = ">=1,<2" },
+]
+
+[[package]]
 name = "vectorops-runner"
 version = "0.1.0"
-source = { editable = "../runner" }
+source = { git = "https://github.com/vectorops/runner.git?rev=aebfc7ea1415bbddd18a328bc707798aea5f914d#aebfc7ea1415bbddd18a328bc707798aea5f914d" }
 dependencies = [
     { name = "aiohttp" },
     { name = "anyio" },
@@ -1206,36 +1196,6 @@ dependencies = [
     { name = "pypika" },
     { name = "pyyaml" },
     { name = "referencing" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.13.4" },
-    { name = "anyio", specifier = ">=4.5" },
-    { name = "beautifulsoup4", specifier = ">=4.13,<5" },
-    { name = "connect", editable = "../connect" },
-    { name = "cryptography", specifier = ">=44.0.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "jsonschema", specifier = ">=4.23.0" },
-    { name = "keyring", specifier = ">=25.0.0" },
-    { name = "markdownify", specifier = ">=1.2,<2" },
-    { name = "mcp", specifier = "==1.26.0" },
-    { name = "pathspec", specifier = ">=0.12.1,<2" },
-    { name = "pydantic", specifier = ">=2.12.0" },
-    { name = "pypika", git = "https://github.com/VectorOps/pypika.git?rev=v0.49.4-dev" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "referencing", specifier = ">=0.36" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "black", specifier = ">=25.0.0" },
-    { name = "mypy", specifier = ">=1.11.0,<2" },
-    { name = "pytest", specifier = ">=8.0.0,<9" },
-    { name = "pytest-asyncio", specifier = ">=0.23.0,<1" },
-    { name = "types-jsonschema", specifier = ">=4.23.0" },
-    { name = "types-pyyaml", specifier = ">=6.0.12" },
-    { name = "yappi", specifier = ">=1.6,<2" },
 ]
 
 [[package]]

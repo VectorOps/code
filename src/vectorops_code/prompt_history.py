@@ -60,7 +60,12 @@ class PromptHistory:
         state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
         if not state.is_absolute():
             state = Path.home() / ".local/state"
-        self.path = path or state / "runner-desktop/prompt-history.sqlite3"
+        legacy = state / "runner-desktop/prompt-history.sqlite3"
+        self.path = path or (
+            legacy
+            if legacy.is_file()
+            else state / "vectorops-code/prompt-history.sqlite3"
+        )
 
     @contextmanager
     def _database(self) -> Iterator[sqlite3.Connection]:

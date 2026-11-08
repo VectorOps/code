@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from aiohttp import ClientSession
 
-from runner_desktop.templates import TemplateServer
+from vectorops_code.templates import TemplateServer
 
 
 async def test_oauth_host_requires_local_authorization() -> None:
@@ -19,7 +19,7 @@ async def test_oauth_host_requires_local_authorization() -> None:
                 "id": "login-1",
             }
             with patch(
-                "runner_desktop.templates.OAuthBridge.authenticate", return_value=True
+                "vectorops_code.templates.OAuthBridge.authenticate", return_value=True
             ) as login:
                 async with session.post(host.url + "/oauth", json=payload) as response:
                     assert response.status == 403

@@ -7,7 +7,7 @@ from websockets.typing import Origin
 from vectorops.runner.control import oauth_host
 from vectorops.runner.control.client import RunnerClient
 
-from runner_desktop.server import WebSocketStream
+from vectorops_code.server import WebSocketStream
 
 
 async def authenticate(endpoint: str, token: str, origin: str, identifier: str) -> None:
@@ -38,7 +38,7 @@ class OAuthBridge:
         self.origin = origin
 
     def authenticate(self, endpoint: str, token: str, identifier: str) -> bool:
-        from runner_desktop.desktop import validate_endpoint
+        from vectorops_code.desktop import validate_endpoint
 
         try:
             asyncio.run(

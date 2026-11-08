@@ -9,9 +9,9 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 from vectorops.runner.control import protocol
-from runner_desktop import settings
-from runner_desktop.server import websocket_server
-from runner_desktop.service import DesktopService
+from vectorops_code import settings
+from vectorops_code.server import websocket_server
+from vectorops_code.service import DesktopService
 
 
 async def test_defaults_persistence_and_concurrent_field_updates(

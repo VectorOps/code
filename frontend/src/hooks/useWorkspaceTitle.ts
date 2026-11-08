@@ -6,18 +6,19 @@ export function useWorkspaceTitle(
   connected: boolean,
 ) {
   useEffect(() => {
-    document.title = "VectorOps";
+    document.title = "VectorOps Code";
     if (!api || !connected) return;
     let active = true;
     void api.workspace().then(
       (workspace) => {
-        if (active && workspace) document.title = `VectorOps - ${workspace}`;
+        if (active && workspace)
+          document.title = `VectorOps Code - ${workspace}`;
       },
       () => {},
     );
     return () => {
       active = false;
-      document.title = "VectorOps";
+      document.title = "VectorOps Code";
     };
   }, [api, connected]);
 }

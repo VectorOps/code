@@ -9,7 +9,7 @@ import shutil
 import sys
 from typing import Optional
 
-from runner_desktop.templates import TemplateServer
+from vectorops_code.templates import TemplateServer
 
 
 def watch_paths(root: Path, extra: list[Path]) -> list[Path]:
@@ -43,9 +43,9 @@ async def run(
     from watchfiles import PythonFilter, awatch
 
     environment = dict(os.environ)
-    environment["RUNNER_DESKTOP_TOKEN"] = secrets.token_urlsafe(32)
-    environment["RUNNER_LOCAL_ENDPOINT"] = f"ws://127.0.0.1:{port}"
-    environment["RUNNER_LOCAL_ORIGIN"] = f"http://127.0.0.1:{frontend_port}"
+    environment["VECTOROPS_CODE_TOKEN"] = secrets.token_urlsafe(32)
+    environment["VECTOROPS_CODE_LOCAL_ENDPOINT"] = f"ws://127.0.0.1:{port}"
+    environment["VECTOROPS_CODE_LOCAL_ORIGIN"] = f"http://127.0.0.1:{frontend_port}"
     node = shutil.which("node")
     vite = root / "frontend/node_modules/vite/bin/vite.js"
     if node is None or not vite.is_file():
@@ -55,7 +55,7 @@ async def run(
     command = [
         sys.executable,
         "-c",
-        "from runner_desktop.cli import main; main()",
+        "from vectorops_code.cli import main; main()",
         "serve",
         "--development",
         "--workspace",
@@ -66,11 +66,11 @@ async def run(
         origin,
     ]
     templates = TemplateServer(
-        environment["RUNNER_LOCAL_ENDPOINT"],
-        environment["RUNNER_DESKTOP_TOKEN"],
+        environment["VECTOROPS_CODE_LOCAL_ENDPOINT"],
+        environment["VECTOROPS_CODE_TOKEN"],
         origin,
     )
-    environment["RUNNER_TEMPLATE_URL"] = templates.url
+    environment["VECTOROPS_CODE_TEMPLATE_URL"] = templates.url
     frontend = await asyncio.create_subprocess_exec(
         node,
         str(vite),

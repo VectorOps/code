@@ -12,10 +12,10 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from websockets.asyncio.client import connect
 
-from runner_desktop.desktop import launch, validate_endpoint
-from runner_desktop.assets import AssetServer
-from runner_desktop import worker as worker_module
-from runner_desktop.worker import Worker
+from vectorops_code.desktop import launch, validate_endpoint
+from vectorops_code.assets import AssetServer
+from vectorops_code import worker as worker_module
+from vectorops_code.worker import Worker
 
 
 @pytest.mark.parametrize(
@@ -52,15 +52,16 @@ def test_window_title_includes_workspace(
     webview = MagicMock()
     with (
         patch.dict("sys.modules", {"webview": webview}),
-        patch("runner_desktop.desktop.AssetServer") as assets,
-        patch("runner_desktop.desktop.Worker") as worker,
+        patch("vectorops_code.desktop.AssetServer") as assets,
+        patch("vectorops_code.desktop.Worker") as worker,
     ):
         assets.return_value.__enter__.return_value.origin = "http://127.0.0.1:8766"
         worker.return_value.start.return_value = "ws://127.0.0.1:8765"
         launch(workspace)
 
     assert (
-        webview.create_window.call_args.args[0] == f"VectorOps - {workspace.resolve()}"
+        webview.create_window.call_args.args[0]
+        == f"VectorOps Code - {workspace.resolve()}"
     )
     webview.start.assert_called_once()
     assert callable(webview.start.call_args.args[0])
@@ -121,7 +122,7 @@ def test_local_launch_ignores_occupied_conventional_ports(
         stack.enter_context(patch.dict("sys.modules", {"webview": webview}))
         stack.enter_context(
             patch(
-                "runner_desktop.desktop.AssetServer",
+                "vectorops_code.desktop.AssetServer",
                 side_effect=lambda port: AssetServer(tmp_path, port),
             )
         )
@@ -137,8 +138,8 @@ def test_attached_desktop_does_not_own_worker(tmp_path: Path) -> None:
     webview = MagicMock()
     with (
         patch.dict("sys.modules", {"webview": webview}),
-        patch("runner_desktop.desktop.AssetServer") as assets,
-        patch("runner_desktop.desktop.Worker") as worker,
+        patch("vectorops_code.desktop.AssetServer") as assets,
+        patch("vectorops_code.desktop.Worker") as worker,
     ):
         launch(tmp_path, "ws://localhost:1234", secrets.token_urlsafe(32), 8766)
     assets.assert_called_once_with(port=8766)
@@ -156,8 +157,8 @@ def test_worker_failure_is_shown_in_window(
     webview.start.side_effect = lambda monitor: monitor()
     with (
         patch.dict("sys.modules", {"webview": webview}),
-        patch("runner_desktop.desktop.AssetServer"),
-        patch("runner_desktop.desktop.Worker") as worker,
+        patch("vectorops_code.desktop.AssetServer"),
+        patch("vectorops_code.desktop.Worker") as worker,
     ):
         worker.return_value.finished.is_set.return_value = True
         worker.return_value.failure = RuntimeError("worker stopped unexpectedly")
@@ -174,8 +175,8 @@ def test_startup_failure_is_not_masked_by_cleanup(tmp_path: Path) -> None:
     webview = MagicMock()
     with (
         patch.dict("sys.modules", {"webview": webview}),
-        patch("runner_desktop.desktop.AssetServer"),
-        patch("runner_desktop.desktop.Worker") as worker,
+        patch("vectorops_code.desktop.AssetServer"),
+        patch("vectorops_code.desktop.Worker") as worker,
     ):
         worker.return_value.start.side_effect = ValueError("original startup error")
         with pytest.raises(ValueError, match="original startup error"):

@@ -5,7 +5,7 @@ __pycache__/
 .mypy_cache/
 .voc/data/
 frontend/node_modules/
-src/runner_desktop/web/
+src/*/web/
 dist/
 build/
 .ruff_cache/

@@ -11,9 +11,9 @@ from websockets.exceptions import ConnectionClosed
 from websockets.typing import Origin
 
 from vectorops.runner.control import protocol
-from runner_desktop.prompt_history import Entry, Page, PromptHistory
-from runner_desktop.server import websocket_server
-from runner_desktop.service import DesktopService
+from vectorops_code.prompt_history import Entry, Page, PromptHistory
+from vectorops_code.server import websocket_server
+from vectorops_code.service import DesktopService
 
 
 async def append(
@@ -61,6 +61,21 @@ async def test_persists_across_clients_projects_and_restarts(tmp_path: Path) -> 
     path.chmod(0o644)
     await history.dispatch("prompt_history.list", {}, "project-c")
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+async def test_default_location_preserves_existing_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    assert PromptHistory().path == tmp_path / "vectorops-code/prompt-history.sqlite3"
+    legacy = tmp_path / "runner-desktop/prompt-history.sqlite3"
+    entry = await append(PromptHistory(legacy), "Saved before the rename")
+    history = PromptHistory()
+    assert history.path == legacy
+    page = Page.model_validate(
+        await history.dispatch("prompt_history.list", {}, "project-a")
+    )
+    assert page.entries == [entry]
 
 
 async def test_search_is_literal_unicode_aware_deduplicated_and_paginated(

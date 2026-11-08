@@ -8,8 +8,8 @@ from typing import Final, Optional
 
 from vectorops.runner.control import protocol
 
-from runner_desktop.server import wait_for_shutdown, websocket_server
-from runner_desktop.service import DesktopService
+from vectorops_code.server import wait_for_shutdown, websocket_server
+from vectorops_code.service import DesktopService
 
 START_TIMEOUT: Final = 30.0
 STOP_TIMEOUT: Final = 15.0

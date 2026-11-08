@@ -11,9 +11,9 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 from websockets.typing import Origin
 
-from runner_desktop.file_search import FileSearch
-from runner_desktop.server import websocket_server
-from runner_desktop.service import DesktopService
+from vectorops_code.file_search import FileSearch
+from vectorops_code.server import websocket_server
+from vectorops_code.service import DesktopService
 
 
 async def completed(search: FileSearch, query: str = "") -> file_search.SearchUpdate:

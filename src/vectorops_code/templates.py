@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
 from jinja2 import Environment
-from runner_desktop.oauth import OAuthBridge
+from vectorops_code.oauth import OAuthBridge
 
 
 def render_index(html: str, endpoint: str, token: str) -> str:

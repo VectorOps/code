@@ -1,12 +1,16 @@
 [project]
-name = "runner-desktop"
+name = "vectorops-code"
 version = "0.1.0"
-description = "Desktop and WebSocket clients for VectorOps Runner"
+description = "VectorOps Code desktop interface for VectorOps Runner"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.13,<3.14"
-dependencies = ["vectorops-runner", "websockets>=15,<16", "jinja2>=3.1.6,<4"]
+dependencies = [
+    "vectorops-runner @ git+https://github.com/vectorops/runner.git@aebfc7ea1415bbddd18a328bc707798aea5f914d",
+    "websockets>=15,<16",
+    "jinja2>=3.1.6,<4",
+]
 
 [project.urls]
 Repository = "https://github.com/vectorops/code"
@@ -17,8 +21,8 @@ Issues = "https://github.com/vectorops/code/issues"
 desktop = ["pywebview>=5,<7"]
 
 [project.scripts]
-runner-desktop = "runner_desktop.cli:main"
-runner-desktop-dev = "runner_desktop.dev:main"
+vectorops-code = "vectorops_code.cli:main"
+vectorops-code-dev = "vectorops_code.dev:main"
 
 [build-system]
 requires = ["setuptools>=80"]
@@ -26,13 +30,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["vectorops_code*"]
 
 [tool.setuptools.package-data]
-runner_desktop = ["web/*", "web/assets/*"]
-
-[tool.uv.sources]
-vectorops-runner = { path = "../runner", editable = true }
-connect = { path = "../connect", editable = true }
+vectorops_code = ["web/*", "web/assets/*"]
 
 [dependency-groups]
 dev = ["black>=25", "mypy>=1.11,<2", "pytest>=8,<9", "pytest-asyncio>=0.23,<1", "watchfiles>=1,<2"]
@@ -43,11 +44,15 @@ testpaths = ["tests"]
 
 [tool.mypy]
 python_version = "3.13"
-files = ["src/runner_desktop"]
+files = ["src/vectorops_code"]
 strict = true
 follow_imports = "silent"
-mypy_path = ["src", "../runner/src", "../connect/src"]
+mypy_path = ["src"]
 explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["vectorops.runner", "vectorops.runner.*"]
+follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
 module = ["webview", "webview.*"]

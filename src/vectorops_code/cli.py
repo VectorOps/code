@@ -10,8 +10,8 @@ from typing import Optional
 
 from vectorops.runner.control.auth import validate_token
 
-from runner_desktop.server import wait_for_shutdown, websocket_server
-from runner_desktop.service import DesktopService
+from vectorops_code.server import wait_for_shutdown, websocket_server
+from vectorops_code.service import DesktopService
 
 
 async def serve(
@@ -44,7 +44,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(
         description=__doc__,
         usage="%(prog)s [PROJECT] | {desktop,serve} ...",
-        epilog="Start locally with runner-desktop [PROJECT]. No token or ports required.",
+        epilog="Start locally with vectorops-code [PROJECT]. No token or ports required.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     worker = commands.add_parser("serve", help="Run an independent headless worker")
@@ -67,7 +67,9 @@ def main(argv: Optional[list[str]] = None) -> None:
     if not arguments or arguments[0] not in ("desktop", "serve", "-h", "--help"):
         arguments.insert(0, "desktop")
     args = parser.parse_args(arguments)
-    token = os.environ.get("RUNNER_DESKTOP_TOKEN")
+    token = os.environ.get(
+        "VECTOROPS_CODE_TOKEN", os.environ.get("RUNNER_DESKTOP_TOKEN")
+    )
     try:
         if args.command == "serve":
             asyncio.run(
@@ -80,7 +82,7 @@ def main(argv: Optional[list[str]] = None) -> None:
                 )
             )
         else:
-            from runner_desktop.desktop import launch
+            from vectorops_code.desktop import launch
 
             if args.project is not None and args.workspace is not None:
                 parser.error("specify PROJECT or --workspace, not both")

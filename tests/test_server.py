@@ -9,8 +9,8 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from vectorops.runner.control.service import RunnerService
 
-from runner_desktop.server import websocket_server
-from runner_desktop.worker import Worker
+from vectorops_code.server import websocket_server
+from vectorops_code.worker import Worker
 
 ORIGIN = "http://127.0.0.1:5173"
 
