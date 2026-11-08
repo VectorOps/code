@@ -8,6 +8,7 @@ import { LlmProfiles } from "./LlmProfiles";
 import { WorkflowSettings } from "./WorkflowSettings";
 import { ToolPermissions } from "./ToolPermissions";
 import { WorktreeManager } from "./WorktreeManager";
+import { DiskUsage } from "./DiskUsage";
 import { resolveDefaultWorkflow } from "../hooks/useDefaultWorkflow";
 import "./settings.css";
 import { HistorySettings } from "../components/HistorySettings";
@@ -24,6 +25,7 @@ const categories = {
   permissions: "Tool permissions",
   workflows: "Workflows",
   worktrees: "Worktrees",
+  storage: "Disk usage",
   developer: "Developer tools",
 };
 
@@ -39,6 +41,7 @@ const categoryGroups: { label: string; items: Category[] }[] = [
       "workflows",
       "permissions",
       "worktrees",
+      "storage",
     ],
   },
   { label: "Advanced", items: ["developer"] },
@@ -53,6 +56,7 @@ const descriptions: Record<Category, string> = {
   workflows: "Customize the agents and instructions used in new runs.",
   permissions: "Control which tools can run and when approval is required.",
   worktrees: "Manage isolated working copies for your conversations.",
+  storage: "View total disk usage and the largest workflows on this runner.",
   developer: "Inspect runtime behavior and enable diagnostic tools.",
 };
 
@@ -65,6 +69,7 @@ export function Settings({
   onDefaultWorkflowChange,
   historyLimits = defaultHistoryLimits,
   onHistoryLimitsChange,
+  onDelete,
 }: {
   api?: RunnerApi;
   connected: boolean;
@@ -74,6 +79,7 @@ export function Settings({
   onDefaultWorkflowChange?: (reference: string) => void;
   historyLimits?: HistoryLimits;
   onHistoryLimitsChange?: (limits: HistoryLimits) => void;
+  onDelete?: (executionId: string) => Promise<boolean>;
 }) {
   const [category, setCategory] = React.useState<Category>("appearance");
   const title = categories[category];
@@ -161,6 +167,12 @@ export function Settings({
             </>
           ) : !connected || !api ? (
             <p role="status">Runner disconnected.</p>
+          ) : category === "storage" ? (
+            <DiskUsage
+              key={`${connection.endpoint}/${connection.token}`}
+              api={api}
+              onDelete={onDelete}
+            />
           ) : category === "worktrees" ? (
             <WorktreeManager
               key={`${connection.endpoint}/${connection.token}`}

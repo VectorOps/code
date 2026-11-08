@@ -203,6 +203,10 @@ vitest.test(
   "info icon exposes stats without a redundant header workflow status indicator",
   async () => {
     const props = workspaceProps();
+    props.loadDiskUsage = vitest.vi.fn(async (executionId) => ({
+      execution_id: executionId,
+      size_bytes: 2048,
+    }));
     const session = {
       execution_id: props.selected,
       reference: "chat:workflow",
@@ -229,8 +233,11 @@ vitest.test(
       .expect(view.container.querySelector(".session-header .status-icon"))
       .toBeNull();
     const info = view.getByRole("button", { name: "Workflow stats" });
+    vitest.expect(props.loadDiskUsage).not.toHaveBeenCalled();
     vitest.expect(info.textContent).toBe("");
     await user.click(info);
+    vitest.expect(await view.findByText("2 KiB")).toBeTruthy();
+    vitest.expect(props.loadDiskUsage).toHaveBeenCalledWith(props.selected);
     vitest
       .expect(view.getByRole("heading", { name: "Workflow stats" }))
       .toBeTruthy();

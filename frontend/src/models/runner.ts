@@ -2,6 +2,17 @@ import type { Json } from "./json";
 import { chatMessage, type ImageInput } from "./chat-input";
 import type { WorkflowPresentation } from "./workflow-display";
 
+export type WorkflowDiskUsage = {
+  execution_id: string;
+  size_bytes: number;
+};
+
+export type DiskUsageReport = {
+  total_bytes: number;
+  workflow_count: number;
+  top_workflows: WorkflowDiskUsage[];
+};
+
 export type ExecutionUsage = {
   totals: {
     input_tokens: number;

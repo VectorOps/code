@@ -42,6 +42,12 @@ function ConnectedRunner({ initial }: { initial: ConnectionSettings }) {
   const runner = useRunner(initial, historySettings.limits);
   const settingsConnection =
     runner.status === "Connected" ? runner.api?.connection : undefined;
+  const loadDiskUsage = React.useMemo(() => {
+    const api = runner.api;
+    return api && runner.status === "Connected"
+      ? (executionId: string) => api.executionDiskUsage(executionId)
+      : undefined;
+  }, [runner.api, runner.status]);
   React.useLayoutEffect(
     () => preferences.attach(settingsConnection),
     [preferences.attach, settingsConnection],
@@ -115,6 +121,7 @@ function ConnectedRunner({ initial }: { initial: ConnectionSettings }) {
               preferences.ready ? defaultWorkflow.change : undefined
             }
             historyLimits={historySettings.limits}
+            onDelete={runner.deleteExecution}
             onHistoryLimitsChange={
               preferences.ready ? historySettings.change : undefined
             }
@@ -172,6 +179,7 @@ function ConnectedRunner({ initial }: { initial: ConnectionSettings }) {
           await runner.resume();
         }}
         onDelete={runner.deleteExecution}
+        loadDiskUsage={loadDiskUsage}
         onReply={runner.reply}
         onSteer={runner.steer}
         onRemoveSteering={runner.removeSteering}

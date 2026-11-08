@@ -82,6 +82,7 @@ function WorkspaceContent({
   onStop,
   onResume,
   onDelete,
+  loadDiskUsage,
   onReply,
   onSteer,
   onRemoveSteering,
@@ -133,6 +134,7 @@ function WorkspaceContent({
   onStop: () => void | Promise<void>;
   onResume?: () => Promise<void>;
   onDelete?: (executionId: string) => Promise<boolean>;
+  loadDiskUsage?: (executionId: string) => Promise<models.WorkflowDiskUsage>;
   onReply: (
     request: models.InputRequest,
     response: Json,
@@ -728,7 +730,9 @@ function WorkspaceContent({
             {inspector.kind === "workflow-permissions" && workflowPermissions}
             {inspector.kind === "stats" && current && (
               <WorkflowStats
+                key={scope}
                 session={current}
+                loadDiskUsage={loadDiskUsage}
                 workflowId={
                   execution?.root_workflow_id ?? current.root_workflow_id
                 }

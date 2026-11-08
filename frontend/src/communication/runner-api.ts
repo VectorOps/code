@@ -12,6 +12,20 @@ export class RunnerApi {
     return info.workspace;
   }
 
+  diskUsage() {
+    return this.connection.request<models.DiskUsageReport>(
+      "runner.disk_usage",
+      { top: 10 },
+    );
+  }
+
+  executionDiskUsage(execution_id: string) {
+    return this.connection.request<models.WorkflowDiskUsage>(
+      "executions.disk_usage",
+      { execution_id },
+    );
+  }
+
   private async pages<T>(
     method: string,
     field: string,
