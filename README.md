@@ -1,6 +1,6 @@
-# Runner Desktop
+# VectorOps Code
 
-Runner Desktop is a desktop interface for [VectorOps Runner](https://github.com/vectorops/runner). Start conversations and workflows in a project, respond to approval requests, and review messages, commands, and file changes in one place.
+VectorOps Code is a desktop interface for [VectorOps Runner](https://github.com/vectorops/runner). Start conversations and workflows in a project, respond to approval requests, and review messages, commands, and file changes in one place.
 
 ## Install from source
 
@@ -62,7 +62,7 @@ Runner manages workflow execution, provider credentials, and tool permissions. R
 ## Documentation
 
 - [Documentation index](docs/index.md)
-- [Using Runner Desktop](docs/usage.md)
+- [Using VectorOps Code](docs/usage.md)
 - [Connecting to a separate worker](docs/connections.md)
 - [Development and testing](docs/development/index.md)
 - [Workflow example](examples/README.md)
