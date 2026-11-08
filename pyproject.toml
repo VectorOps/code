@@ -2,8 +2,16 @@
 name = "runner-desktop"
 version = "0.1.0"
 description = "Desktop and WebSocket clients for VectorOps Runner"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.13,<3.14"
 dependencies = ["vectorops-runner", "websockets>=15,<16", "jinja2>=3.1.6,<4"]
+
+[project.urls]
+Repository = "https://github.com/vectorops/code"
+Documentation = "https://github.com/vectorops/code#documentation"
+Issues = "https://github.com/vectorops/code/issues"
 
 [project.optional-dependencies]
 desktop = ["pywebview>=5,<7"]

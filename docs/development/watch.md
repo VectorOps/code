@@ -1,25 +1,43 @@
-# Watch frontend and Python changes
+# Live reload
 
-Use the browser development command to run Vite and a restarting WebSocket worker together. This command requires a source checkout, not an installed wheel.
+Run the interface in a browser while editing React and Python source. This command requires a source checkout with the [development dependencies](index.md) installed.
 
 ## Start
 
-Run `uv sync` in the repository root and `npm ci` in `frontend/` first. No token configuration is needed for this local command.
+Run `uv sync` in the repository root and `npm ci` in `frontend/`, then start from the repository root:
 
 ```bash
-uv run runner-desktop-dev --workspace /path/to/workspace
+uv run runner-desktop-dev --workspace /path/to/test-project
 ```
 
-Open `http://127.0.0.1:5173`; the frontend connects automatically. The WebSocket endpoint defaults to `ws://127.0.0.1:8765`. Ctrl+C stops both development processes.
-
-The launcher generates a fresh token per development session and passes it to its child processes. Vite delegates HTML rendering to a loopback-only, authenticated Python renderer. Jinja2 injects connection settings using `tojson` at request time, never into compiled JavaScript or files on disk. HTML is served with `Cache-Control: no-store`, with exact Host and Origin checks and cross-site requests rejected. The token stays unchanged across Python worker reloads. Remote and independently launched workers still require explicit credentials.
+Open `http://127.0.0.1:5173`. The interface connects automatically to `ws://127.0.0.1:8765`. The launcher creates a connection token; no manual token or origin configuration is needed. Ctrl+C stops both processes.
 
 ## Reload behavior
 
-- Vite recompiles frontend modules and updates or reloads the browser when frontend files change. It does not write production assets; use `npm run build` for the packaged desktop frontend.
-- Changes to Python files under this application's `src/`, sibling `runner/src/`, or sibling `connect/src/` restart the WebSocket worker after a short debounce. The browser reconnects automatically using the same token.
-- Reload interrupts running workflows. On POSIX the worker receives SIGTERM and has 15 seconds to shut down; on Windows process termination is immediate. Persisted recovery follows the runner's recovery policy. Use a development workspace, not a production worker.
-- If the worker fails to start because of a syntax error, its error appears in the terminal; fixing a watched Python file starts it again.
-- Dependency changes still require `uv sync` and restarting this command. Vite transpilation does not type-check; `npm run build` runs TypeScript checking.
+- Frontend edits update or reload the browser through Vite. They do not rebuild the native desktop's assets.
+- Python edits under this application's `src/`, `../runner/src/`, or `../connect/src/` restart the worker. The browser reconnects with the same token.
+- Reload interrupts running workflows. On POSIX the worker receives SIGTERM and has 15 seconds to stop; on Windows it is terminated immediately. Use a test project, not a worker handling important tasks.
+- A Python syntax error appears in the terminal. Fixing a watched file starts the worker again.
+- Dependency changes require `uv sync` and a restart of the development command.
 
-Use `--port` and `--frontend-port` to change ports. Add `--watch /another/python/source` to watch an additional existing directory; repeat it for multiple paths. This command serves the browser UI, not the native pywebview window.
+## Options
+
+| Option | Purpose |
+| --- | --- |
+| `--port` | Change the worker port from `8765` |
+| `--frontend-port` | Change the Vite port from `5173` |
+| `--watch PATH` | Watch another existing Python source directory; repeat for multiple paths |
+
+Ports must be available; the launcher does not silently select replacements. This command runs the browser interface, not the native window.
+
+## Run the processes separately
+
+Use the [token setup](../connections.md#start-the-worker), then start the worker with the Vite origin:
+
+```bash
+uv run runner-desktop serve --workspace /path/to/test-project --port 8765 --origin http://127.0.0.1:5173 --development
+```
+
+In another terminal, run `npm run dev` from `frontend/`. Open `http://127.0.0.1:5173` and enter the worker endpoint and token. This setup does not restart Python automatically.
+
+Run the [development checks](index.md#run-checks) before submitting changes.
