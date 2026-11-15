@@ -1,9 +1,10 @@
 """Expose the runner control protocol as JSON WebSocket messages."""
 
 import asyncio
+import re
 import struct
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Union
+from typing import AsyncIterator, Optional, Union
 
 from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.server import Server, ServerConnection, serve
@@ -51,11 +52,19 @@ class WebSocketStream:
 
 @asynccontextmanager
 async def websocket_server(
-    service: RunnerService, token: str, origins: list[str], port: int = 0
+    service: RunnerService,
+    token: str,
+    origins: Optional[list[str]] = None,
+    port: int = 0,
 ) -> AsyncIterator[Server]:
     """Bind only loopback; remote access uses a TLS proxy or SSH tunnel."""
-    if not origins or "null" in origins or "*" in origins:
+    if origins is not None and (not origins or "null" in origins or "*" in origins):
         raise ValueError("explicit HTTP frontend origins are required")
+    allowed: list[Union[Origin, re.Pattern[str]]] = (
+        [Origin(origin) for origin in origins]
+        if origins is not None
+        else [re.compile(r"http://127\.0\.0\.1:[0-9]{1,5}")]
+    )
     control = server.RunnerServer(service, token)
 
     async def handle(socket: ServerConnection) -> None:
@@ -65,7 +74,7 @@ async def websocket_server(
         handle,
         "127.0.0.1",
         port,
-        origins=[Origin(origin) for origin in origins],
+        origins=allowed,
         max_size=protocol.MAX_FRAME,
         max_queue=16,
         compression=None,

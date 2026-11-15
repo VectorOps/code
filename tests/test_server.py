@@ -10,9 +10,53 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 from vectorops.runner.control.service import RunnerService
 
 from vectorops_code.server import websocket_server
+from vectorops_code.assets import AssetServer
 from vectorops_code.worker import Worker
 
 ORIGIN = "http://127.0.0.1:5173"
+
+
+@pytest.mark.asyncio
+async def test_default_origins_allow_multiple_ephemeral_desktops(
+    tmp_path: Path,
+) -> None:
+    token = secrets.token_urlsafe(32)
+    (tmp_path / "index.html").write_text("ready")
+    with AssetServer(tmp_path) as first, AssetServer(tmp_path) as second:
+        async with RunnerService(tmp_path) as service:
+            async with websocket_server(service, token) as listener:
+                url = f"ws://127.0.0.1:{next(iter(listener.sockets)).getsockname()[1]}"
+                assert first.origin != second.origin
+                async with (
+                    connect(url, origin=first.origin) as one,
+                    connect(url, origin=second.origin) as two,
+                ):
+                    await authenticate(one, token)
+                    await authenticate(two, token)
+                for origin in [
+                    None,
+                    "null",
+                    "http://evil.example",
+                    "http://127.0.0.1.evil:1234",
+                    "http://127.0.0.1:1234/",
+                    "http://127.0.0.1:1234.evil",
+                    "http://localhost:1234",
+                ]:
+                    with pytest.raises(InvalidStatus):
+                        async with connect(url, origin=origin):
+                            pass
+                async with connect(url, origin=first.origin) as socket:
+                    await socket.send(
+                        json.dumps(
+                            {
+                                "kind": "authenticate",
+                                "version": 2,
+                                "token": secrets.token_urlsafe(32),
+                            }
+                        )
+                    )
+                    with pytest.raises(ConnectionClosed):
+                        await socket.recv()
 
 
 @pytest.mark.asyncio
@@ -80,7 +124,12 @@ async def test_auth_origins_and_protocol(tmp_path: Path) -> None:
     async with RunnerService(tmp_path) as service:
         async with websocket_server(service, token, [ORIGIN]) as listener:
             url = f"ws://127.0.0.1:{next(iter(listener.sockets)).getsockname()[1]}"
-            for origin in [None, "http://evil.example", "null"]:
+            for origin in [
+                None,
+                "http://evil.example",
+                "null",
+                "http://127.0.0.1:1234",
+            ]:
                 with pytest.raises(InvalidStatus):
                     async with connect(url, origin=origin):
                         pass

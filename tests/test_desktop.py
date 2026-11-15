@@ -25,6 +25,9 @@ from vectorops_code.worker import Worker
         "https://example.com",
         "wss://user:password@example.com",
         "ws://localhost/#secret",
+        "ws://localhost:0",
+        "wss://example.com:65536",
+        "wss://example.com:invalid",
     ],
 )
 def test_unsafe_endpoint(endpoint: str) -> None:
@@ -104,6 +107,22 @@ def test_asset_servers_allocate_distinct_available_ports(tmp_path: Path) -> None
             assert 0 not in ports
 
 
+def test_workers_for_different_projects_allocate_distinct_ports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VOPS_RUNNER_CONFIG_DIR", str(tmp_path / "config"))
+    first_project, second_project = tmp_path / "one", tmp_path / "two"
+    first_project.mkdir()
+    second_project.mkdir()
+    first = Worker(first_project, secrets.token_urlsafe(32), "http://127.0.0.1:1234")
+    second = Worker(second_project, secrets.token_urlsafe(32), "http://127.0.0.1:2345")
+    try:
+        assert first.start() != second.start()
+    finally:
+        second.close()
+        first.close()
+
+
 def test_local_launch_ignores_occupied_conventional_ports(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -134,15 +153,20 @@ def test_local_launch_ignores_occupied_conventional_ports(
     assert endpoint.port not in (0, 8765, 8766, url.port)
 
 
-def test_attached_desktop_does_not_own_worker(tmp_path: Path) -> None:
+@pytest.mark.parametrize("port", [0, 8766])
+def test_attached_desktop_does_not_own_worker(port: int) -> None:
     webview = MagicMock()
     with (
         patch.dict("sys.modules", {"webview": webview}),
         patch("vectorops_code.desktop.AssetServer") as assets,
         patch("vectorops_code.desktop.Worker") as worker,
     ):
-        launch(tmp_path, "ws://localhost:1234", secrets.token_urlsafe(32), 8766)
-    assets.assert_called_once_with(port=8766)
+        launch(None, "ws://localhost:1234", secrets.token_urlsafe(32), port)
+    assets.assert_called_once_with(port=port)
+    assert (
+        webview.create_window.call_args.args[0]
+        == "VectorOps Code - ws://localhost:1234"
+    )
     worker.assert_not_called()
     webview.start.assert_called_once_with()
     assert parse_qs(urlsplit(webview.create_window.call_args.args[1]).fragment)[

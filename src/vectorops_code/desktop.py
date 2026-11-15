@@ -20,6 +20,8 @@ def validate_endpoint(endpoint: str) -> str:
         raise ValueError("endpoint must be a ws:// or wss:// URL")
     if parsed.username or parsed.password or parsed.fragment:
         raise ValueError("endpoint cannot contain credentials or a fragment")
+    if parsed.port == 0:
+        raise ValueError("endpoint port must be between 1 and 65535")
     if parsed.scheme == "ws" and parsed.hostname not in (
         "localhost",
         "127.0.0.1",
@@ -30,7 +32,7 @@ def validate_endpoint(endpoint: str) -> str:
 
 
 def launch(
-    workspace: Path,
+    workspace: Optional[Path] = None,
     endpoint: Optional[str] = None,
     token: Optional[str] = None,
     asset_port: int = 0,
@@ -45,17 +47,16 @@ def launch(
     if endpoint is not None:
         endpoint = validate_endpoint(endpoint)
         token = validate_token(token or "")
-        if asset_port == 0:
-            raise ValueError(
-                "Attaching requires --asset-port matching an origin allowed by the worker"
-            )
     else:
-        workspace = workspace.expanduser().resolve()
+        workspace = (workspace or Path.cwd()).expanduser().resolve()
         if not workspace.is_dir():
             raise ValueError(f"Project directory does not exist: {workspace}")
         token = secrets.token_urlsafe(32)
     with AssetServer(port=asset_port) as assets:
-        worker = None if endpoint else Worker(workspace, token, assets.origin)
+        worker = None
+        if endpoint is None:
+            assert workspace is not None
+            worker = Worker(workspace, token, assets.origin)
         closed = Event()
         try:
             if worker is not None:
@@ -68,7 +69,7 @@ def launch(
                 }
             )
             window = webview.create_window(
-                f"VectorOps Code - {workspace.resolve()}",
+                f"VectorOps Code - {workspace if worker else endpoint}",
                 f"{assets.origin}/#{fragment}",
                 width=1200,
                 height=820,
