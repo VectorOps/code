@@ -1,6 +1,6 @@
 # VectorOps Code
 
-VectorOps Code is a desktop app for coding agents, much like Codex Desktop, but built around workflows you can write and customize in Python. Give an agent a task, review its proposed actions, and follow along as it reads files, runs commands, makes edits, and delegates work to helpers. Conversations, tool approvals, command output, and file changes are shown together.
+VectorOps Code is a desktop app for coding agents, much like Codex Desktop, Claude Code Desktop, or Cursor, but built around workflows you can write and customize in Python, with support for both local and remote execution. Give an agent a task, review its proposed actions, and follow along as it reads files, runs commands, makes edits, and delegates work to helpers. Conversations, tool approvals, command output, and file changes are shown together.
 
 Each conversation runs as a persistent workflow through [VectorOps Runner](https://github.com/vectorops/runner). Model calls, tool results, approvals, and child workflows are recorded, so interrupted work can resume using completed results rather than starting over. Long conversations can be summarized to fit the model’s context window while keeping the original execution history available for inspection.
 
