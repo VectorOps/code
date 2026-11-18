@@ -206,7 +206,7 @@ wheels = [
 [[package]]
 name = "connect"
 version = "0.1.0"
-source = { git = "https://github.com/vectorops/connect.git?rev=4756d7308f68905a35cb5500d3ba1c3284cbfff5#4756d7308f68905a35cb5500d3ba1c3284cbfff5" }
+source = { git = "https://github.com/vectorops/connect.git?rev=5b3de9027c4c3c7d9cf5d60f3b317ca5be274c28#5b3de9027c4c3c7d9cf5d60f3b317ca5be274c28" }
 dependencies = [
     { name = "aiohttp" },
     { name = "pydantic" },
@@ -1162,7 +1162,7 @@ dev = [
 requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6,<4" },
     { name = "pywebview", marker = "extra == 'desktop'", specifier = ">=5,<7" },
-    { name = "vectorops-runner", git = "https://github.com/vectorops/runner.git?rev=aebfc7ea1415bbddd18a328bc707798aea5f914d" },
+    { name = "vectorops-runner", git = "https://github.com/vectorops/runner.git?rev=6f6226af26f50a804cbc73033f6772b54f88e9b8" },
     { name = "websockets", specifier = ">=15,<16" },
 ]
 provides-extras = ["desktop"]
@@ -1179,7 +1179,7 @@ dev = [
 [[package]]
 name = "vectorops-runner"
 version = "0.1.0"
-source = { git = "https://github.com/vectorops/runner.git?rev=aebfc7ea1415bbddd18a328bc707798aea5f914d#aebfc7ea1415bbddd18a328bc707798aea5f914d" }
+source = { git = "https://github.com/vectorops/runner.git?rev=6f6226af26f50a804cbc73033f6772b54f88e9b8#6f6226af26f50a804cbc73033f6772b54f88e9b8" }
 dependencies = [
     { name = "aiohttp" },
     { name = "anyio" },

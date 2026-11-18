@@ -7,7 +7,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    "vectorops-runner @ git+https://github.com/vectorops/runner.git@aebfc7ea1415bbddd18a328bc707798aea5f914d",
+    "vectorops-runner @ git+https://github.com/vectorops/runner.git@6f6226af26f50a804cbc73033f6772b54f88e9b8",
     "websockets>=15,<16",
     "jinja2>=3.1.6,<4",
 ]
