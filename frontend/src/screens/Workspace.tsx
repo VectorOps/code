@@ -295,6 +295,7 @@ function WorkspaceContent({
       inspect,
       rootWorkflowId:
         execution?.root_workflow_id ?? current?.root_workflow_id ?? undefined,
+      workflowFailed: (execution?.status ?? current?.status) === "failed",
       worktreeId: execution?.target?.worktree_id ?? undefined,
       branch: onBranch,
       allowBranchAfter,
@@ -310,8 +311,10 @@ function WorkspaceContent({
       allowBranchAfter,
       successors,
       execution?.root_workflow_id,
+      execution?.status,
       execution?.target?.worktree_id,
       current?.root_workflow_id,
+      current?.status,
     ],
   );
   function close() {

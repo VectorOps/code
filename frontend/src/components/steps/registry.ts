@@ -10,6 +10,7 @@ export type StepActions = {
   enabled: boolean;
   inspect: (id: string) => void;
   rootWorkflowId?: string;
+  workflowFailed?: boolean;
   worktreeId?: string;
   branch?: (id: string, action: BranchAction) => Promise<boolean>;
   allowBranchAfter?: boolean;

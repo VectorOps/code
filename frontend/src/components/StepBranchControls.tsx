@@ -41,7 +41,7 @@ export function useStepBranchControls(
     Boolean(successor) &&
     ["completed", "joined"].includes(step.state) &&
     !["workflow.spawn", "workflow.complete"].includes(step.kind);
-  const failed = step.state === "failed";
+  const failed = step.state === "failed" || actions.workflowFailed === true;
   const restartLabel = failed ? "Retry this step" : "Restart this step";
   const unavailable = mode === "after" && !successor;
   const disabled = !actions.enabled || submitting || unavailable;

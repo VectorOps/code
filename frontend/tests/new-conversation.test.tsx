@@ -179,7 +179,7 @@ vitest.test(
     );
     vitest.expect(view.getByText("Original text")).toBeDefined();
     testing.fireEvent.click(
-      view.getByRole("button", { name: "Retry this step" }),
+      view.getAllByRole("button", { name: "Retry this step" })[2],
     );
     testing.fireEvent.click(view.getByRole("button", { name: "Retry step" }));
     await testing.waitFor(() =>
@@ -188,6 +188,93 @@ vitest.test(
       }),
     );
     vitest.expect(runner.branch).toHaveBeenCalledTimes(2);
+  },
+);
+
+vitest.test(
+  "a hidden compaction failure allows retrying earlier conversation steps",
+  async () => {
+    const runner = mockRunner();
+    runner.selected = "existing";
+    runner.execution = {
+      id: "existing",
+      root_workflow_id: "root",
+      status: "running",
+      checkpoint: { heads: { root: "compaction" } },
+    };
+    runner.history.items = [
+      {
+        position: 1,
+        step: {
+          id: "input",
+          workflow_id: "root",
+          operation: {
+            kind: "mailbox.input",
+            input: { channel: "user.message", response_type: "text" },
+          },
+          outcome: { kind: "completed", result: "Original text" },
+        },
+      },
+      {
+        position: 2,
+        step: {
+          id: "reply",
+          previous_step_id: "input",
+          workflow_id: "root",
+          operation: { kind: "llm.generate" },
+          outcome: { kind: "completed", result: "Assistant reply" },
+        },
+      },
+      {
+        position: 3,
+        step: {
+          id: "compaction",
+          previous_step_id: "reply",
+          workflow_id: "root",
+          operation: { kind: "llm.compact" },
+          outcome: {
+            kind: "failed",
+            error: {
+              type: "StreamTimeoutError",
+              message: "LLM stream_stall deadline exceeded",
+            },
+          },
+        },
+      },
+    ];
+    const view = testing.render(<RunnerScreen initial={runner.settings} />);
+    vitest
+      .expect(view.queryByRole("button", { name: "Retry this step" }))
+      .toBeNull();
+    runner.execution = { ...runner.execution, status: "failed" };
+    view.rerender(<RunnerScreen initial={runner.settings} />);
+    vitest.expect(view.getByText("Original text")).toBeDefined();
+    vitest.expect(view.getByText("Assistant reply")).toBeDefined();
+    vitest
+      .expect(view.getAllByRole("button", { name: "Retry this step" }))
+      .toHaveLength(2);
+    for (const [index, id] of ["input", "reply"].entries()) {
+      testing.fireEvent.click(
+        view.getAllByRole("button", { name: "Retry this step" })[index],
+      );
+      vitest.expect(runner.branch).toHaveBeenCalledTimes(index);
+      testing.fireEvent.click(view.getByRole("button", { name: "Retry step" }));
+      await testing.waitFor(() =>
+        vitest.expect(runner.branch).toHaveBeenLastCalledWith(id, {
+          kind: "restart",
+        }),
+      );
+      await testing.waitFor(() =>
+        vitest
+          .expect(view.queryByRole("button", { name: "Retry step" }))
+          .toBeNull(),
+      );
+    }
+    runner.execution = { ...runner.execution, status: "running" };
+    view.rerender(<RunnerScreen initial={runner.settings} />);
+    vitest
+      .expect(view.queryByRole("button", { name: "Retry this step" }))
+      .toBeNull();
   },
 );
 

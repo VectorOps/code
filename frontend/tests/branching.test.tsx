@@ -766,6 +766,46 @@ vitest.test("failed workflow stop exposes a retry control", () => {
     .toBeTruthy();
 });
 
+vitest.test.each([
+  "mailbox.input",
+  "llm.generate",
+  "llm.tool",
+  "workflow.spawn",
+  "workflow.join",
+  "llm.compact",
+])("failed workflows allow retrying an earlier %s step", async (kind) => {
+  const callbacks = { ...actions(), workflowFailed: true };
+  const view = testing.render(
+    <StepBranchControls
+      step={steps.stepView(item("earlier", null, "root", { kind }))}
+      actions={callbacks}
+    />,
+  );
+  testing.fireEvent.click(
+    view.getByRole("button", { name: "Retry this step" }),
+  );
+  vitest.expect(callbacks.branch).not.toHaveBeenCalled();
+  testing.fireEvent.click(view.getByRole("button", { name: "Retry step" }));
+  await testing.waitFor(() =>
+    vitest.expect(callbacks.branch).toHaveBeenCalledExactlyOnceWith("earlier", {
+      kind: "restart",
+    }),
+  );
+});
+
+vitest.test.each([
+  ["child", "llm.generate"],
+  ["root", "workflow.resume"],
+])("failed workflows cannot retry %s %s targets", (workflow, kind) => {
+  const view = testing.render(
+    <StepBranchControls
+      step={steps.stepView(item("target", null, workflow, { kind }))}
+      actions={{ ...actions(), workflowFailed: true }}
+    />,
+  );
+  vitest.expect(view.queryByRole("button")).toBeNull();
+});
+
 vitest.test(
   "retry requires confirmation, supports cancellation and disables disconnected controls",
   async () => {
