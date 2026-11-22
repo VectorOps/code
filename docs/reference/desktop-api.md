@@ -47,6 +47,25 @@ For example, enable diagnostics:
 
 Updates use a filesystem lock and atomic replacement. Invalid values return `invalid_argument`; storage failures return `settings_storage_error`. See [data storage](../usage.md#data-storage) for the settings location.
 
+## Session visibility
+
+`desktop.sessions.list` accepts the same parameters as Runner's `executions.summaries`: `after`, `limit` (default 100, maximum 500), and `active_only` (default false). It delegates execution summaries and their ordering to Runner. The result contains `executions`, `next_after`, and a workspace visibility snapshot:
+
+```json
+{
+  "revision": 1,
+  "hidden_execution_ids": ["execution-id"]
+}
+```
+
+The visibility snapshot is in the `visibility` field. List pages include hidden executions. The desktop client filters before displaying a page and fetches additional pages when hidden entries leave Recent short of a page.
+
+`desktop.sessions.set_hidden` takes an existing `execution_id` and a boolean `hidden`. It persists the setting without changing execution state or recency, then returns the visibility snapshot. Repeating the same setting is idempotent. Storage failures return `visibility_storage_error`.
+
+Subscribed clients receive an event with `kind: "desktop.sessions.visibility"` and the same `visibility` snapshot. The revision increases when visibility changes. Clients ignore older revisions so delayed list responses cannot overwrite newer events. Visibility is shared by clients connected to the desktop worker and survives worker restarts. It is not an access-control setting.
+
+See [organize recent conversations](../usage.md#organize-recent-conversations) for the interface and [data storage](../usage.md#data-storage) for the database location.
+
 ## Prompt history
 
 These methods require an authenticated desktop worker. The worker supplies the project identity; clients do not pass a `project_id` parameter.

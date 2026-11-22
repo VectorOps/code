@@ -24,7 +24,7 @@ const SessionRow = React.memo(function SessionRow({
   select: (id: string) => void;
 }) {
   const status = session.pending_inputs > 0 ? "Needs input" : session.status;
-  const label = `${name} — ${status}${activity ? " — New activity" : ""}`;
+  const label = `${name} — ${status}${session.hidden ? " — Hidden" : ""}${activity ? " — New activity" : ""}`;
   return (
     <button
       aria-current={selected ? "page" : undefined}
@@ -41,6 +41,9 @@ const SessionRow = React.memo(function SessionRow({
           <span className="session-list-title" title={name}>
             {name}
           </span>
+        )}
+        {!collapsed && session.hidden && (
+          <span className="session-hidden">Hidden</span>
         )}
         {activity && (
           <span
@@ -106,7 +109,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   sessions: models.Session[];
   hasMore?: boolean;
   loading?: boolean;
-  loadMore?: () => Promise<boolean>;
+  loadMore?: (includeHidden?: boolean) => Promise<boolean>;
   activitySessions?: Set<string>;
   workflows: models.Workflow[];
   selected: string;
@@ -119,7 +122,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   configure?: () => void;
 }) {
   const [search, setSearch] = React.useState("");
-  const [filter, setFilter] = React.useState("all");
+  const [filter, setFilter] = React.useState("recent");
+  const refill = React.useRef("");
   const [position, setPosition] = React.useState<{
     after: string | null;
     first: string | null;
@@ -159,9 +163,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     const normalized = search.toLowerCase();
     return entries.filter(
       ({ session, search: value }) =>
-        (filter !== "running" || session.active) &&
-        (filter !== "attention" || session.pending_inputs > 0) &&
-        value.includes(normalized),
+        (filter === "all" || !session.hidden) && value.includes(normalized),
     );
   }, [entries, search, filter]);
   const start = React.useMemo(() => {
@@ -190,6 +192,31 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   React.useEffect(() => {
     if (list.current) list.current.scrollTop = 0;
   }, [position, search, filter]);
+  React.useEffect(() => {
+    const key = JSON.stringify([filter, position, visible.length]);
+    if (
+      !search &&
+      hasMore &&
+      !loading &&
+      loadMore &&
+      status === "Connected" &&
+      rows.length < pageSize &&
+      refill.current !== key
+    ) {
+      refill.current = key;
+      void loadMore(filter === "all");
+    }
+  }, [
+    filter,
+    position,
+    search,
+    hasMore,
+    loading,
+    loadMore,
+    status,
+    rows.length,
+    visible.length,
+  ]);
   async function older() {
     const next = {
       after: rows.at(-1)?.session.execution_id ?? null,
@@ -198,7 +225,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     if (moreLoaded) setPosition(next);
     else {
       const current = query.current;
-      if ((await loadMore?.()) && query.current === current) setPosition(next);
+      if ((await loadMore?.(filter === "all")) && query.current === current)
+        setPosition(next);
     }
   }
   return (
@@ -279,7 +307,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             />
           </label>
           <div className="session-filters" aria-label="Filter sessions">
-            {["all", "running", "attention"].map((value) => (
+            {["recent", "all"].map((value) => (
               <button
                 key={value}
                 aria-pressed={filter === value}
@@ -288,7 +316,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                   setPosition({ after: null, first: null });
                 }}
               >
-                {value === "attention" ? "Needs input" : value}
+                {value === "recent" ? "Recent" : "All"}
               </button>
             ))}
           </div>
@@ -398,7 +426,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         <>
           {!loading && sessions.length === 0 && <p>No conversations yet.</p>}
           {!loading && sessions.length > 0 && visible.length === 0 && (
-            <p>No matching loaded conversations.</p>
+            <p>
+              {!search && filter === "recent"
+                ? "No recent conversations. Choose All to see hidden conversations."
+                : "No matching loaded conversations."}
+            </p>
           )}
         </>
       )}

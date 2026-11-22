@@ -47,10 +47,19 @@ export class RunnerApi {
     return this.connection.request("events.subscribe");
   }
   sessions(after: string | null = null) {
-    return this.connection.request<models.SessionPage>("executions.summaries", {
-      after,
-      limit: 100,
-    });
+    return this.connection.request<models.SessionPage>(
+      "desktop.sessions.list",
+      {
+        after,
+        limit: 100,
+      },
+    );
+  }
+  setSessionHidden(execution_id: string, hidden: boolean) {
+    return this.connection.request<models.SessionVisibility>(
+      "desktop.sessions.set_hidden",
+      { execution_id, hidden },
+    );
   }
   session(execution_id: string) {
     return this.connection.request<models.Session>("executions.summary", {

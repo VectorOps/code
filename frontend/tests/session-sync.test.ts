@@ -359,12 +359,12 @@ vitest.test(
       .resolves.toEqual(page([original], "existing"));
     vitest
       .expect(request)
-      .toHaveBeenCalledExactlyOnceWith("executions.summaries", {
+      .toHaveBeenCalledExactlyOnceWith("desktop.sessions.list", {
         after: null,
         limit: 100,
       });
     await api.sessions("existing");
-    vitest.expect(request).toHaveBeenLastCalledWith("executions.summaries", {
+    vitest.expect(request).toHaveBeenLastCalledWith("desktop.sessions.list", {
       after: "existing",
       limit: 100,
     });
@@ -373,6 +373,104 @@ vitest.test(
     vitest.expect(request).toHaveBeenLastCalledWith("executions.summary", {
       execution_id: "existing",
     });
+  },
+);
+
+vitest.test(
+  "visibility survives live updates, stale snapshots, and unhides in place",
+  async () => {
+    const { sync, sessions, publish, push } = setup();
+    const second = { ...original, execution_id: "second" };
+    sessions.mockResolvedValue({
+      ...page([original, second]),
+      visibility: { revision: 1, hidden_execution_ids: ["existing"] },
+    });
+    await sync.synchronize(() => true);
+    push({ ...original, pending_inputs: 2 });
+    vitest
+      .expect(publish.mock.lastCall![0].sessions)
+      .toEqual([{ ...original, pending_inputs: 2, hidden: true }, second]);
+    sync.visibility({ revision: 2, hidden_execution_ids: [] });
+    sync.visibility({ revision: 1, hidden_execution_ids: ["existing"] });
+    vitest
+      .expect(publish.mock.lastCall![0].sessions)
+      .toEqual([{ ...original, pending_inputs: 2 }, second]);
+    sync.visibility({ revision: 3, hidden_execution_ids: ["unloaded"] });
+    push({ ...original, execution_id: "unloaded" });
+    vitest.expect(publish.mock.lastCall![0].sessions[0].hidden).toBe(true);
+  },
+);
+
+vitest.test.each(["synchronize", "loadMore"] as const)(
+  "%s fetches past hidden pages while retaining their positions for All",
+  async (method) => {
+    const { sync, sessions, publish } = setup();
+    if (method === "loadMore") {
+      sessions.mockResolvedValueOnce(page([original], "existing"));
+      await sync.synchronize(() => true);
+    }
+    const hidden = Array.from({ length: 100 }, (_, index) => ({
+      ...original,
+      execution_id: `hidden-${index}`,
+    }));
+    const visible = Array.from({ length: 100 }, (_, index) => ({
+      ...original,
+      execution_id: `visible-${index}`,
+    }));
+    const visibility = {
+      revision: 1,
+      hidden_execution_ids: hidden.map((s) => s.execution_id),
+    };
+    sessions.mockResolvedValueOnce({
+      ...page(hidden, "hidden-99"),
+      visibility,
+    });
+    sessions.mockResolvedValueOnce({
+      ...page(visible, "visible-99"),
+      visibility,
+    });
+    await sync[method](() => true);
+    vitest.expect(sessions).toHaveBeenLastCalledWith("hidden-99");
+    const result = publish.mock.lastCall![0];
+    vitest.expect(result.hasMore).toBe(true);
+    vitest
+      .expect(
+        result.sessions.filter((s) => s.hidden).map((s) => s.execution_id),
+      )
+      .toEqual(visibility.hidden_execution_ids);
+    vitest.expect(result.sessions.slice(-100)).toEqual(visible);
+  },
+);
+
+vitest.test("All loads one page even when every entry is hidden", async () => {
+  const { sync, sessions } = setup();
+  sessions.mockResolvedValueOnce(page([original], "existing"));
+  await sync.synchronize(() => true);
+  sessions.mockResolvedValueOnce({
+    ...page([{ ...original, execution_id: "hidden" }], "hidden"),
+    visibility: { revision: 1, hidden_execution_ids: ["hidden"] },
+  });
+  await sync.loadMore(() => true, true);
+  vitest.expect(sessions).toHaveBeenCalledTimes(2);
+});
+
+vitest.test(
+  "visibility events received while loading win over stale page metadata",
+  async () => {
+    const { sync, sessions, publish } = setup();
+    let finish = (_page: SessionPage) => {};
+    sessions.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    const loading = sync.synchronize(() => true);
+    await Promise.resolve();
+    sync.visibility({ revision: 2, hidden_execution_ids: ["existing"] });
+    finish({
+      ...page([original]),
+      visibility: { revision: 1, hidden_execution_ids: [] },
+    });
+    await loading;
+    vitest
+      .expect(publish.mock.lastCall![0].sessions)
+      .toEqual([{ ...original, hidden: true }]);
   },
 );
 

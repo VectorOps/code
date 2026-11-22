@@ -63,6 +63,7 @@ function WorkspaceContent({
   hasMoreSessions = false,
   sessionsLoading = false,
   onLoadMoreSessions,
+  onSetSessionHidden,
   activitySessions = noActivity,
   workflows = noWorkflows,
   selected,
@@ -110,7 +111,8 @@ function WorkspaceContent({
   sessions: models.Session[];
   hasMoreSessions?: boolean;
   sessionsLoading?: boolean;
-  onLoadMoreSessions?: () => Promise<boolean>;
+  onLoadMoreSessions?: (includeHidden?: boolean) => Promise<boolean>;
+  onSetSessionHidden?: (id: string, hidden: boolean) => Promise<boolean>;
   activitySessions?: Set<string>;
   workflows?: models.Workflow[];
   selected: string;
@@ -444,6 +446,42 @@ function WorkspaceContent({
             )}
           </div>
           <div className="header-actions">
+            {current && onSetSessionHidden && (
+              <button
+                type="button"
+                className="quiet-button icon-button"
+                aria-label={
+                  current.hidden ? "Show in recent" : "Hide from recent"
+                }
+                title={current.hidden ? "Show in recent" : "Hide from recent"}
+                disabled={!enabled || busy}
+                onClick={() =>
+                  void onSetSessionHidden(current.execution_id, !current.hidden)
+                }
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  aria-hidden="true"
+                >
+                  {current.hidden ? (
+                    <>
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="m3 3 18 18M10 5.2A12 12 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-3 4M6 6a19 19 0 0 0-4 6s3.5 7 10 7a12 12 0 0 0 5-1" />
+                      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+                    </>
+                  )}
+                </svg>
+              </button>
+            )}
             {current && onDelete && (
               <button
                 type="button"

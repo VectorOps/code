@@ -1,6 +1,6 @@
 import type { RunnerApi } from "./runner-api";
 import { object, type Params } from "../models/json";
-import type { Session } from "../models/runner";
+import type { Session, SessionPage, SessionVisibility } from "../models/runner";
 
 export type SessionList = {
   sessions: Session[];
@@ -16,6 +16,8 @@ export class SessionSync {
   private generation = 0;
   private after: string | null = null;
   private loading = false;
+  private hidden = new Set<string>();
+  private visibilityRevision = -1;
 
   constructor(
     private api: RunnerApi,
@@ -23,12 +25,59 @@ export class SessionSync {
   ) {}
 
   private emit(changed = false) {
-    if (changed) this.values = [...this.sessions.values()];
+    if (changed)
+      this.values = [...this.sessions.values()].map((session) =>
+        this.hidden.has(session.execution_id)
+          ? { ...session, hidden: true }
+          : session,
+      );
     this.publish({
       sessions: this.values,
       hasMore: this.after !== null,
       loading: this.loading,
     });
+  }
+
+  visibility(snapshot: SessionVisibility) {
+    if (snapshot.revision <= this.visibilityRevision) return;
+    this.visibilityRevision = snapshot.revision;
+    this.hidden = new Set(snapshot.hidden_execution_ids);
+    this.emit(true);
+  }
+
+  private async page(
+    current: () => boolean,
+    after?: string,
+    includeHidden = false,
+  ): Promise<SessionPage | undefined> {
+    const executions = new Map<string, Session>();
+    const cursors = new Set<string>();
+    while (current()) {
+      const page =
+        after === undefined
+          ? await this.api.sessions()
+          : await this.api.sessions(after);
+      if (!current()) return;
+      if (page.visibility) this.visibility(page.visibility);
+      for (const session of page.executions)
+        executions.set(session.execution_id, session);
+      const visible = [...executions.keys()].filter(
+        (id) => !this.hidden.has(id),
+      ).length;
+      if (
+        includeHidden ||
+        visible >= 100 ||
+        visible === executions.size ||
+        page.next_after === null ||
+        cursors.has(page.next_after)
+      )
+        return {
+          executions: [...executions.values()],
+          next_after: page.next_after,
+        };
+      after = page.next_after;
+      cursors.add(after);
+    }
   }
 
   invalidate() {
@@ -48,8 +97,8 @@ export class SessionSync {
     try {
       await this.api.subscribe();
       if (!current()) return false;
-      const page = await this.api.sessions();
-      if (!current()) return false;
+      const page = await this.page(current);
+      if (!page || !current()) return false;
       const refreshed = new Map(
         page.executions.map((session) => [session.execution_id, session]),
       );
@@ -79,7 +128,10 @@ export class SessionSync {
     }
   }
 
-  async loadMore(active: () => boolean): Promise<boolean> {
+  async loadMore(
+    active: () => boolean,
+    includeHidden = false,
+  ): Promise<boolean> {
     if (this.loading || this.after === null || !active()) return false;
     const generation = this.generation;
     const current = () => active() && generation === this.generation;
@@ -88,8 +140,8 @@ export class SessionSync {
     this.updates.clear();
     this.emit();
     try {
-      const page = await this.api.sessions(after);
-      if (!current()) return false;
+      const page = await this.page(current, after, includeHidden);
+      if (!page || !current()) return false;
       for (const summary of page.executions) {
         if (
           !this.updates.has(summary.execution_id) &&

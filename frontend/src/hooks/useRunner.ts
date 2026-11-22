@@ -3,7 +3,7 @@ import { RunnerApi } from "../communication/runner-api";
 import { RunnerConnection } from "../communication/websocket";
 import { ExecutionSync } from "../communication/execution-sync";
 import { SessionSync, type SessionList } from "../communication/session-sync";
-import { text } from "../models/json";
+import { object, text } from "../models/json";
 import type { Json, Params } from "../models/json";
 import type * as models from "../models/runner";
 import * as chatInput from "../models/chat-input";
@@ -143,6 +143,16 @@ export function useRunner(
     };
     connection.onEvent = (event) => {
       if (!alive) return;
+      if (event.kind === "desktop.sessions.visibility") {
+        const snapshot = object(event.visibility);
+        if (
+          typeof snapshot.revision === "number" &&
+          Array.isArray(snapshot.hidden_execution_ids) &&
+          snapshot.hidden_execution_ids.every((id) => typeof id === "string")
+        )
+          sessionSync.visibility(snapshot as models.SessionVisibility);
+        return;
+      }
       if (event.kind === "workflow.updated") {
         executionSync.current?.apply(event);
         return;
@@ -280,15 +290,18 @@ export function useRunner(
     }
   }, []);
 
-  const loadMoreSessions = React.useCallback(async () => {
-    if (!sessionSync || !ready.current) return false;
-    try {
-      return await sessionSync.loadMore(() => ready.current);
-    } catch (reason) {
-      if (ready.current) setError(String(reason));
-      return false;
-    }
-  }, [sessionSync]);
+  const loadMoreSessions = React.useCallback(
+    async (includeHidden = false) => {
+      if (!sessionSync || !ready.current) return false;
+      try {
+        return await sessionSync.loadMore(() => ready.current, includeHidden);
+      } catch (reason) {
+        if (ready.current) setError(String(reason));
+        return false;
+      }
+    },
+    [sessionSync],
+  );
 
   const action = React.useCallback(
     async function action(
@@ -400,6 +413,17 @@ export function useRunner(
     [action, busy, removeExecution],
   );
 
+  const setSessionHidden = React.useCallback(
+    (executionId: string, hidden: boolean) => {
+      if (!ready.current || busy) return Promise.resolve(false);
+      return action(async (api) => {
+        const snapshot = await api.setSessionHidden(executionId, hidden);
+        sessionSync?.visibility(snapshot);
+      });
+    },
+    [action, busy, sessionSync],
+  );
+
   return {
     api,
     settings,
@@ -429,6 +453,7 @@ export function useRunner(
     start,
     resume,
     deleteExecution,
+    setSessionHidden,
     stop: () =>
       action(async (api) => {
         await api.stop(selected);

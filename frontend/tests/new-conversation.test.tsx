@@ -79,6 +79,7 @@ function mockRunner(host = settingsHost()) {
     start: vitest.vi.fn(async () => true),
     resume: vitest.vi.fn(async () => true),
     deleteExecution: vitest.vi.fn(async () => true),
+    setSessionHidden: vitest.vi.fn(async () => true),
     stop: vitest.vi.fn(async () => true),
     reply: vitest.vi.fn(async () => true),
     steer: vitest.vi.fn(async () => true),

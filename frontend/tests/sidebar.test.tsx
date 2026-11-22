@@ -275,6 +275,74 @@ test("large loaded lists render only one page and search all loaded sessions", (
   vitest.expect(rows().getByText("Conversation 9999")).toBeTruthy();
 });
 
+test("Recent excludes hidden sessions, All includes them, and search respects the view", () => {
+  const props = sidebarProps(3);
+  props.sessions[1] = {
+    ...props.sessions[1],
+    hidden: true,
+    active: true,
+    pending_inputs: 1,
+  };
+  const view = testing.render(<SessionSidebar {...props} />);
+  vitest
+    .expect(
+      view.getByRole("button", { name: "Recent" }).getAttribute("aria-pressed"),
+    )
+    .toBe("true");
+  vitest.expect(view.queryByRole("button", { name: "running" })).toBeNull();
+  vitest.expect(view.queryByRole("button", { name: "Needs input" })).toBeNull();
+  vitest.expect(view.queryByText("Conversation 1")).toBeNull();
+  testing.fireEvent.change(view.getByRole("searchbox"), {
+    target: { value: "Conversation 1" },
+  });
+  vitest.expect(view.queryByText("Conversation 1")).toBeNull();
+  testing.fireEvent.click(view.getByRole("button", { name: "All" }));
+  vitest.expect(view.getByText("Conversation 1")).toBeTruthy();
+  vitest.expect(view.getByText("Hidden")).toBeTruthy();
+  testing.fireEvent.change(view.getByRole("searchbox"), {
+    target: { value: "" },
+  });
+  vitest
+    .expect(
+      [...view.container.querySelectorAll(".session-list-title")].map(
+        (el) => el.textContent,
+      ),
+    )
+    .toEqual(["Conversation 0", "Conversation 1", "Conversation 2"]);
+});
+
+test("sidebar rows have no action menus", () => {
+  const props = sidebarProps(3);
+  const view = testing.render(<SessionSidebar {...props} />);
+  const navigation = view.getByRole("navigation", { name: "Conversations" });
+  vitest.expect(navigation.querySelector("details")).toBeNull();
+  vitest
+    .expect(testing.within(navigation).getAllByRole("button"))
+    .toHaveLength(3);
+  vitest.expect(view.queryByLabelText(/Actions for/)).toBeNull();
+});
+
+test("hiding the last loaded row refills Recent without looping on failure", async () => {
+  const props = sidebarProps(1);
+  props.sessions[0] = { ...props.sessions[0], hidden: true };
+  const loadMore = vitest.vi.fn(async () => false);
+  const view = testing.render(
+    <SessionSidebar {...props} hasMore loadMore={loadMore} />,
+  );
+  await testing.waitFor(() =>
+    vitest.expect(loadMore).toHaveBeenCalledExactlyOnceWith(false),
+  );
+  view.rerender(
+    <SessionSidebar {...props} hasMore loadMore={loadMore} loading />,
+  );
+  view.rerender(<SessionSidebar {...props} hasMore loadMore={loadMore} />);
+  vitest.expect(loadMore).toHaveBeenCalledTimes(1);
+  testing.fireEvent.click(
+    view.getByRole("button", { name: "Load older conversations" }),
+  );
+  vitest.expect(loadMore).toHaveBeenCalledTimes(2);
+});
+
 test("unrelated rerenders and search reuse projected session labels", () => {
   const props = sidebarProps(200);
   const display = vitest.vi.spyOn(models, "workflowDisplayName");

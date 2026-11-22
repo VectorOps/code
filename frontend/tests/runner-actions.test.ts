@@ -109,6 +109,88 @@ vitest.test(
 );
 
 vitest.test(
+  "hide failures retain visibility and shared visibility events preserve selection and ordering",
+  async () => {
+    const session: Session = {
+      execution_id: "existing",
+      reference: null,
+      status: "running",
+      active: true,
+      pending_inputs: 1,
+    };
+    vitest.vi
+      .spyOn(RunnerConnection.prototype, "connect")
+      .mockImplementation(function (this: RunnerConnection) {
+        this.onStatus("Connected");
+        this.onReady();
+      });
+    vitest.vi.spyOn(RunnerApi.prototype, "subscribe").mockResolvedValue({});
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "sessions")
+      .mockResolvedValue({ executions: [session], next_after: null });
+    vitest.vi.spyOn(RunnerApi.prototype, "workflows").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "pending").mockResolvedValue([]);
+    vitest.vi.spyOn(RunnerApi.prototype, "inboxes").mockResolvedValue([]);
+    vitest.vi
+      .spyOn(RunnerApi.prototype, "history")
+      .mockResolvedValue({ items: [], next_cursor: null });
+    vitest.vi.spyOn(RunnerApi.prototype, "execution").mockResolvedValue({
+      id: "existing",
+      root_workflow_id: "root",
+      status: "running",
+      checkpoint: { heads: {} },
+    });
+    const request = vitest.vi.spyOn(RunnerConnection.prototype, "request");
+    const view = testing.renderHook(() =>
+      useRunner({ endpoint: "ws://localhost", token: "test" }),
+    );
+    await testing.waitFor(() =>
+      vitest.expect(view.result.current.sessions).toHaveLength(1),
+    );
+    testing.act(() => view.result.current.select("existing"));
+    request.mockRejectedValueOnce(new Error("Cannot save visibility"));
+    await testing.act(async () => {
+      vitest
+        .expect(await view.result.current.setSessionHidden("existing", true))
+        .toBe(false);
+    });
+    vitest.expect(view.result.current.sessions).toEqual([session]);
+    vitest
+      .expect(view.result.current.error)
+      .toContain("Cannot save visibility");
+    request.mockResolvedValueOnce({
+      revision: 1,
+      hidden_execution_ids: ["existing"],
+    });
+    await testing.act(async () => {
+      vitest
+        .expect(await view.result.current.setSessionHidden("existing", true))
+        .toBe(true);
+    });
+    vitest
+      .expect(request)
+      .toHaveBeenLastCalledWith("desktop.sessions.set_hidden", {
+        execution_id: "existing",
+        hidden: true,
+      });
+    vitest.expect(view.result.current.selected).toBe("existing");
+    vitest
+      .expect(view.result.current.sessions)
+      .toEqual([{ ...session, hidden: true }]);
+    testing.act(() =>
+      view.result.current.api!.connection.onEvent({
+        kind: "desktop.sessions.visibility",
+        visibility: { revision: 2, hidden_execution_ids: [] },
+      }),
+    );
+    vitest.expect(view.result.current.sessions).toEqual([session]);
+    vitest.expect(view.result.current.selected).toBe("existing");
+    vitest.expect(view.result.current.activitySessions.size).toBe(0);
+    view.unmount();
+  },
+);
+
+vitest.test(
   "steering removal uses the inbox RPC and live queue updates",
   async () => {
     vitest.vi

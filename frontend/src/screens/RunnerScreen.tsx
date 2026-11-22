@@ -146,6 +146,7 @@ function ConnectedRunner({ initial }: { initial: ConnectionSettings }) {
         hasMoreSessions={runner.hasMoreSessions}
         sessionsLoading={runner.sessionsLoading}
         onLoadMoreSessions={runner.loadMoreSessions}
+        onSetSessionHidden={runner.setSessionHidden}
         activitySessions={runner.activitySessions}
         workflows={runner.workflows}
         selected={runner.selected}

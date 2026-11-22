@@ -353,6 +353,103 @@ vitest.test(
 );
 
 vitest.test(
+  "hide/show is next to delete and keeps the selected conversation open",
+  async () => {
+    const props = workspaceProps();
+    const session = {
+      execution_id: "session-a",
+      reference: "chat:workflow",
+      name: "My conversation",
+      status: "running",
+      active: true,
+      pending_inputs: 1,
+    };
+    const onDelete = vitest.vi.fn(async () => true);
+    const onSetSessionHidden = vitest.vi.fn(async () => true);
+    const view = render(
+      <Workspace
+        {...props}
+        sessions={[session]}
+        onDelete={onDelete}
+        onSetSessionHidden={onSetSessionHidden}
+      />,
+    );
+    const user = userEvent.setup();
+    const hide = view.getByRole("button", { name: "Hide from recent" });
+    vitest.expect(hide.closest(".session-header")).not.toBeNull();
+    vitest
+      .expect(hide.nextElementSibling)
+      .toBe(view.getByRole("button", { name: "Delete workflow" }));
+    vitest.expect(hide.title).toBe("Hide from recent");
+    await user.click(hide);
+    vitest
+      .expect(onSetSessionHidden)
+      .toHaveBeenCalledExactlyOnceWith("session-a", true);
+    view.rerender(
+      <Workspace
+        {...props}
+        sessions={[{ ...session, hidden: true }]}
+        onDelete={onDelete}
+        onSetSessionHidden={onSetSessionHidden}
+      />,
+    );
+    vitest
+      .expect(view.getByRole("heading", { name: "My conversation" }))
+      .toBeTruthy();
+    vitest
+      .expect(
+        view
+          .getByRole("navigation", { name: "Conversations" })
+          .querySelector("button"),
+      )
+      .toBeNull();
+    const show = view.getByRole("button", { name: "Show in recent" });
+    vitest.expect(show.title).toBe("Show in recent");
+    await user.click(show);
+    vitest
+      .expect(onSetSessionHidden)
+      .toHaveBeenLastCalledWith("session-a", false);
+    vitest.expect(props.onSelect).not.toHaveBeenCalled();
+    vitest.expect(props.onStop).not.toHaveBeenCalled();
+    vitest.expect(onDelete).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
+  "hide/show requires a selected conversation and is disabled while unavailable",
+  async () => {
+    const props = {
+      ...workspaceProps(),
+      sessions: [
+        {
+          execution_id: "session-a",
+          reference: null,
+          status: "completed",
+          active: false,
+          pending_inputs: 0,
+        },
+      ],
+      onSetSessionHidden: vitest.vi.fn(async () => true),
+    };
+    const view = render(<Workspace {...props} selected="" />);
+    vitest
+      .expect(view.queryByRole("button", { name: "Hide from recent" }))
+      .toBeNull();
+    const user = userEvent.setup();
+    for (const state of [
+      { enabled: false, busy: false },
+      { enabled: true, busy: true },
+    ]) {
+      view.rerender(<Workspace {...props} {...state} />);
+      const hide = view.getByRole("button", { name: "Hide from recent" });
+      vitest.expect(hide).toHaveProperty("disabled", true);
+      await user.click(hide);
+    }
+    vitest.expect(props.onSetSessionHidden).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
   "workflow deletion is unavailable without a selection or connection and blocks active runs",
   async () => {
     const props = {

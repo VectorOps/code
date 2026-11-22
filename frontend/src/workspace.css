@@ -55,6 +55,9 @@
   .session-list button[aria-current="page"] {
     @apply border-neutral-200 bg-white text-black shadow-sm;
   }
+  .session-hidden {
+    @apply text-xs text-neutral-500;
+  }
   .session-list-heading {
     display: flex;
     align-items: center;

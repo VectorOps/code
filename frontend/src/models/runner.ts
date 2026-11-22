@@ -39,10 +39,16 @@ export type Session = {
   active: boolean;
   pending_inputs: number;
   usage?: ExecutionUsage | null;
+  hidden?: boolean;
+};
+export type SessionVisibility = {
+  revision: number;
+  hidden_execution_ids: string[];
 };
 export type SessionPage = {
   executions: Session[];
   next_after: string | null;
+  visibility?: SessionVisibility;
 };
 export type Workflow = {
   descriptor: {
