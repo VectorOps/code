@@ -249,11 +249,19 @@ test("large loaded lists render only one page and search all loaded sessions", (
     testing.within(view.getByRole("navigation", { name: "Conversations" }));
   vitest.expect(rows().getAllByRole("button")).toHaveLength(100);
   vitest.expect(rows().getByText("Conversation 0")).toBeTruthy();
+  vitest.expect(view.getByText("1–100")).toBeTruthy();
+  for (const name of ["Newer conversations", "Older conversations"]) {
+    const button = view.getByRole("button", { name });
+    vitest.expect(button.textContent).toBe("");
+    vitest.expect(button.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
+    vitest.expect(button.title).toBe(name);
+  }
   testing.fireEvent.click(
     view.getByRole("button", { name: "Older conversations" }),
   );
   vitest.expect(rows().getAllByRole("button")).toHaveLength(100);
   vitest.expect(rows().getByText("Conversation 100")).toBeTruthy();
+  vitest.expect(view.getByText("101–200")).toBeTruthy();
   testing.fireEvent.click(rows().getByText("Conversation 100"));
   vitest.expect(props.select).toHaveBeenCalledWith("execution-100");
   testing.fireEvent.click(
@@ -435,9 +443,22 @@ test("older sessions load on demand with clear loaded-only search scope", async 
       loadMore={loadMore}
     />,
   );
+  const pages = view.getByRole("group", { name: "Conversation pages" });
+  vitest.expect(pages.title).toContain("1–100 of 100 loaded");
   vitest
-    .expect(view.getByText(/Search and filters cover loaded conversations/))
-    .toBeTruthy();
+    .expect(pages.getAttribute("aria-description"))
+    .toBe(
+      "Search and filters cover loaded conversations. Load older conversations to include more.",
+    );
+  vitest
+    .expect(view.queryByText(/Search and filters cover loaded conversations/))
+    .toBeNull();
+  vitest
+    .expect(
+      view.getByRole("button", { name: "Load older conversations" })
+        .textContent,
+    )
+    .toBe("");
   vitest.expect(loadMore).not.toHaveBeenCalled();
   testing.fireEvent.click(
     view.getByRole("button", { name: "Load older conversations" }),
@@ -469,6 +490,13 @@ test("loading disables duplicate older requests and does not show an empty archi
     )
     .toBe(true);
   vitest.expect(view.queryByText("No conversations yet.")).toBeNull();
+  vitest
+    .expect(
+      view
+        .getByRole("button", { name: "Load older conversations" })
+        .getAttribute("aria-busy"),
+    )
+    .toBe("true");
   testing.fireEvent.click(
     view.getByRole("button", { name: "Load older conversations" }),
   );

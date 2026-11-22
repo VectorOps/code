@@ -182,6 +182,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     [visible, start],
   );
   const moreLoaded = start + pageSize < visible.length;
+  const range = visible.length ? `${start + 1}–${start + rows.length}` : "0";
+  const pageDescription = `${range} of ${visible.length} loaded`;
+  const searchScope = hasMore
+    ? "Search and filters cover loaded conversations. Load older conversations to include more."
+    : undefined;
   React.useEffect(() => {
     if (list.current) list.current.scrollTop = 0;
   }, [position, search, filter]);
@@ -308,18 +313,21 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           className="session-pagination"
           role="group"
           aria-label="Conversation pages"
+          aria-description={searchScope}
+          title={[pageDescription, searchScope].filter(Boolean).join(". ")}
         >
           <span
             className={collapsed ? "session-pagination-description" : undefined}
             aria-live="polite"
+            aria-label={
+              loading ? `${pageDescription}. Loading…` : pageDescription
+            }
           >
-            {visible.length
-              ? `${start + 1}–${start + rows.length} of ${visible.length} loaded`
-              : "No loaded matches"}
+            {range}
           </span>
           <div>
             <button
-              className="quiet-button"
+              className="quiet-button icon-button"
               disabled={start === 0}
               onClick={() =>
                 setPosition({
@@ -332,10 +340,21 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               aria-label="Newer conversations"
               title="Newer conversations"
             >
-              {collapsed ? "↑" : "Newer"}
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                aria-hidden="true"
+              >
+                <path d="m6 14 6-6 6 6" />
+              </svg>
             </button>
             <button
-              className="quiet-button"
+              className="quiet-button icon-button"
+              aria-busy={loading}
               disabled={
                 !moreLoaded &&
                 (!hasMore || loading || !loadMore || status !== "Connected")
@@ -345,30 +364,38 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                 moreLoaded ? "Older conversations" : "Load older conversations"
               }
               title={
-                moreLoaded ? "Older conversations" : "Load older conversations"
+                loading
+                  ? "Loading older conversations…"
+                  : moreLoaded
+                    ? "Older conversations"
+                    : "Load older conversations"
               }
             >
-              {collapsed
-                ? loading
-                  ? "…"
-                  : "↓"
-                : moreLoaded
-                  ? "Older"
-                  : loading
-                    ? "Loading…"
-                    : "Load older"}
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                aria-hidden="true"
+              >
+                {loading ? (
+                  <>
+                    <circle cx="5" cy="12" r="1" />
+                    <circle cx="12" cy="12" r="1" />
+                    <circle cx="19" cy="12" r="1" />
+                  </>
+                ) : (
+                  <path d="m6 10 6 6 6-6" />
+                )}
+              </svg>
             </button>
           </div>
         </div>
       )}
       {!collapsed && (
         <>
-          {hasMore && (
-            <p className="session-search-scope">
-              Search and filters cover loaded conversations. Load older
-              conversations to include more.
-            </p>
-          )}
           {!loading && sessions.length === 0 && <p>No conversations yet.</p>}
           {!loading && sessions.length > 0 && visible.length === 0 && (
             <p>No matching loaded conversations.</p>

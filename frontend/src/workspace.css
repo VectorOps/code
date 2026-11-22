@@ -67,13 +67,10 @@
     flex-shrink: 0;
   }
   .session-pagination {
-    @apply shrink-0 text-xs text-neutral-500;
+    @apply flex shrink-0 items-center justify-between gap-2 whitespace-nowrap text-xs text-neutral-500 tabular-nums;
   }
   .session-pagination > div {
-    @apply flex justify-between gap-2;
-  }
-  .session-search-scope {
-    @apply m-0 text-xs;
+    @apply flex shrink-0 gap-1;
   }
   .sidebar-footer {
     @apply mt-auto flex items-center gap-2 border-t border-neutral-200 pt-3 text-xs text-neutral-500;
