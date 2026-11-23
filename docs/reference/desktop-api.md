@@ -17,6 +17,7 @@ Start and input-response retries reuse their idempotency key when retried with u
 | Field | Values or default | Writable |
 | --- | --- | --- |
 | `appearance` | `system` (default), `light`, `dark` | Yes |
+| `auto_hide_after_days` | Inactivity threshold; default 7, integer from 0 to 36500; 0 disables automatic hiding | Yes |
 | `default_workflow` | Workflow reference; default `agent` | Yes |
 | `history_limits` | Counts listed below | Yes |
 | `debug_mode` | `auto` (default), `on`, `off` | Yes |
@@ -60,9 +61,11 @@ Updates use a filesystem lock and atomic replacement. Invalid values return `inv
 
 The visibility snapshot is in the `visibility` field. List pages include hidden executions. The desktop client filters before displaying a page and fetches additional pages when hidden entries leave Recent short of a page.
 
-`desktop.sessions.set_hidden` takes an existing `execution_id` and a boolean `hidden`. It persists the setting without changing execution state or recency, then returns the visibility snapshot. Repeating the same setting is idempotent. Storage failures return `visibility_storage_error`.
+`desktop.sessions.set_hidden` takes an existing `execution_id` and a boolean `hidden`. It persists the setting without changing execution state or recency, then returns the visibility snapshot. Repeating the same setting leaves the visibility revision unchanged. Setting `hidden` to false also refreshes a durable manual-show timestamp, giving the workflow a full inactivity period before automatic hiding is allowed again. Storage failures return `visibility_storage_error`.
 
 Subscribed clients receive an event with `kind: "desktop.sessions.visibility"` and the same `visibility` snapshot. The revision increases when visibility changes. Clients ignore older revisions so delayed list responses cannot overwrite newer events. Visibility is shared by clients connected to the desktop worker and survives worker restarts. It is not an access-control setting.
+
+The worker schedules background cleanup on startup and after successful `executions.start` requests. It pages executions through Runner's public API and compares their persisted `updated_at` timestamps with `auto_hide_after_days`. Only timestamps strictly older than the cutoff qualify. Automatic hides use the same visibility events; they do not stop, delete, or reorder workflows. Overlapping triggers are coalesced, and shutdown cancels the cleanup task. Cleanup failures are logged without failing foreground requests.
 
 See [organize recent conversations](../usage.md#organize-recent-conversations) for the interface and [data storage](../usage.md#data-storage) for the database location.
 

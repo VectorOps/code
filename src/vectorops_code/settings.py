@@ -28,6 +28,7 @@ class Settings(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra="forbid", strict=True)
 
     appearance: Literal["system", "light", "dark"] = "system"
+    auto_hide_after_days: int = pydantic.Field(default=7, ge=0, le=36500)
     default_workflow: str = pydantic.Field(
         default="agent", min_length=1, max_length=4096
     )

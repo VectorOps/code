@@ -18,6 +18,12 @@ The sidebar opens in **Recent**, which excludes conversations you have hidden. O
 
 Hiding does not stop a workflow, dismiss input requests, or delete history. The open conversation stays open when hidden. New activity and opening a hidden conversation do not unhide it. Visibility is saved for the workspace and shared by clients connected to its desktop worker.
 
+Workflows with no recorded activity for more than 7 days are hidden automatically. Under **Settings > Conversations > Recent workflows**, change **Hide after inactivity (days)** and select **Save inactivity limit**. Use a whole number from 0 to 36500; 0 disables automatic hiding. This setting is saved on the host and shared across projects.
+
+Cleanup runs in the background at worker startup and after a successful workflow start. It uses Runner's persisted last-update timestamp, not whether a workflow is loaded or waiting for input. Requests do not wait for cleanup, and overlapping cleanup triggers share one task. Changes to the inactivity limit apply to the next cleanup pass; disabling cleanup does not unhide existing entries.
+
+**Show in recent** gives a workflow a fresh grace period of the configured number of days. Cleanup will not immediately undo that choice, even if its last workflow activity is older. The grace period is saved with the workspace visibility metadata without changing workflow recency.
+
 Status indicators still show execution state and pending input, but do not determine which conversations belong in Recent. Existing entries keep their order during updates and hide/unhide actions. A fresh page load uses the latest backend ordering.
 
 Search covers loaded conversations in the selected view. Use **All** to search hidden conversations and **Load older conversations** to extend the search. Recent automatically loads past hidden entries to fill a page when possible.
@@ -74,7 +80,7 @@ Desktop preferences are saved on the machine running the worker. Settings and pr
 | --- | --- |
 | Appearance, default workflow, history limits, and debug preference | `~/.config/vops-runner/desktop-settings.json` |
 | Submitted prompt text for recall and search | `~/.local/state/vectorops-code/prompt-history.sqlite3` for new installations |
-| Hidden conversation IDs | `desktop-sessions.sqlite3` in Runner's workspace data directory, normally `.voc/data/` |
+| Hidden conversation IDs and manual-show timestamps | `desktop-sessions.sqlite3` in Runner's workspace data directory, normally `.voc/data/` |
 
 Set `VOPS_RUNNER_CONFIG_DIR` to change the settings directory. Set `XDG_STATE_HOME` to an absolute path to change the prompt-history base directory. Existing databases under `runner-desktop/prompt-history.sqlite3` are reused so previously saved prompts remain available; otherwise the database is created under `vectorops-code/`.
 

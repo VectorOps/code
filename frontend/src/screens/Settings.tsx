@@ -1,5 +1,6 @@
 import * as React from "react";
 import { AppearanceControl } from "../components/Appearance";
+import { SessionVisibilitySettings } from "../components/SessionVisibilitySettings";
 import { DebugSettings } from "../components/DesktopSettings";
 import type { RunnerApi } from "../communication/runner-api";
 import type { ConnectionSettings, Workflow } from "../models/runner";
@@ -158,6 +159,7 @@ export function Settings({
                   </p>
                 )
               )}
+              <SessionVisibilitySettings />
               {onHistoryLimitsChange && (
                 <HistorySettings
                   limits={historyLimits}

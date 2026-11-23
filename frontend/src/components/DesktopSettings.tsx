@@ -8,6 +8,7 @@ import {
 
 export type DesktopSettings = {
   appearance: "system" | "light" | "dark";
+  auto_hide_after_days: number;
   default_workflow: string;
   history_limits: HistoryLimits;
   debug_mode: "auto" | "on" | "off";
@@ -20,6 +21,7 @@ export type SettingsSnapshot = DesktopSettings & {
 
 export const defaultDesktopSettings: DesktopSettings = {
   appearance: "system",
+  auto_hide_after_days: 7,
   default_workflow: "agent",
   history_limits: defaultHistoryLimits,
   debug_mode: "auto",
