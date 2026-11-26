@@ -119,19 +119,36 @@ function WorkflowBranch({
           ) : node.status === "Completed" ? null : (
             node.status
           )}
+          {launch && (
+            <button
+              type="button"
+              className="step-details-button"
+              aria-label="View launch details"
+              title="View launch details"
+              onClick={(event) => {
+                event.preventDefault();
+                actions.inspect(launch.id);
+              }}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 11v5m0-8h.01" />
+              </svg>
+            </button>
+          )}
         </span>
       </summary>
       {expanded && (
         <>
-          {launch && (
-            <button
-              type="button"
-              className="quiet-button"
-              onClick={() => actions.inspect(launch.id)}
-            >
-              View launch details
-            </button>
-          )}
           {node.spawn && (
             <StepBranchControls step={node.spawn} actions={actions} />
           )}

@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, within } from "@testing-library/react";
 import type { Json } from "../src/models/json";
 import * as presentation from "../src/models/workflow-display";
 import type {
@@ -353,12 +353,14 @@ test("parallel agent and workflow launches render only as child rows with the co
     ["Review projection", "launch-1"],
   ]) {
     const branch = view.getByText(label).closest("details")!;
-    branch.open = true;
-    fireEvent(branch, new Event("toggle"));
-    fireEvent.click(view.getByRole("button", { name: "View launch details" }));
+    const button = within(
+      branch.querySelector("summary .workflow-status")!,
+    ).getByRole("button", { name: "View launch details" });
+    expect(button.textContent).toBe("");
+    expect(branch.open).toBe(false);
+    fireEvent.click(button);
     expect(inspect).toHaveBeenLastCalledWith(id);
-    branch.open = false;
-    fireEvent(branch, new Event("toggle"));
+    expect(branch.open).toBe(false);
   }
 });
 
