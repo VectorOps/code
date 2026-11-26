@@ -62,6 +62,7 @@ export type Workflow = {
 export type WorkflowState = {
   id: string;
   definition_ref: string;
+  input?: Json;
   name?: string | null;
   presentation?: WorkflowPresentation;
 };

@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
+import type { Json } from "../src/models/json";
 import * as presentation from "../src/models/workflow-display";
 import type {
   HistoryItem,
@@ -119,6 +120,7 @@ function feed(
   history: HistoryItem[],
   states: Record<string, WorkflowState>,
   pending: InputRequest[] = [],
+  inspect = vi.fn(),
 ) {
   return render(
     <StepFeed
@@ -129,7 +131,7 @@ function feed(
       actions={{
         pending,
         enabled: true,
-        inspect: vi.fn(),
+        inspect,
         reply: async () => true,
       }}
     />,
@@ -274,4 +276,149 @@ test("child message prefixes use the child's name and color under inherited opti
       ?.getAttribute("style"),
   ).toContain("#abcdef");
   expect(view.queryByText("ls")).toBeNull();
+});
+
+function launch(
+  position: number,
+  name: string,
+  args: Record<string, Json>,
+  completedAt?: string,
+): HistoryItem {
+  return {
+    position,
+    step: {
+      id: `launch-${position}`,
+      workflow_id: "root",
+      operation: {
+        kind: "llm.tool",
+        input: {
+          call: { name, arguments: { reference: "test:child", ...args } },
+        },
+      },
+      ...(completedAt ? { completed_at: completedAt } : {}),
+      outcome: completedAt
+        ? { kind: "completed", result: { is_error: true, content: [] } }
+        : { kind: "pending" },
+    },
+  };
+}
+
+function spawn(
+  position: number,
+  childId: string,
+  description?: string,
+  worktree?: string,
+): HistoryItem {
+  return {
+    position,
+    step: {
+      id: `spawn-${position}`,
+      workflow_id: "root",
+      created_at: "2026-01-01T00:00:01Z",
+      operation: {
+        kind: "workflow.spawn",
+        child_workflow_id: childId,
+        description: description ?? null,
+        worktree_id: worktree ?? null,
+      },
+      outcome: { kind: "completed" },
+    },
+  };
+}
+
+test("parallel agent and workflow launches render only as child rows with the correct details", () => {
+  const inspect = vi.fn();
+  const view = feed(
+    [
+      launch(1, "run_agent", {
+        description: "Review projection",
+        worktree_id: "refactor",
+      }),
+      launch(2, "subworkflow", { description: "Review storage" }),
+      spawn(3, "storage", "Review storage"),
+      spawn(4, "child", "Review projection", "refactor"),
+    ],
+    { child },
+    [],
+    inspect,
+  );
+
+  expect(view.container.querySelectorAll(".tool-step")).toHaveLength(0);
+  expect(view.getAllByText("Running")).toHaveLength(2);
+  expect(
+    view.getByText("Review projection").querySelector(".worktree-label"),
+  ).toBeTruthy();
+  for (const [label, id] of [
+    ["Agent: Review storage", "launch-2"],
+    ["Review projection", "launch-1"],
+  ]) {
+    const branch = view.getByText(label).closest("details")!;
+    branch.open = true;
+    fireEvent(branch, new Event("toggle"));
+    fireEvent.click(view.getByRole("button", { name: "View launch details" }));
+    expect(inspect).toHaveBeenLastCalledWith(id);
+    branch.open = false;
+    fireEvent(branch, new Event("toggle"));
+  }
+});
+
+test("child input disambiguates identical launch labels without guessing when state is missing", () => {
+  const input = { options: { a: 1, b: 2 }, task: "review" };
+  const history = [
+    launch(1, "run_agent", { description: "Review", input: { task: "other" } }),
+    launch(2, "run_agent", { description: "Review", input }),
+    spawn(3, "child", "Review"),
+  ];
+  const ambiguous = feed(history, {});
+  expect(ambiguous.getAllByText("Run Agent")).toHaveLength(2);
+  ambiguous.unmount();
+
+  const view = feed(history, {
+    child: { ...child, input: { task: "review", options: { b: 2, a: 1 } } },
+  });
+  expect(
+    view
+      .getByText("Run Agent")
+      .closest(".feed-item")
+      ?.getAttribute("data-history-key"),
+  ).toBe("launch-1");
+});
+
+test("unspawned calls, approvals, and earlier failures keep their tool cards", () => {
+  const args = {
+    reference: "test:child",
+    description: "Review completed work",
+  };
+  const pending: InputRequest[] = [
+    {
+      request_id: "launch-3",
+      execution_id: "execution",
+      workflow_id: "root",
+      request_type: "tool.approval.v1",
+      channel: "tools.approval",
+      response_type: "json",
+      payload: { call: { name: "run_agent", arguments: args } },
+    },
+  ];
+  const view = feed(
+    [
+      launch(1, "run_agent", { description: "Still launching" }),
+      launch(2, "run_agent", args, "2026-01-01T00:00:00Z"),
+      launch(3, "run_agent", args),
+      launch(4, "run_agent", args, "2026-01-01T00:00:02Z"),
+      spawn(5, "child", args.description),
+    ],
+    { child },
+    pending,
+  );
+
+  expect(view.getByText("Approve Run Agent")).toBeTruthy();
+  expect(
+    [...view.container.querySelectorAll('[data-history-key^="launch-"]')].map(
+      (row) => row.getAttribute("data-history-key"),
+    ),
+  ).toEqual(["launch-1", "launch-2", "launch-3"]);
+  expect(
+    view.getByText(args.description).closest("summary")?.textContent,
+  ).toContain("Failed");
 });

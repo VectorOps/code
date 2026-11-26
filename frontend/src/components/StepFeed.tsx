@@ -16,6 +16,7 @@ import { FocusRegion } from "../focus/FocusProvider";
 import { StepBranchControls } from "./StepBranchControls";
 import { WorktreeLabel } from "./Worktrees";
 import * as presentation from "../models/workflow-display";
+import { toolDescription, type StepView } from "../models/steps";
 import { useDebug } from "./Diagnostics";
 
 function displayStyle(
@@ -65,6 +66,7 @@ function WorkflowBranch({
   active,
   grouping,
   display,
+  launch,
 }: {
   node: WorkflowNode;
   registry: StepRegistry;
@@ -72,6 +74,7 @@ function WorkflowBranch({
   active: boolean;
   grouping: ToolGrouping;
   display: presentation.WorkflowDisplay;
+  launch?: StepView;
 }) {
   const requests = React.useMemo(
     () => workflows.workflowRequests(node),
@@ -86,6 +89,7 @@ function WorkflowBranch({
     if (signature) setExpanded(true);
   }, [signature, setExpanded]);
   const running = active && node.status === "Unfinished";
+  const launchFailed = launch && toolDescription(launch).failed;
   const worktreeId = workflows.workflowWorktree(node, actions.worktreeId);
   return (
     <details
@@ -105,6 +109,8 @@ function WorkflowBranch({
         <span className="workflow-status">
           {requests.length ? (
             `Input required (${requests.length})`
+          ) : launchFailed ? (
+            "Failed"
           ) : running ? (
             <>
               <span className="workflow-spinner" aria-hidden="true" />
@@ -117,6 +123,15 @@ function WorkflowBranch({
       </summary>
       {expanded && (
         <>
+          {launch && (
+            <button
+              type="button"
+              className="quiet-button"
+              onClick={() => actions.inspect(launch.id)}
+            >
+              View launch details
+            </button>
+          )}
           {node.spawn && (
             <StepBranchControls step={node.spawn} actions={actions} />
           )}
@@ -151,17 +166,21 @@ function WorkflowContents({
 }) {
   const debug = useDebug();
   const inline = new Set<string>();
-  const entries = React.useMemo(
-    () =>
-      node.entries.filter(
-        (entry) =>
-          "entries" in entry ||
-          (presentation.showsStep(display, entry) &&
-            (entry.kind === "llm.tool" || registry.resolve(entry))) ||
-          node.requests.some((request) => request.request_id === entry.id),
+  const entries = React.useMemo(() => {
+    const launches = new Set(
+      node.entries.flatMap((entry) =>
+        "entries" in entry && entry.launch ? [entry.launch.id] : [],
       ),
-    [node, registry, display],
-  );
+    );
+    return node.entries.filter(
+      (entry) =>
+        "entries" in entry ||
+        (!launches.has(entry.id) &&
+          presentation.showsStep(display, entry) &&
+          (entry.kind === "llm.tool" || registry.resolve(entry))) ||
+        node.requests.some((request) => request.request_id === entry.id),
+    );
+  }, [node, registry, display]);
   const grouped = React.useMemo(
     () => groupTools(entries, actions.pending, grouping),
     [entries, actions.pending, grouping],
@@ -193,6 +212,11 @@ function WorkflowContents({
               actions={actions}
               active={active}
               grouping={grouping}
+              launch={
+                entry.launch && presentation.showsStep(display, entry.launch)
+                  ? entry.launch
+                  : undefined
+              }
               display={presentation.resolveDisplay(
                 entry.workflow,
                 entry.label,

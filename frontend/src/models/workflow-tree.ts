@@ -11,6 +11,7 @@ export type WorkflowNode = {
   workflow?: WorkflowState;
   parent?: WorkflowNode;
   spawn?: StepView;
+  launch?: StepView;
   entries: (StepView | WorkflowNode)[];
   requests: InputRequest[];
   status: string;
@@ -19,13 +20,62 @@ export type WorkflowNode = {
 type WorkflowInputs = { chat: InputRequest[]; decisions: InputRequest[] };
 const inputViews = new WeakMap<InputRequest[], WorkflowInputs>();
 
+type Launch = {
+  step: StepView;
+  reference: string;
+  description: string;
+  worktree: string;
+  input: Json;
+  failed: boolean;
+};
+
+function canonicalInput(input: Json) {
+  return JSON.stringify(input, (_key, value: Json) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .map((key) => [key, value[key]]),
+        )
+      : value,
+  );
+}
+
+function matchingLaunch(
+  calls: Launch[],
+  spawn: StepView,
+  child?: WorkflowState,
+) {
+  const description = text(spawn.operation.description).trim();
+  if (!description && !child?.definition_ref) return undefined;
+  const worktree = text(spawn.operation.worktree_id);
+  const spawnedAt = Date.parse(text(object(spawn.item.step).created_at));
+  const matches = calls.filter((call) => {
+    if (
+      call.description !== description ||
+      call.worktree !== worktree ||
+      (child?.definition_ref && call.reference !== child.definition_ref)
+    )
+      return false;
+    const endedAt = Date.parse(text(object(call.step.item.step).completed_at));
+    if (endedAt < spawnedAt || (call.failed && !(endedAt > spawnedAt)))
+      return false;
+    return (
+      child?.input === undefined ||
+      canonicalInput(call.input) === canonicalInput(child.input)
+    );
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 export function workflowTree(
   history: HistoryItem[],
   pending: InputRequest[],
   states: Record<string, WorkflowState> = {},
 ) {
   const nodes = new Map<string, WorkflowNode>();
-  const calls = new Map<string, { name: string; description: string }[]>();
+  const calls = new Map<string, Launch[]>();
+  const pendingSteps = new Set(pending.map((request) => request.request_id));
   function node(id: string): WorkflowNode {
     let value = nodes.get(id);
     if (!value) {
@@ -69,16 +119,20 @@ export function workflowTree(
           });
         });
     }
-    if (step.kind === "llm.tool") {
+    if (step.kind === "llm.tool" && !pendingSteps.has(step.id)) {
       const tool = toolDescription(step);
-      if (["run_agent", "subworkflow"].includes(tool.name) && !tool.failed) {
+      if (["run_agent", "subworkflow"].includes(tool.name)) {
         const args = object(tool.arguments);
-        const name = text(args.reference).trim();
-        if (name) {
+        const reference = text(args.reference).trim();
+        if (reference) {
           const pendingCalls = calls.get(owner.id) ?? [];
           pendingCalls.push({
-            name,
+            step,
+            reference,
             description: text(args.description).trim(),
+            worktree: text(args.worktree_id),
+            input: args.input ?? {},
+            failed: tool.failed || step.state === "cancelled",
           });
           calls.set(owner.id, pendingCalls);
         }
@@ -92,16 +146,8 @@ export function workflowTree(
       if (!ancestor && !child.parent) {
         const description = text(step.operation.description).trim();
         const pendingCalls = calls.get(owner.id) ?? [];
-        const matches = pendingCalls.filter(
-          (call) => call.description === description,
-        );
-        const call =
-          matches.length === 1
-            ? matches[0]
-            : pendingCalls.length === 1
-              ? pendingCalls[0]
-              : undefined;
-        child.label = `Agent: ${description || call?.name || "Unnamed"}`;
+        const call = matchingLaunch(pendingCalls, step, child.workflow);
+        child.label = `Agent: ${description || call?.reference || "Unnamed"}`;
         if (call)
           calls.set(
             owner.id,
@@ -109,6 +155,7 @@ export function workflowTree(
           );
         child.parent = owner;
         child.spawn = step;
+        child.launch = call?.step;
         owner.entries.push(child);
         continue;
       }
