@@ -1,5 +1,6 @@
 import { DebugProvider } from "../src/components/Diagnostics";
 import * as testing from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import * as vitest from "vitest";
 import type { Json, Params } from "../src/models/json";
 import type * as models from "../src/models/runner";
@@ -18,6 +19,18 @@ import { DebugSteps } from "../src/components/DebugSteps";
 import { defaultStepRegistry } from "../src/components/steps/defaults";
 import type { StepActions } from "../src/components/steps/registry";
 import { Workspace } from "../src/screens/Workspace";
+
+vitest.beforeEach(() => {
+  vitest.vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+});
+vitest.afterEach(() => vitest.vi.unstubAllGlobals());
 
 const execution: models.Execution = {
   id: "existing",
@@ -50,10 +63,11 @@ function input(
   id = "input",
   response: Json = "Original text",
   requestType?: string,
+  previous: string | null = null,
 ) {
   return item(
     id,
-    null,
+    previous,
     "root",
     {
       kind: "mailbox.input",
@@ -75,7 +89,39 @@ function actions(successors: Record<string, string> = {}): StepActions {
     inspect: vitest.vi.fn(),
     reply: vitest.vi.fn(async () => true),
     branch: vitest.vi.fn(async () => true),
+    editInput: vitest.vi.fn(),
     branchSuccessors: new Map(Object.entries(successors)),
+  };
+}
+
+function editWorkspaceProps(
+  history: models.HistoryItem[],
+  onBranch = actions().branch!,
+) {
+  return {
+    sessions: [],
+    history,
+    execution: {
+      ...execution,
+      checkpoint: {
+        heads: { root: steps.stepView(history[history.length - 1]).id },
+      },
+    },
+    selected: "existing",
+    onSelect: () => {},
+    pending: [],
+    status: "Connected",
+    endpoint: "ws://localhost",
+    enabled: true,
+    busy: false,
+    onStop: () => {},
+    onReply: vitest.vi.fn(async () => true),
+    onBranch,
+    newSession: null,
+    connection: null,
+    error: "",
+    dismiss: () => {},
+    hasOlder: false,
   };
 }
 
@@ -441,7 +487,7 @@ vitest.test(
 );
 
 vitest.test(
-  "editing chat text preserves images and uses structured input responses",
+  "forking in the main composer preserves original images and accepts new image files",
   async () => {
     const image = { type: "image", mime_type: "image/png", data: "AAAA" };
     const entry = input(
@@ -449,27 +495,55 @@ vitest.test(
       { content: [{ type: "text", text: "Original text" }, image] },
       "chat.message.v1",
     );
-    const callbacks = actions();
-    const view = testing.render(
-      <StepBranchControls step={steps.stepView(entry)} actions={callbacks} />,
+    const props = editWorkspaceProps([entry]);
+    const view = testing.render(<Workspace {...props} />);
+    const user = userEvent.setup();
+    const composer = view.getByRole("textbox", { name: "Message draft" });
+    testing.fireEvent.change(composer, { target: { value: "Unsent draft" } });
+    await user.upload(
+      view.getByLabelText("Choose images"),
+      new File(["png"], "draft.png", { type: "image/png" }),
     );
+    await view.findByAltText("draft.png");
     testing.fireEvent.click(view.getByRole("button", { name: "Edit input" }));
     const editor = view.getByRole("textbox", { name: "Edit input" });
+    vitest.expect(editor).toBe(composer);
     vitest.expect(editor).toHaveProperty("value", "Original text");
     vitest.expect(document.activeElement).toBe(editor);
+    vitest
+      .expect(editor)
+      .toHaveProperty("selectionStart", "Original text".length);
+    vitest
+      .expect(editor)
+      .toHaveProperty("selectionEnd", "Original text".length);
+    vitest.expect(editor.closest(".composer-area--mode")).not.toBeNull();
+    vitest.expect(view.getByAltText("Original image 1")).toBeTruthy();
+    vitest.expect(view.queryByAltText("draft.png")).toBeNull();
     testing.fireEvent.change(editor, { target: { value: "Edited text" } });
-    testing.fireEvent.click(
-      view.getByRole("button", { name: "Save and branch" }),
+    await user.upload(
+      view.getByLabelText("Choose images"),
+      new File(["png"], "new.png", { type: "image/png" }),
     );
+    await view.findByAltText("new.png");
+    testing.fireEvent.keyDown(editor, { key: "Enter" });
     await testing.waitFor(() =>
-      vitest.expect(callbacks.branch).toHaveBeenCalledWith("chat", {
+      vitest.expect(props.onBranch).toHaveBeenCalledWith("chat", {
         kind: "insert_input",
-        response: { content: [{ type: "text", text: "Edited text" }, image] },
+        response: {
+          content: [
+            { type: "text", text: "Edited text" },
+            image,
+            { type: "image", mime_type: "image/png", data: "cG5n" },
+          ],
+        },
       }),
     );
-    await testing.waitFor(() =>
-      vitest.expect(view.queryByRole("textbox")).toBeNull(),
-    );
+    vitest
+      .expect(await view.findByRole("textbox", { name: "Message draft" }))
+      .toHaveProperty("value", "Unsent draft");
+    vitest.expect(view.getByAltText("draft.png")).toBeTruthy();
+    vitest.expect(view.queryByAltText("new.png")).toBeNull();
+    vitest.expect(props.onReply).not.toHaveBeenCalled();
     vitest.expect(entry.step).toMatchObject({
       outcome: {
         result: { content: [{ type: "text", text: "Original text" }, image] },
@@ -479,12 +553,57 @@ vitest.test(
 );
 
 vitest.test(
+  "cancel pops only the active composer mode and restores earlier drafts",
+  async () => {
+    const first = input(
+      "first",
+      { content: [{ type: "text", text: "First" }] },
+      "chat.message.v1",
+    );
+    const second = input("second", "Second", undefined, "first");
+    const props = editWorkspaceProps([first, second]);
+    const view = testing.render(<Workspace {...props} />);
+    const editor = view.getByRole("textbox", { name: "Message draft" });
+    const openEdit = (message: string) =>
+      testing.fireEvent.click(
+        testing
+          .within(view.getByText(message).closest(".step-card")!)
+          .getByRole("button", { name: "Edit input" }),
+      );
+    testing.fireEvent.change(editor, { target: { value: "Unsent draft" } });
+    openEdit("First");
+    testing.fireEvent.change(editor, { target: { value: "Edited first" } });
+    testing.fireEvent.paste(editor, {
+      clipboardData: {
+        files: [new File(["png"], "pasted.png", { type: "image/png" })],
+        getData: () => "",
+      },
+    });
+    await view.findByAltText("pasted.png");
+    openEdit("Second");
+    vitest.expect(editor).toHaveProperty("value", "Second");
+    vitest.expect(view.queryByAltText("pasted.png")).toBeNull();
+    testing.fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    vitest.expect(editor).toHaveProperty("value", "Edited first");
+    vitest.expect(document.activeElement).toBe(editor);
+    vitest.expect(view.getByAltText("pasted.png")).toBeTruthy();
+    testing.fireEvent.keyDown(editor, { key: "Escape" });
+    vitest
+      .expect(view.getByRole("textbox", { name: "Message draft" }))
+      .toBe(editor);
+    vitest.expect(editor).toHaveProperty("value", "Unsent draft");
+    vitest.expect(view.queryByAltText("pasted.png")).toBeNull();
+    vitest.expect(props.onBranch).not.toHaveBeenCalled();
+  },
+);
+
+vitest.test(
   "input editor supports text and JSON, validates JSON and retains failed drafts",
   async () => {
     const callbacks = actions();
     vitest.vi.mocked(callbacks.branch!).mockResolvedValueOnce(false);
     const text = testing.render(
-      <StepBranchControls step={steps.stepView(input())} actions={callbacks} />,
+      <Workspace {...editWorkspaceProps([input()], callbacks.branch)} />,
     );
     testing.fireEvent.click(text.getByRole("button", { name: "Edit input" }));
     testing.fireEvent.change(text.getByRole("textbox"), {
@@ -499,12 +618,17 @@ vitest.test(
         response: "Edited",
       }),
     );
+    vitest
+      .expect(await text.findByText(/Branch was not confirmed/))
+      .toBeTruthy();
     vitest.expect(text.getByRole("textbox")).toHaveProperty("value", "Edited");
     text.unmount();
     const structured = testing.render(
-      <StepBranchControls
-        step={steps.stepView(input("json", { text: "old" }, "custom.input"))}
-        actions={callbacks}
+      <Workspace
+        {...editWorkspaceProps(
+          [input("json", { text: "old" }, "custom.input")],
+          callbacks.branch,
+        )}
       />,
     );
     testing.fireEvent.click(
@@ -587,14 +711,11 @@ vitest.test.each(["user", "assistant", "tool"])(
       const edit = view.getByRole("button", { name: "Edit input" });
       vitest.expect(controls().contains(edit)).toBe(true);
       testing.fireEvent.click(edit);
-      const editor = view.getByRole("textbox", { name: "Edit input" });
-      vitest.expect(card.contains(editor)).toBe(true);
-      testing.fireEvent.change(editor, { target: { value: "Edited" } });
-      testing.fireEvent.click(
-        view.getByText(/Save this input on a new branch/),
-      );
+      vitest.expect(view.queryByRole("textbox")).toBeNull();
+      vitest
+        .expect(callbacks.editInput)
+        .toHaveBeenCalledExactlyOnceWith(steps.stepView(entry));
       vitest.expect(callbacks.inspect).not.toHaveBeenCalled();
-      testing.fireEvent.click(view.getByRole("button", { name: "Cancel" }));
     }
     const fork = view.getByRole("button", { name: "Branch after this step" });
     vitest.expect(controls().contains(fork)).toBe(true);
@@ -1229,12 +1350,15 @@ vitest.test(
       }),
     );
     const view = testing.render(
-      <StepBranchControls step={steps.stepView(input())} actions={callbacks} />,
+      <Workspace {...editWorkspaceProps([input()], callbacks.branch)} />,
     );
     testing.fireEvent.click(view.getByRole("button", { name: "Edit input" }));
     testing.fireEvent.click(
       view.getByRole("button", { name: "Save and branch" }),
     );
+    vitest
+      .expect(view.getByRole("button", { name: "Cancel" }))
+      .toHaveProperty("disabled", true);
     const submit = view.getByRole("button", { name: "Submitting…" });
     vitest.expect(submit).toHaveProperty("disabled", true);
     testing.fireEvent.click(submit);

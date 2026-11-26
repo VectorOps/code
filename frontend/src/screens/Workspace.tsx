@@ -16,7 +16,7 @@ import type { StepActions, StepRegistry } from "../components/steps/registry";
 import { ActivityDetails } from "../components/ActivityDetails";
 import { Decision } from "../components/Decision";
 import { SessionSidebar } from "../components/SessionSidebar";
-import { Composer } from "../components/Composer";
+import { Composer, type ComposerMode } from "../components/Composer";
 import { WorkflowStats } from "../components/WorkflowStats";
 import { DeleteWorkflow } from "../components/DeleteWorkflow";
 import { WorktreeLabel } from "../components/Worktrees";
@@ -27,7 +27,7 @@ import type { PromptHistoryApi } from "../communication/prompt-history";
 import type { FileSearchApi } from "../communication/file-search";
 import { defaultToolFormatters } from "../components/tools/defaults";
 import type { ToolFormatterFactory } from "../components/tools/factory";
-import { approvalFor, stepView, toolDescription } from "../models/steps";
+import * as steps from "../models/steps";
 import {
   FocusProvider,
   useFocusBlocker,
@@ -44,6 +44,16 @@ type Inspector =
   | { kind: "settings" }
   | { kind: "workflow-permissions" }
   | { kind: "connection" };
+
+type ComposerEdit = Omit<ComposerMode, "id" | "error" | "cancel"> & {
+  value: string;
+  allowImages?: boolean;
+  submit: (
+    value: string,
+    images: readonly chatInput.ImageInput[],
+  ) => Promise<void>;
+};
+type StackedEdit = ComposerEdit & { id: string; scope: string; error: string };
 
 const noActivity = new Set<string>();
 const noWorkflows: models.Workflow[] = [];
@@ -184,6 +194,7 @@ function WorkspaceContent({
     if (requestedInspector && !inspector) setInspector(null);
   }, [requestedInspector, inspector]);
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const [edits, setEdits] = React.useState<StackedEdit[]>([]);
   const [historyError, setHistoryError] = React.useState("");
   const inspectorRef = React.useRef<HTMLElement>(null);
   const workspaceRef = useFocusRegion<HTMLElement>("workspace");
@@ -200,8 +211,8 @@ function WorkspaceContent({
     current?.description,
   );
   const scope = `${endpoint}/${selected}`;
-  const draft = drafts[scope] || "";
-  const attachments = useImageAttachments(scope);
+  const edit = edits.filter((item) => item.scope === scope).at(-1);
+  const draft = edit?.value ?? drafts[scope] ?? "";
   const conversationHistory = React.useMemo(
     () => (execution ? selectedHistory(history, execution) : history),
     [history, execution],
@@ -237,14 +248,28 @@ function WorkspaceContent({
     protected: inspector !== null,
   });
   const chat = chatRequests.length === 1 ? chatRequests[0] : undefined;
+  const attachments = useImageAttachments(edit?.id ?? scope);
+  const { discard, seed } = attachments;
+  React.useEffect(() => {
+    const expired = edits.filter((item) => item.scope !== scope);
+    if (!expired.length) return;
+    for (const item of expired) discard(item.id);
+    setEdits((stack) => stack.filter((item) => item.scope === scope));
+  }, [scope, edits, discard]);
   const canSteer = chatRequests.length === 0 && Boolean(steering);
   const messageError = chatInput.messageError(
     draft,
     attachments.images,
-    chat ? (chat.request_type ?? "text") : undefined,
+    edit
+      ? edit.allowImages
+        ? "chat.message.v1"
+        : "text"
+      : chat
+        ? (chat.request_type ?? "text")
+        : undefined,
   );
   const steeringError =
-    canSteer && attachments.images.length
+    !edit && canSteer && attachments.images.length
       ? "Steering messages support text only. Remove the images to send."
       : messageError;
   const inspectedItem = React.useMemo(
@@ -259,11 +284,14 @@ function WorkspaceContent({
       ? conversationHistory
       : history;
   const inspectedStep = inspectedItem
-    ? stepView(inspectedItem, inspectionHistory)
+    ? steps.stepView(inspectedItem, inspectionHistory)
     : undefined;
   const inspectedTool =
     inspectedStep?.kind === "llm.tool"
-      ? toolDescription(inspectedStep, approvalFor(inspectedStep, pending))
+      ? steps.toolDescription(
+          inspectedStep,
+          steps.approvalFor(inspectedStep, pending),
+        )
       : undefined;
   const inspectorWidth =
     inspector?.kind === "settings" || inspector?.kind === "workflow-permissions"
@@ -288,6 +316,69 @@ function WorkspaceContent({
     (id: string) => open({ kind: "activity", id }),
     [open],
   );
+
+  const pushEdit = React.useCallback(
+    (request: ComposerEdit, images: chatInput.ImageInput[]) => {
+      const id = `composer-edit:${crypto.randomUUID()}`;
+      seed(id, images);
+      setEdits((stack) => [...stack, { ...request, id, scope, error: "" }]);
+    },
+    [scope, seed],
+  );
+
+  function popEdit(id: string) {
+    discard(id);
+    setEdits((stack) => stack.filter((item) => item.id !== id));
+  }
+
+  function updateEdit(
+    id: string,
+    changes: Pick<Partial<StackedEdit>, "value" | "error">,
+  ) {
+    setEdits((stack) =>
+      stack.map((item) => (item.id === id ? { ...item, ...changes } : item)),
+    );
+  }
+
+  const latestBranch = React.useRef(onBranch);
+  React.useLayoutEffect(() => {
+    latestBranch.current = onBranch;
+  }, [onBranch]);
+
+  const editInput = React.useCallback(
+    (step: steps.StepView) => {
+      const isChat = step.input.request_type === "chat.message.v1";
+      pushEdit(
+        {
+          label: "Edit input",
+          description:
+            "Save on a new branch and continue automatically. Previous history is kept; external changes are not undone.",
+          submitLabel: "Save and branch",
+          progressLabel: "Submitting…",
+          allowEmpty: !isChat && step.input.response_type !== "json",
+          value: steps.inputEditValue(step),
+          allowImages: isChat,
+          submit: async (value, images) => {
+            const response = steps.editedInputResponse(step, value, images);
+            if (
+              !(await latestBranch.current?.(step.id, {
+                kind: "insert_input",
+                response,
+              }))
+            ) {
+              throw new Error(
+                "Branch was not confirmed. Review the workflow error before retrying.",
+              );
+            }
+          },
+        },
+        isChat ? chatInput.messageImages(step.output) : [],
+      );
+      setInspector(null);
+    },
+    [pushEdit],
+  );
+
   const actions = React.useMemo(
     () => ({
       tools: toolFormatters,
@@ -300,6 +391,7 @@ function WorkspaceContent({
       workflowFailed: (execution?.status ?? current?.status) === "failed",
       worktreeId: execution?.target?.worktree_id ?? undefined,
       branch: onBranch,
+      editInput: onBranch ? editInput : undefined,
       allowBranchAfter,
       branchSuccessors: successors,
     }),
@@ -310,6 +402,7 @@ function WorkspaceContent({
       onReply,
       inspect,
       onBranch,
+      editInput,
       allowBranchAfter,
       successors,
       execution?.root_workflow_id,
@@ -358,6 +451,22 @@ function WorkspaceContent({
   }, [create, open]);
 
   async function send() {
+    const images = attachments.images.flatMap((item) =>
+      item.state === "ready" ? [item.image] : [],
+    );
+    if (edit) {
+      if (!enabled || messageError) return;
+      updateEdit(edit.id, { error: "" });
+      try {
+        await edit.submit(draft, images);
+        popEdit(edit.id);
+      } catch (reason) {
+        updateEdit(edit.id, {
+          error: reason instanceof Error ? reason.message : String(reason),
+        });
+      }
+      return;
+    }
     if (
       (!chat && !canSteer) ||
       (!draft.trim() && !attachments.images.length) ||
@@ -365,9 +474,6 @@ function WorkspaceContent({
       steeringError
     )
       return;
-    const images = attachments.images.flatMap((item) =>
-      item.state === "ready" ? [item.image] : [],
-    );
     if (!chat) {
       const historyKey = crypto.randomUUID();
       if (onSteer && (await onSteer(draft))) {
@@ -684,15 +790,17 @@ function WorkspaceContent({
           ready={Boolean(chat || canSteer)}
           enabled={enabled}
           busy={busy}
+          mode={edit && { ...edit, cancel: () => popEdit(edit.id) }}
           value={draft}
           images={attachments.images}
-          attach={attachments.add}
+          attach={!edit || edit.allowImages ? attachments.add : undefined}
           removeImage={(id) => attachments.remove([id])}
           attachmentError={attachments.error}
           messageError={steeringError}
-          change={(value) =>
-            setDrafts((values) => ({ ...values, [scope]: value }))
-          }
+          change={(value) => {
+            if (edit) updateEdit(edit.id, { value, error: "" });
+            else setDrafts((values) => ({ ...values, [scope]: value }));
+          }}
           send={send}
           stop={onStop}
           resume={onResume}

@@ -218,8 +218,22 @@
   .composer-area form {
     @apply mb-0 w-full max-w-none rounded-xl border-neutral-300 bg-white p-2 shadow-sm;
   }
+  .composer-mode-header {
+    @apply px-1 pb-1 text-xs leading-5 text-neutral-700;
+  }
+  .composer-mode-button {
+    @apply shrink-0 px-2 py-1 text-xs;
+  }
   .composer-area textarea {
     @apply m-0 min-h-0 resize-none border-0 p-1 font-sans text-[0.9375rem] leading-6 shadow-none;
+  }
+  .composer-area--mode textarea {
+    outline: 1px solid light-dark(#986819, #d4a655);
+    outline-offset: -1px;
+  }
+  .composer-area--mode textarea:focus-visible {
+    outline-width: 2px;
+    outline-offset: -2px;
   }
   .prompt-history-overlay {
     @apply fixed inset-0 z-50 flex items-center justify-center p-4;

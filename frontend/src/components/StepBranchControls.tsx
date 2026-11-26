@@ -1,27 +1,18 @@
 import * as React from "react";
-import type { BranchAction } from "../models/runner";
-import * as steps from "../models/steps";
+import type { StepView } from "../models/steps";
 import type { StepActions } from "./steps/registry";
 import { FocusRegion } from "../focus/FocusProvider";
 
-export function useStepBranchControls(
-  step: steps.StepView,
-  actions: StepActions,
-) {
-  const [mode, setMode] = React.useState<"edit" | "restart" | "after" | null>(
-    null,
-  );
-  const [value, setValue] = React.useState("");
+export function useStepBranchControls(step: StepView, actions: StepActions) {
+  const [mode, setMode] = React.useState<"restart" | "after" | null>(null);
   const [error, setError] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
-  const textarea = React.useRef<HTMLTextAreaElement>(null);
   const confirm = React.useRef<HTMLButtonElement>(null);
   const trigger = React.useRef<HTMLButtonElement | null>(null);
-  const lastMode = React.useRef<"edit" | "restart" | "after">("after");
+  const lastMode = React.useRef<"restart" | "after">("after");
   const restoreFocus = React.useRef(false);
   React.useEffect(() => {
-    if (mode === "edit") textarea.current?.focus();
-    else if (mode) confirm.current?.focus();
+    if (mode) confirm.current?.focus();
     else if (restoreFocus.current) {
       trigger.current?.focus({ preventScroll: true });
       restoreFocus.current = false;
@@ -34,7 +25,10 @@ export function useStepBranchControls(
     step.kind === "workflow.resume"
   )
     return { icons: null, editor: null };
-  const editable = step.kind === "mailbox.input" && step.state === "completed";
+  const editable =
+    actions.editInput &&
+    step.kind === "mailbox.input" &&
+    step.state === "completed";
   const successor = actions.branchSuccessors?.get(step.id);
   const branchAfter =
     actions.allowBranchAfter !== false &&
@@ -46,10 +40,9 @@ export function useStepBranchControls(
   const unavailable = mode === "after" && !successor;
   const disabled = !actions.enabled || submitting || unavailable;
 
-  function open(next: "edit" | "restart" | "after") {
+  function open(next: "restart" | "after") {
     lastMode.current = next;
     setMode(next);
-    setValue(editable ? steps.inputEditValue(step) : "");
     setError("");
   }
 
@@ -65,14 +58,7 @@ export function useStepBranchControls(
     setSubmitting(true);
     setError("");
     try {
-      const action: BranchAction =
-        mode === "edit"
-          ? {
-              kind: "insert_input",
-              response: steps.editedInputResponse(step, value),
-            }
-          : { kind: "restart" };
-      if (await actions.branch(target, action)) setMode(null);
+      if (await actions.branch(target, { kind: "restart" })) setMode(null);
       else
         setError(
           "Branch was not confirmed. Review the workflow error before retrying.",
@@ -98,24 +84,10 @@ export function useStepBranchControls(
       }}
     >
       <form onSubmit={submit}>
-        {mode === "edit" && (
-          <label>
-            Edit input
-            <textarea
-              ref={textarea}
-              value={value}
-              disabled={submitting}
-              onChange={(event) => setValue(event.target.value)}
-              rows={4}
-            />
-          </label>
-        )}
         <p>
-          {mode === "edit"
-            ? "Save this input on a new branch and continue automatically. Existing attachments are kept."
-            : mode === "after"
-              ? "Continue after this step on a new branch. This step and earlier results are preserved; execution continues from the next recorded step."
-              : "Re-run this step and any following steps on a new branch. Earlier recorded results are reused."}{" "}
+          {mode === "after"
+            ? "Continue after this step on a new branch. This step and earlier results are preserved; execution continues from the next recorded step."
+            : "Re-run this step and any following steps on a new branch. Earlier recorded results are reused."}{" "}
           Previous history is kept. External changes are not undone.
         </p>
         {error && <p role="alert">{error}</p>}
@@ -129,13 +101,11 @@ export function useStepBranchControls(
           <button ref={confirm} type="submit" disabled={disabled}>
             {submitting
               ? "Submitting…"
-              : mode === "edit"
-                ? "Save and branch"
-                : mode === "after"
-                  ? "Create branch"
-                  : failed
-                    ? "Retry step"
-                    : "Restart step"}
+              : mode === "after"
+                ? "Create branch"
+                : failed
+                  ? "Retry step"
+                  : "Restart step"}
           </button>
           <button
             type="button"
@@ -157,11 +127,10 @@ export function useStepBranchControls(
           className="step-details-button branch-icon"
           aria-label="Edit input"
           title="Edit input on a new branch"
-          ref={lastMode.current === "edit" ? trigger : undefined}
           disabled={disabled}
           onClick={(event) => {
             event.stopPropagation();
-            open("edit");
+            actions.editInput?.(step);
           }}
         >
           <svg
@@ -244,7 +213,7 @@ export function useStepBranchControls(
 }
 
 export function StepBranchControls(props: {
-  step: steps.StepView;
+  step: StepView;
   actions: StepActions;
 }) {
   const { icons, editor } = useStepBranchControls(props.step, props.actions);

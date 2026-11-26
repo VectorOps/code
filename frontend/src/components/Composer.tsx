@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { HistoryItem, Session } from "../models/runner";
 import * as chatInput from "../models/chat-input";
 import { ImageThumbnail } from "./ImageThumbnail";
@@ -13,6 +13,17 @@ type WorkflowState = Pick<
   Session,
   "status" | "active" | "pending_inputs" | "usage"
 >;
+
+export type ComposerMode = {
+  id: string;
+  label: string;
+  description: string;
+  submitLabel: string;
+  progressLabel: string;
+  allowEmpty?: boolean;
+  error: string;
+  cancel: () => void;
+};
 
 function workflowActivity(
   selected: boolean,
@@ -74,6 +85,7 @@ export function Composer({
   fileSearch,
   executionId,
   scope,
+  mode,
 }: {
   selected: boolean;
   session?: WorkflowState;
@@ -99,6 +111,7 @@ export function Composer({
   fileSearch?: FileSearchApi;
   executionId?: string;
   scope?: string;
+  mode?: ComposerMode;
 }) {
   const inFlight = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -106,14 +119,19 @@ export function Composer({
   const picker = useRef<HTMLInputElement>(null);
   const coordinator = useFocusCoordinator();
   const [operating, setOperating] = useState<Activity | null>(null);
+  const modeId = mode?.id;
+  useLayoutEffect(() => {
+    const input = textarea.current;
+    if (!modeId || !input) return;
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, [modeId]);
   const inputError = messageError || chatInput.messageError(value, images);
-  const activity = workflowActivity(
-    selected,
-    ready,
-    Boolean(value.trim() || images.length) && !inputError,
-    pendingCount,
-    session,
-  );
+  const sendable =
+    Boolean(mode?.allowEmpty || value.trim() || images.length) && !inputError;
+  const activity = mode
+    ? "send"
+    : workflowActivity(selected, ready, sendable, pendingCount, session);
   const callbacks = { send, stop, resume, review, idle: undefined };
   const available =
     selected &&
@@ -126,18 +144,29 @@ export function Composer({
       available &&
       Boolean(callbacks[next]) &&
       (next === "send"
-        ? ready && Boolean(value.trim() || images.length) && !inputError
+        ? (ready || Boolean(mode)) && sendable
         : next === "stop"
           ? Boolean(session?.active)
           : next === activity)
     );
   }
   const displayedActivity = operating ?? activity;
-  const label = operating
-    ? progressLabels[operating]
-    : session?.status === "stopping"
-      ? progressLabels.stop
-      : activityLabels[activity];
+  const label = mode
+    ? operating
+      ? mode.progressLabel
+      : mode.submitLabel
+    : operating
+      ? progressLabels[operating]
+      : session?.status === "stopping"
+        ? progressLabels.stop
+        : activityLabels[activity];
+  const modeSubmitting = Boolean(mode && operating);
+
+  function cancelMode() {
+    if (!mode || inFlight.current) return;
+    textarea.current?.focus({ preventScroll: true });
+    mode.cancel();
+  }
 
   async function submit(next: Activity = activity) {
     const callback = callbacks[next];
@@ -158,8 +187,10 @@ export function Composer({
   }
 
   return (
-    <footer className="composer-area">
-      {pendingCount > 0 && (
+    <footer
+      className={mode ? "composer-area composer-area--mode" : "composer-area"}
+    >
+      {!mode && pendingCount > 0 && (
         <button className="pending-banner" onClick={review}>
           {pendingCount} pending {pendingCount === 1 ? "response" : "responses"}{" "}
           / Review
@@ -167,11 +198,28 @@ export function Composer({
       )}
       <form
         ref={form}
+        onKeyDown={(event) => {
+          if (
+            mode &&
+            event.key === "Escape" &&
+            !event.defaultPrevented &&
+            !event.nativeEvent.isComposing &&
+            event.nativeEvent.keyCode !== 229
+          ) {
+            event.preventDefault();
+            cancelMode();
+          }
+        }}
         onSubmit={(event) => {
           event.preventDefault();
           if (activity === "send") void submit();
         }}
       >
+        {mode && (
+          <div className="composer-mode-header">
+            <strong>{mode.label}</strong> {mode.description}
+          </div>
+        )}
         {images.length > 0 && (
           <ul className="composer-images" aria-label="Attached images">
             {images.map((item) => (
@@ -194,6 +242,7 @@ export function Composer({
                   className="quiet-button composer-image-remove"
                   aria-label={`Remove ${item.name}`}
                   title={`Remove ${item.name}`}
+                  disabled={modeSubmitting}
                   onClick={() => removeImage?.(item.id)}
                 >
                   <svg
@@ -224,19 +273,26 @@ export function Composer({
             {attachmentError || inputError}
           </p>
         )}
+        {mode?.error && (
+          <p className="composer-image-error" role="alert">
+            {mode.error}
+          </p>
+        )}
         <label htmlFor="message-draft" className="sr-only">
-          Message draft
+          {mode?.label ?? "Message draft"}
         </label>
         <PromptTextarea
           inputRef={textarea}
-          attach={attach}
+          attach={modeSubmitting ? undefined : attach}
           selected={selected}
+          readOnly={modeSubmitting}
+          editMode={Boolean(mode)}
           value={value}
           change={change}
           historyApi={promptHistory}
           fileSearch={fileSearch}
           executionId={executionId}
-          scope={scope}
+          scope={modeId ?? scope}
           submit={() => {
             if (activity === "send") void submit();
           }}
@@ -251,7 +307,7 @@ export function Composer({
                 multiple
                 accept={chatInput.imageAccept}
                 aria-label="Choose images"
-                disabled={!selected}
+                disabled={!selected || modeSubmitting}
                 onChange={(event) => {
                   const files = Array.from(event.currentTarget.files ?? []);
                   event.currentTarget.value = "";
@@ -261,7 +317,7 @@ export function Composer({
               <button
                 type="button"
                 className="quiet-button composer-attach"
-                disabled={!selected}
+                disabled={!selected || modeSubmitting}
                 aria-label="Attach images"
                 title="Attach images (PNG, JPEG, GIF, WebP; up to 768 KiB each)"
                 onClick={() => picker.current?.click()}
@@ -286,21 +342,25 @@ export function Composer({
             className="composer-help"
             role={operating ? "status" : undefined}
           >
-            {operating
-              ? `${progressLabels[operating]}…`
-              : activity === "send" && ready
-                ? `Enter to send · Modifier+Enter for newline · Ctrl+R for history${fileSearch ? " · @ for files" : ""}`
-                : activity === "stop"
-                  ? "Draft freely while the workflow runs."
-                  : activity === "resume"
-                    ? "Start the stopped workflow to continue. Your draft will be kept."
-                    : activity === "review"
-                      ? "Review the pending input to continue."
-                      : selected
-                        ? "Draft freely. Sending is available when the workflow asks for input."
-                        : "One conversation per top-level workflow."}
+            {mode
+              ? modeSubmitting
+                ? label
+                : `Enter to save · Modifier+Enter for newline · Esc to cancel${fileSearch ? " · @ for files" : ""}`
+              : operating
+                ? `${progressLabels[operating]}…`
+                : activity === "send" && ready
+                  ? `Enter to send · Modifier+Enter for newline · Ctrl+R for history${fileSearch ? " · @ for files" : ""}`
+                  : activity === "stop"
+                    ? "Draft freely while the workflow runs."
+                    : activity === "resume"
+                      ? "Start the stopped workflow to continue. Your draft will be kept."
+                      : activity === "review"
+                        ? "Review the pending input to continue."
+                        : selected
+                          ? "Draft freely. Sending is available when the workflow asks for input."
+                          : "One conversation per top-level workflow."}
           </span>
-          {steeringCount > 0 && reviewSteering && (
+          {!mode && steeringCount > 0 && reviewSteering && (
             <button
               type="button"
               className="steering-queue-button"
@@ -310,11 +370,21 @@ export function Composer({
               Steering · {steeringCount}
             </button>
           )}
-          {selected && session && (
+          {!mode && selected && session && (
             <ComposerUsage session={session} history={history} />
           )}
+          {mode && (
+            <button
+              type="button"
+              className="quiet-button composer-mode-button"
+              disabled={modeSubmitting}
+              onClick={cancelMode}
+            >
+              Cancel
+            </button>
+          )}
           <button
-            className="composer-submit"
+            className={mode ? "composer-mode-button" : "composer-submit"}
             type={activity === "send" ? "submit" : "button"}
             onClick={activity === "send" ? undefined : () => void submit()}
             disabled={!canAct(activity)}
@@ -324,19 +394,23 @@ export function Composer({
               Boolean(operating) || busy || session?.status === "stopping"
             }
           >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              {displayedActivity === "stop" ? (
-                <rect x="6" y="6" width="12" height="12" rx="1" />
-              ) : (
-                <path d="M8 5v14l11-7z" />
-              )}
-            </svg>
+            {mode ? (
+              label
+            ) : (
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                {displayedActivity === "stop" ? (
+                  <rect x="6" y="6" width="12" height="12" rx="1" />
+                ) : (
+                  <path d="M8 5v14l11-7z" />
+                )}
+              </svg>
+            )}
           </button>
         </div>
       </form>

@@ -2,7 +2,7 @@ import { activity, messageText } from "./activity";
 import { object, text, type Json } from "./json";
 import type { HistoryItem, InputRequest } from "./runner";
 import { inputResponse } from "./runner";
-import { messageImages } from "./chat-input";
+import type { ImageInput } from "./chat-input";
 
 export type StepView = ReturnType<typeof activity> & {
   item: HistoryItem;
@@ -160,16 +160,18 @@ export function inputEditValue(step: StepView): string {
     : step.message;
 }
 
-export function editedInputResponse(step: StepView, value: string): Json {
+export function editedInputResponse(
+  step: StepView,
+  value: string,
+  images: readonly ImageInput[],
+): Json {
   return inputResponse(
     {
       request_type: text(step.input.request_type) || undefined,
       response_type: step.input.response_type === "json" ? "json" : "text",
     },
     value,
-    step.input.request_type === "chat.message.v1"
-      ? messageImages(step.output)
-      : [],
+    images,
   );
 }
 

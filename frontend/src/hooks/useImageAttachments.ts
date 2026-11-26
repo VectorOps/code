@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as chat from "../models/chat-input";
 
 type Draft = { images: chat.ImageAttachment[]; error: string };
@@ -16,14 +16,14 @@ export function useImageAttachments(scope: string) {
     [],
   );
 
-  function update(key: string, change: (draft: Draft) => Draft) {
+  const update = useCallback((key: string, change: (draft: Draft) => Draft) => {
     const next = {
       ...latest.current,
       [key]: change(latest.current[key] ?? emptyDraft),
     };
     latest.current = next;
     setDrafts(next);
-  }
+  }, []);
 
   function add(files: File[]) {
     const current = latest.current[scope] ?? emptyDraft;
@@ -96,5 +96,34 @@ export function useImageAttachments(scope: string) {
     }));
   }
 
-  return { ...(drafts[scope] ?? emptyDraft), add, remove };
+  const seed = useCallback(
+    (key: string, images: chat.ImageInput[]) => {
+      if (!images.length) return;
+      update(key, () => ({
+        error: "",
+        images: images.map((image, index) => ({
+          id: crypto.randomUUID(),
+          name: `Original image ${index + 1}`,
+          state: "ready",
+          image,
+        })),
+      }));
+    },
+    [update],
+  );
+
+  const discard = useCallback((key: string) => {
+    const draft = latest.current[key];
+    if (!draft) return;
+    for (const { id } of draft.images) {
+      pending.current.get(id)?.abort();
+      pending.current.delete(id);
+    }
+    const next = { ...latest.current };
+    delete next[key];
+    latest.current = next;
+    setDrafts(next);
+  }, []);
+
+  return { ...(drafts[scope] ?? emptyDraft), add, remove, seed, discard };
 }

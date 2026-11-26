@@ -13,6 +13,7 @@ export type StepActions = {
   workflowFailed?: boolean;
   worktreeId?: string;
   branch?: (id: string, action: BranchAction) => Promise<boolean>;
+  editInput?: (step: StepView) => void;
   allowBranchAfter?: boolean;
   branchSuccessors?: ReadonlyMap<string, string>;
   reply: (

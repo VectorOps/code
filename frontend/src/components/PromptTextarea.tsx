@@ -103,6 +103,8 @@ export function PromptTextarea({
   executionId = "",
   scope = "",
   attach,
+  readOnly = false,
+  editMode = false,
 }: {
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   value: string;
@@ -114,6 +116,8 @@ export function PromptTextarea({
   executionId?: string;
   scope?: string;
   attach?: (files: File[]) => void;
+  readOnly?: boolean;
+  editMode?: boolean;
 }) {
   const [search, setSearch] = React.useState(false);
   function restore(text: string, edge: "start" | "end") {
@@ -129,7 +133,7 @@ export function PromptTextarea({
     api: fileSearch,
     scope,
     value,
-    enabled: selected && !search,
+    enabled: selected && !readOnly && !search,
     replace: (text, caret) => {
       recall.reset();
       flushSync(() => change(text));
@@ -140,7 +144,7 @@ export function PromptTextarea({
     },
   });
   function openHistory() {
-    if (!selected || !historyApi) return false;
+    if (!selected || readOnly || !historyApi) return false;
     recall.reset();
     setSearch(true);
     return true;
@@ -262,6 +266,7 @@ export function PromptTextarea({
               : "Select a conversation to write a message"
           }
           disabled={!selected}
+          readOnly={readOnly}
           value={value}
           onChange={(event) => {
             recall.reset();
@@ -282,6 +287,7 @@ export function PromptTextarea({
           }}
           onKeyDown={(event) => {
             if (
+              readOnly ||
               event.nativeEvent.isComposing ||
               event.nativeEvent.keyCode === 229
             )
@@ -347,9 +353,9 @@ export function PromptTextarea({
         />
       </div>
       <span className="sr-only" id="message-draft-help">
-        Enter sends. Shift, Alt, Ctrl, or Cmd+Enter adds a line. Up on the first
-        line and Down on the last line recall global prompts. Ctrl+R searches
-        prompt history.
+        {editMode ? "Enter saves. Escape cancels." : "Enter sends."} Shift, Alt,
+        Ctrl, or Cmd+Enter adds a line. Up on the first line and Down on the
+        last line recall global prompts. Ctrl+R searches prompt history.
         {fileSearch &&
           " Type @ to find workspace files. Use Up and Down to select, Tab or Enter to insert, and Escape to dismiss."}
       </span>
