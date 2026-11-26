@@ -20,6 +20,17 @@
   font-size: 0.85rem;
   color: var(--color-neutral-500);
 }
+.workflow-branch > summary:has(> .workflow-launch-details) {
+  position: relative;
+  padding-inline-end: 30px;
+  overflow-wrap: anywhere;
+}
+.workflow-launch-details {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+}
 .workflow-status {
   display: inline-flex;
   align-items: center;

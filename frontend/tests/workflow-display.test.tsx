@@ -353,9 +353,11 @@ test("parallel agent and workflow launches render only as child rows with the co
     ["Review projection", "launch-1"],
   ]) {
     const branch = view.getByText(label).closest("details")!;
-    const button = within(
-      branch.querySelector("summary .workflow-status")!,
-    ).getByRole("button", { name: "View launch details" });
+    const summary = branch.querySelector("summary")!;
+    const button = within(summary).getByRole("button", {
+      name: "View launch details",
+    });
+    expect(summary.lastElementChild).toBe(button);
     expect(button.textContent).toBe("");
     expect(branch.open).toBe(false);
     fireEvent.click(button);
