@@ -13,6 +13,8 @@ const fields = [
   { key: "weak", profile: "weak", label: "Weak model" },
 ] as const;
 
+type Models = Record<(typeof fields)[number]["key"], string>;
+
 export function ProjectLlmSetup({
   connection,
   connected,
@@ -27,6 +29,7 @@ export function ProjectLlmSetup({
   const [prompt, setPrompt] = React.useState<{
     api: LlmSettingsApi;
     open: boolean;
+    models: Models;
   }>();
 
   React.useEffect(() => {
@@ -37,12 +40,14 @@ export function ProjectLlmSetup({
         if (!current || typeof snapshot?.exists !== "boolean") return;
         const settings = object(snapshot.value);
         const profiles = object(settings.profiles);
-        const hasModel = fields.some(({ profile }) =>
-          text(
-            (profile === null ? settings : object(profiles[profile])).model,
-          ).trim(),
-        );
-        if (!hasModel) setPrompt({ api, open: true });
+        const models: Models = {
+          default: text(settings.model),
+          strong: text(object(profiles.strong).model),
+          medium: text(object(profiles.medium).model),
+          weak: text(object(profiles.weak).model),
+        };
+        const complete = fields.every(({ key }) => models[key].trim());
+        setPrompt({ api, open: !complete, models });
       },
       () => {},
     );
@@ -55,30 +60,28 @@ export function ProjectLlmSetup({
   return (
     <SetupDialog
       api={api}
+      initialModels={prompt.models}
       connected={connected}
-      dismiss={() => setPrompt({ api, open: false })}
+      dismiss={() => setPrompt({ ...prompt, open: false })}
     />
   );
 }
 
 function SetupDialog({
   api,
+  initialModels,
   connected,
   dismiss,
 }: {
   api: LlmSettingsApi;
+  initialModels: Models;
   connected: boolean;
   dismiss: () => void;
 }) {
   const dialog = React.useRef<HTMLDialogElement>(null);
   const active = React.useRef(false);
   const id = React.useId();
-  const [models, setModels] = React.useState({
-    default: "",
-    strong: "",
-    medium: "",
-    weak: "",
-  });
+  const [models, setModels] = React.useState(initialModels);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState("");
   useFocusBlocker(true, true);
@@ -99,8 +102,8 @@ function SetupDialog({
     setError("");
     try {
       for (const { key, profile } of fields) {
-        const model = models[key].trim();
-        if (model) await api.set(profile, "model", model, true);
+        const model = models[key].trim() || models.default.trim();
+        await api.set(profile, "model", model, true);
         if (!active.current) return;
       }
       dismiss();
@@ -127,8 +130,8 @@ function SetupDialog({
       <h2 id={`${id}-title`}>Set up LLM models</h2>
       <p id={`${id}-description`}>
         Enter a default model as <code>provider/model</code>. Leave any named
-        profile blank to use the default. These choices apply only to this
-        project.
+        profile blank to copy the default model into it. All four models are
+        saved for this project only.
       </p>
       <form onSubmit={save}>
         <fieldset disabled={saving}>

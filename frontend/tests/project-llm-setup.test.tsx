@@ -20,6 +20,15 @@ function host(value: Json = null) {
   return { connection, request, writes };
 }
 
+const completeModels = {
+  model: "example/default",
+  profiles: {
+    strong: { model: "example/strong" },
+    medium: { model: "example/medium" },
+    weak: { model: "example/weak" },
+  },
+};
+
 beforeEach(() => {
   const prototype = HTMLDialogElement.prototype;
   for (const [name, open] of [
@@ -96,6 +105,14 @@ test("prompts on connection and saves independent permanent model overrides", as
     [
       "configuration.set",
       {
+        name: "components.llm.profiles.medium.model",
+        value: "example/default",
+        permanent: true,
+      },
+    ],
+    [
+      "configuration.set",
+      {
         name: "components.llm.profiles.weak.model",
         value: "example/weak",
         permanent: true,
@@ -104,28 +121,70 @@ test("prompts on connection and saves independent permanent model overrides", as
   ]);
 });
 
-test.each([
-  { model: "example/default" },
-  ...["strong", "medium", "weak"].map((profile) => ({
-    profiles: { [profile]: { model: `example/${profile}` } },
-  })),
-])(
-  "does not prompt when the effective settings include a model: %j",
-  async (value) => {
-    const { connection, request, writes } = host(value);
+test("does not prompt when all four models are configured", async () => {
+  const { connection, request, writes } = host(completeModels);
+  const view = testing.render(
+    <ProjectLlmSetup connection={connection} connected />,
+  );
+  await testing.act(async () => {});
+  expect(request).toHaveBeenCalledOnce();
+  expect(view.queryByRole("dialog")).toBeNull();
+  expect(writes()).toEqual([]);
+});
+
+test("shared-only settings prompt and create every named profile", async () => {
+  const { connection, writes } = host({ model: "example/shared" });
+  const view = testing.render(
+    <ProjectLlmSetup connection={connection} connected />,
+  );
+  await view.findByRole("dialog");
+  expect(view.getByRole("textbox", { name: "Default model" })).toHaveProperty(
+    "value",
+    "example/shared",
+  );
+  await userEvent
+    .setup()
+    .click(view.getByRole("button", { name: "Save models" }));
+  expect(writes().map(([, params]) => params)).toEqual(
+    [
+      "model",
+      "profiles.strong.model",
+      "profiles.medium.model",
+      "profiles.weak.model",
+    ].map((field) => ({
+      name: `components.llm.${field}`,
+      value: "example/shared",
+      permanent: true,
+    })),
+  );
+  expect(view.queryByRole("dialog")).toBeNull();
+});
+
+test.each(["default", "strong", "medium", "weak"])(
+  "prompts when only the %s model is missing and prefills the rest",
+  async (missing) => {
+    const value = structuredClone(completeModels);
+    if (missing === "default") value.model = "";
+    else value.profiles[missing as keyof typeof value.profiles].model = "  ";
+    const { connection } = host(value);
     const view = testing.render(
       <ProjectLlmSetup connection={connection} connected />,
     );
-    await testing.act(async () => {});
-    expect(request).toHaveBeenCalledOnce();
-    expect(view.queryByRole("dialog")).toBeNull();
-    expect(writes()).toEqual([]);
+    await view.findByRole("dialog");
+    for (const name of ["default", "strong", "medium", "weak"]) {
+      expect(
+        view.getByRole("textbox", { name: new RegExp(`^${name} model$`, "i") }),
+      ).toHaveProperty(
+        "value",
+        name === missing ? (name === "default" ? "" : "  ") : `example/${name}`,
+      );
+    }
   },
 );
 
 test("ignores a stale settings response from another project", async () => {
   const previous = host();
-  const current = host({ model: "example/existing" });
+  const current = host(completeModels);
   let resolve: (value: unknown) => void = () => {};
   previous.request.mockImplementationOnce(
     () =>
@@ -179,7 +238,7 @@ test("keeps the draft open and lets the user retry a failed save", async () => {
   expect(model).toHaveProperty("value", "example/default");
   await user.click(view.getByRole("button", { name: "Save models" }));
   expect(view.queryByRole("dialog")).toBeNull();
-  expect(writes()).toHaveLength(2);
+  expect(writes()).toHaveLength(5);
 });
 
 test("does not assume missing configuration when the check fails", async () => {
