@@ -8,6 +8,30 @@ from threading import Thread
 from typing import Optional, Union
 
 
+def validate_build(root: Path) -> None:
+    """Reject stale generated assets when running from a source checkout."""
+    source = root.resolve().parent.parent.parent / "frontend"
+    if not (source / "src").is_dir():
+        return
+    inputs = [
+        source / name
+        for name in (
+            "index.html",
+            "package.json",
+            "package-lock.json",
+            "tsconfig.json",
+            "vite.config.ts",
+        )
+    ]
+    inputs.extend((source / "src").rglob("*"))
+    built_at = (root / "index.html").stat().st_mtime_ns
+    if any(path.is_file() and path.stat().st_mtime_ns > built_at for path in inputs):
+        raise RuntimeError(
+            "Frontend assets are out of date; run npm run build in frontend/ "
+            "and restart VectorOps Code"
+        )
+
+
 class AssetHandler(SimpleHTTPRequestHandler):
     def list_directory(self, path: Union[str, PathLike[str]]) -> None:
         self.send_error(404)
@@ -30,6 +54,7 @@ class AssetServer:
             raise FileNotFoundError(
                 "Frontend assets missing; run npm run build in frontend/"
             )
+        validate_build(root)
         self.server = ThreadingHTTPServer(
             ("127.0.0.1", port), partial(AssetHandler, directory=str(root.resolve()))
         )

@@ -105,6 +105,64 @@ async function shortcut(options: KeyboardEventInit) {
 }
 
 vitest.test(
+  "opening an unconfigured project prompts before starting a conversation",
+  async () => {
+    const host = settingsHost();
+    const fallback = host.request.getMockImplementation();
+    host.request.mockImplementation(async (method, params) => {
+      if (method === "configuration.get")
+        return { name: "components.llm", exists: false, value: null };
+      if (method === "configuration.set") return null;
+      if (!fallback) throw new Error(`Unexpected request: ${method}`);
+      return fallback(method, params);
+    });
+    for (const [name, open] of [
+      ["showModal", true],
+      ["close", false],
+    ] as const) {
+      const prototype = HTMLDialogElement.prototype;
+      const original = Object.getOwnPropertyDescriptor(prototype, name);
+      Object.defineProperty(prototype, name, {
+        configurable: true,
+        value(this: HTMLDialogElement) {
+          this.open = open;
+        },
+      });
+      vitest.onTestFinished(() => {
+        if (original) Object.defineProperty(prototype, name, original);
+        else Reflect.deleteProperty(prototype, name);
+      });
+    }
+    const runner = mockRunner(host);
+    runner.status = "Connecting";
+    const view = testing.render(<RunnerScreen initial={runner.settings} />);
+    vitest.expect(view.queryByRole("dialog")).toBeNull();
+    runner.status = "Connected";
+    view.rerender(<RunnerScreen initial={runner.settings} />);
+    const dialog = await view.findByRole("dialog", {
+      name: "Set up LLM models",
+    });
+    vitest.expect(runner.start).not.toHaveBeenCalled();
+    const user = userEvent.setup();
+    await user.type(
+      testing.within(dialog).getByRole("textbox", { name: "Default model" }),
+      "example/default",
+    );
+    await user.click(
+      testing.within(dialog).getByRole("button", { name: "Save models" }),
+    );
+    vitest.expect(view.queryByRole("dialog")).toBeNull();
+    vitest
+      .expect(
+        host.request.mock.calls.filter(
+          ([method]) => method === "configuration.set",
+        ),
+      )
+      .toHaveLength(4);
+  },
+);
+
+vitest.test(
   "conversation steps allow editing and retrying but not arbitrary forks",
   async () => {
     const runner = mockRunner();

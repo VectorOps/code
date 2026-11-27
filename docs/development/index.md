@@ -71,6 +71,8 @@ uv build
 
 Vite writes assets to `src/vectorops_code/web/`. Those files are ignored by Git and included in the Python package. Rebuild them after frontend changes before launching the native desktop or packaging it.
 
+When running from a source checkout, the native desktop refuses to launch if frontend source files are newer than the generated assets. Run `npm run build` from `frontend/`, then reopen the desktop. Restarting Python alone does not rebuild the interface.
+
 ## Add step or tool views
 
 Step renderers are defined under `frontend/src/components/steps/`; tool formatters are under `frontend/src/components/tools/`. Use the existing registries rather than adding tool-specific conditions to the conversation screen.
