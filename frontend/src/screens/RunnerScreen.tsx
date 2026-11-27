@@ -25,6 +25,7 @@ import type { Params } from "../models/json";
 import { workflowDefaults } from "../models/workflow-input";
 import { WorktreesProvider } from "../components/Worktrees";
 import { useHistoryLimits } from "../hooks/useHistoryLimits";
+import { ProjectLlmSetup } from "../components/ProjectLlmSetup";
 
 export function RunnerScreen({ initial }: { initial: ConnectionSettings }) {
   return (
@@ -110,6 +111,12 @@ function ConnectedRunner({ initial }: { initial: ConnectionSettings }) {
         onCreate={create}
         promptHistory={promptHistory}
         fileSearch={fileSearch}
+        projectSetup={
+          <ProjectLlmSetup
+            connection={runner.api?.connection}
+            connected={runner.status === "Connected"}
+          />
+        }
         settings={
           <Settings
             api={runner.api}

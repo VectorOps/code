@@ -58,12 +58,16 @@ type StackedEdit = ComposerEdit & { id: string; scope: string; error: string };
 const noActivity = new Set<string>();
 const noWorkflows: models.Workflow[] = [];
 
-export function Workspace(
-  props: React.ComponentProps<typeof WorkspaceContent>,
-) {
+export function Workspace({
+  projectSetup,
+  ...props
+}: React.ComponentProps<typeof WorkspaceContent> & {
+  projectSetup?: React.ReactNode;
+}) {
   return (
     <FocusProvider scope={`${props.endpoint}/${props.selected}`}>
       <WorkspaceContent {...props} />
+      {projectSetup}
     </FocusProvider>
   );
 }

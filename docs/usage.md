@@ -4,6 +4,8 @@ Open a project with the command in the [README](../README.md#open-a-project). Ea
 
 ## Start a conversation
 
+If the project has no model configured for the default, strong, medium, or weak profile, **Set up LLM models** opens when you connect. Enter a default model and any profile-specific models you want. Blank profiles use the default. **Save models** saves these choices as permanent overrides for this project only. Choose **Not now** to skip setup.
+
 Configure provider access in **Settings > LLM authentication** and choose a model in **Settings > LLM profiles**. Provider access uses API keys or browser sign-in, depending on the provider.
 
 Select **New conversation** to start the default workflow. Enter a task, then press **Enter** to send it. Use **Advanced** to select another workflow and fill in its input fields. The advanced form also offers **Edit as JSON** for structured inputs.
