@@ -1161,7 +1161,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6,<4" },
-    { name = "pywebview", marker = "extra == 'desktop'", specifier = ">=5,<7" },
+    { name = "pywebview", marker = "extra == 'desktop'", specifier = ">=6.2.1,<7" },
     { name = "vectorops-runner", git = "https://github.com/vectorops/runner.git?rev=6f6226af26f50a804cbc73033f6772b54f88e9b8" },
     { name = "websockets", specifier = ">=15,<16" },
 ]

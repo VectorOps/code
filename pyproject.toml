@@ -18,7 +18,7 @@ Documentation = "https://github.com/vectorops/code#documentation"
 Issues = "https://github.com/vectorops/code/issues"
 
 [project.optional-dependencies]
-desktop = ["pywebview>=5,<7"]
+desktop = ["pywebview>=6.2.1,<7"]
 
 [project.scripts]
 vectorops-code = "vectorops_code.cli:main"
@@ -33,7 +33,7 @@ where = ["src"]
 include = ["vectorops_code*"]
 
 [tool.setuptools.package-data]
-vectorops_code = ["web/*", "web/assets/*"]
+vectorops_code = ["web/*", "web/assets/*", "icons/*"]
 
 [dependency-groups]
 dev = ["black>=25", "mypy>=1.11,<2", "pytest>=8,<9", "pytest-asyncio>=0.23,<1", "watchfiles>=1,<2"]
@@ -56,4 +56,8 @@ follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
 module = ["webview", "webview.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["AppKit", "Foundation", "gi", "gi.*"]
 ignore_missing_imports = true

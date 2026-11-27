@@ -6,6 +6,7 @@ from pathlib import Path
 import secrets
 import socket
 from threading import Event
+from typing import Iterator
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -16,6 +17,14 @@ from vectorops_code.desktop import launch, validate_endpoint
 from vectorops_code.assets import AssetServer
 from vectorops_code import worker as worker_module
 from vectorops_code.worker import Worker
+
+
+@pytest.fixture(autouse=True)
+def application_identity() -> Iterator[MagicMock]:
+    with patch(
+        "vectorops_code.desktop.configure_application", return_value="/icons/app.png"
+    ) as configure:
+        yield configure
 
 
 @pytest.mark.parametrize(
@@ -45,7 +54,10 @@ def test_safe_endpoint(endpoint: str) -> None:
 
 @pytest.mark.parametrize("relative", [False, True])
 def test_window_title_includes_workspace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: bool
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative: bool,
+    application_identity: MagicMock,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     workspace = Path("project workspace")
@@ -68,6 +80,8 @@ def test_window_title_includes_workspace(
     )
     webview.start.assert_called_once()
     assert callable(webview.start.call_args.args[0])
+    assert webview.start.call_args.kwargs["icon"] == "/icons/app.png"
+    application_identity.assert_called_once_with()
     worker.assert_called_once_with(
         workspace.resolve(), worker.call_args.args[1], "http://127.0.0.1:8766"
     )
@@ -168,7 +182,7 @@ def test_attached_desktop_does_not_own_worker(port: int) -> None:
         == "VectorOps Code - ws://localhost:1234"
     )
     worker.assert_not_called()
-    webview.start.assert_called_once_with()
+    webview.start.assert_called_once_with(icon="/icons/app.png")
     assert parse_qs(urlsplit(webview.create_window.call_args.args[1]).fragment)[
         "managed"
     ] == ["0"]
@@ -178,7 +192,7 @@ def test_worker_failure_is_shown_in_window(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     webview = MagicMock()
-    webview.start.side_effect = lambda monitor: monitor()
+    webview.start.side_effect = lambda monitor, **kwargs: monitor()
     with (
         patch.dict("sys.modules", {"webview": webview}),
         patch("vectorops_code.desktop.AssetServer"),

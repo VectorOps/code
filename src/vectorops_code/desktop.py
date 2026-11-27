@@ -10,6 +10,7 @@ from urllib.parse import urlencode, urlsplit
 from vectorops.runner.control.auth import validate_token
 
 from vectorops_code.assets import AssetServer
+from vectorops_code.branding import configure_application
 from vectorops_code.oauth import OAuthBridge
 from vectorops_code.worker import Worker
 
@@ -52,6 +53,7 @@ def launch(
         if not workspace.is_dir():
             raise ValueError(f"Project directory does not exist: {workspace}")
         token = secrets.token_urlsafe(32)
+    icon = configure_application()
     with AssetServer(port=asset_port) as assets:
         worker = None
         if endpoint is None:
@@ -76,7 +78,7 @@ def launch(
                 js_api=OAuthBridge(assets.origin),
             )
             if worker is None:
-                webview.start()
+                webview.start(icon=icon)
             else:
                 window.events.closed += closed.set
 
@@ -97,7 +99,7 @@ def launch(
                             )
                             return
 
-                webview.start(monitor)
+                webview.start(monitor, icon=icon)
         finally:
             closed.set()
             if worker is not None:
